@@ -13,6 +13,20 @@ import '../team/team_section.dart';
 import '../team/manage_team_screen.dart';
 import '../rinks/rinks_setup_screen.dart';
 import '../rinks/rink_assignments_screen.dart';
+import '../../features/fixtures/fixture_rsvp_section.dart';
+
+String _formatLocalDateTime(DateTime dt) {
+  final d = dt.day.toString().padLeft(2, '0');
+  final m = dt.month.toString().padLeft(2, '0');
+  final y = dt.year.toString();
+  final hh = dt.hour.toString().padLeft(2, '0');
+  final mm = dt.minute.toString().padLeft(2, '0');
+  return '$d/$m/$y $hh:$mm';
+}
+
+String _formatLocalDisplay(DateTime dt) {
+  return formatWhenLocal(dt.toUtc().toIso8601String());
+}
 
 class FixtureDetailsPage extends StatefulWidget {
   final String fixtureId;
@@ -27,16 +41,124 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   int _loadCount = 0;
   bool isAdmin = false;
   bool isSuper = false;
+  bool isCaptain = false;
+  bool isVice = false;
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _fixture;
+  bool _didChangeFixture = false;
+
+  String? _myMemberProfileId;
+  Map<String, dynamic>? _myTeamSelection;
+  String? _myTeamSelectionStatus;
+  bool _loadingMyTeamSelection = false;
 
   // Team name editing
   final TextEditingController _teamNameCtrl = TextEditingController();
   bool _savingTeamName = false;
+  bool _teamNameLocked = true;
+
+  // Team fixtures: allow choosing a team (else free-text fixture label)
+  List<Map<String, dynamic>> _teams = [];
+  String? _selectedTeamId;
+  bool _savingTeam = false;
+  bool _isTeamFixtureUi = false;
 
   final _client = Supabase.instance.client;
   bool _canDelete = false;
+
+  String? _currentTeamSelectionId() {
+    final ts = _fixture?['ts'];
+
+    if (ts is Map<String, dynamic>) {
+      return ts['id']?.toString();
+    }
+
+    if (ts is List && ts.isNotEmpty) {
+      final first = ts.first;
+      if (first is Map<String, dynamic>) {
+        return first['id']?.toString();
+      }
+    }
+
+    return null;
+  }  
+
+  Future<void> _loadMyMemberProfileId() async {
+    try {
+      final id = await Supabase.instance.client.rpc('my_member_profile_id');
+      if (!mounted) return;
+      setState(() {
+        _myMemberProfileId = id?.toString();
+      });
+    } catch (_) {
+      // ignore for now
+    }
+  }
+
+  Future<void> _loadMyTeamSelection() async {
+    try {
+      setState(() => _loadingMyTeamSelection = true);
+
+      final client = Supabase.instance.client;
+      final myId = (await client.rpc('my_member_profile_id')).toString();
+      final teamSelectionId = _currentTeamSelectionId();
+
+      if (teamSelectionId == null) {
+        if (!mounted) return;
+        setState(() {
+          _myTeamSelection = null;
+          _myTeamSelectionStatus = null;
+          _loadingMyTeamSelection = false;
+        });
+        return;
+      }
+
+      final row = await client
+          .from('team_selection_members')
+          .select('id, team_selection_id, member_profile_id, role, acceptance, responded_at, created_at')
+          .eq('team_selection_id', teamSelectionId)
+          .eq('member_profile_id', myId)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      setState(() {
+        _myTeamSelection = row == null ? null : Map<String, dynamic>.from(row);
+        _myTeamSelectionStatus = row?['acceptance']?.toString();
+        _loadingMyTeamSelection = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _myTeamSelection = null;
+        _myTeamSelectionStatus = null;
+        _loadingMyTeamSelection = false;
+      });
+    }
+  }
+
+  Future<void> _loadTeamNameLocked() async {
+    final client = Supabase.instance.client;
+
+    // 1) Any RSVPs for this fixture?
+    final rsvps = await client
+        .from('fixture_rsvps')
+        .select('id')
+        .eq('fixture_id', widget.fixtureId);
+
+    // 2) Any rink assignments for this fixture?
+    final rinkAssignments = await client
+        .from('fixture_rink_assignments')
+        .select('id')
+        .eq('fixture_id', widget.fixtureId);
+
+    final locked =
+        (rsvps as List).isNotEmpty || (rinkAssignments as List).isNotEmpty;
+
+    if (!mounted) return;
+    setState(() => _teamNameLocked = locked);
+  }
 
   Future<void> _load() async {
     _loadCount++;
@@ -50,13 +172,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       final f = await Supabase.instance.client
           .from('fixtures')
           .select(
-            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, orientation, team_name, '
-            'captain_member_profile_id, vice_captain_member_profile_id, '
+            'id, club_id, start_at, end_at, is_home, section, rinks_required, players_per_rink, orientation, team_id, team_name, '
+            'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
+            'team:teams!fixtures_team_id_fkey(name), '
             'venue:venues!fixtures_venue_id_fkey(name), '
             'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
             'green_areas(name, discipline, orientation_mode), '
             'captain:member_profiles!fixtures_captain_member_profile_id_fkey(display_name), '
-            'vice:member_profiles!fixtures_vice_captain_member_profile_id_fkey(display_name)'
+            'vice:member_profiles!fixtures_vice_captain_member_profile_id_fkey(display_name), '
+            'ts:team_selections(id, status)'
           )
           .eq('id', widget.fixtureId)
           .single();
@@ -65,11 +189,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         setState(() {
           _fixture = Map<String, dynamic>.from(f);
           _teamNameCtrl.text = (_fixture?['team_name'] ?? '').toString();
+          _selectedTeamId = _fixture?['team_id']?.toString();
+          _isTeamFixtureUi = _selectedTeamId != null;
           _loading = false;
         });
 
-        // ✅ call permission check AFTER fixture is set
+        // run post-load checks
+        await _loadMyMemberProfileId();
         await _loadCanDelete();
+        await _loadTeamNameLocked();
+        await _loadTeams();
+        await _loadMyRsvp();
+        await _loadMyTeamSelection();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -77,6 +208,29 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadTeams() async {
+    final clubId = _fixture?['club_id']?.toString();
+    if (clubId == null) return;
+
+    try {
+      final rows = await Supabase.instance.client
+          .from('teams')
+          .select('id, name, is_active')
+          .eq('club_id', clubId)
+          .eq('is_active', true)
+          .order('name');
+
+      if (!mounted) return;
+      setState(() {
+        _teams = List<Map<String, dynamic>>.from(rows);
+        _selectedTeamId ??= _fixture?['team_id']?.toString();
+        if (_selectedTeamId == null && _teams.isNotEmpty && (_fixture?['team_id'] != null)) {
+          _selectedTeamId = _teams.first['id'].toString();
+        }
+      });
+    } catch (_) {}
   }
 
   String? _myRsvp; // 'yes' | 'maybe' | 'no' | null
@@ -98,6 +252,103 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   void dispose() {
     _teamNameCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _editDateTime() async {
+    final currentStartAtStr = _fixture?['start_at']?.toString();
+    if (currentStartAtStr == null || currentStartAtStr.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fixture has no valid date/time.')),
+      );
+      return;
+    }
+
+    final currentUtc = DateTime.parse(currentStartAtStr).toUtc();
+    final currentLocal = currentUtc.toLocal();
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: currentLocal,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2035),
+    );
+
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(currentLocal),
+    );
+
+    if (pickedTime == null || !mounted) return;
+
+    final newLocal = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm new fixture date/time'),
+        content: Text(
+          'Change fixture to:\n${_formatLocalDateTime(newLocal)}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      await Supabase.instance.client
+          .from('fixtures')
+          .update({
+            'start_at': newLocal.toUtc().toIso8601String(),
+          })
+          .eq('id', widget.fixtureId);
+
+      _didChangeFixture = true;
+
+      await _load();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fixture date/time updated.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update fixture: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadCanDelete() async {
@@ -176,7 +427,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     debugPrint('isAdmin value 2 : $isAdmin');
     debugPrint('isSuper value 2 : $isSuper');
-    debugPrint('_canDekete      : $_canDelete');
+    debugPrint('_canDelete      : $_canDelete');
   }  
   
   Future<void> _confirmAndDelete() async {
@@ -252,15 +503,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           SnackBar(content: Text('RSVP error: $e')),
         );
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _myRsvp = previous);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('RSVP error: $e')),
-        );
-      }
     }
-
     await _loadMyRsvp();
   }
 
@@ -282,6 +525,135 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     } catch (_) {
       // ignore load errors for now (no highlight is fine)
     }
+  }
+
+  Future<void> _editStartTime() async {
+    final startLocal = DateTime.parse(_fixture!['start_at']).toLocal();
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: startLocal,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2035),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(startLocal),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    final newStart = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    await Supabase.instance.client
+        .from('fixtures')
+        .update({
+          'start_at': newStart.toUtc().toIso8601String(),
+        })
+        .eq('id', widget.fixtureId);
+
+    _didChangeFixture = true;
+    await _load();
+  }
+
+  Future<void> _respondToTeamSelection(String acceptance) async {
+    final previous = _myTeamSelectionStatus;
+
+    setState(() => _myTeamSelectionStatus = acceptance);
+
+    try {
+      final client = Supabase.instance.client;
+      final myId = (await client.rpc('my_member_profile_id')).toString();
+      final teamSelectionId = _currentTeamSelectionId();
+
+      if (teamSelectionId == null) {
+        throw Exception('No team selection exists for this fixture.');
+      }
+
+      await client
+          .from('team_selection_members')
+          .update({
+            'acceptance': acceptance,
+            'responded_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('team_selection_id', teamSelectionId)
+          .eq('member_profile_id', myId);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            acceptance == 'accepted'
+                ? 'Team selection accepted'
+                : 'Team selection declined',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _myTeamSelectionStatus = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to respond: $e')),
+      );
+    }
+
+    await _load();
+  }
+
+  Future<void> _editEndTime() async {
+    final startLocal = DateTime.parse(_fixture!['start_at']).toLocal();
+
+    final endStr = _fixture!['end_at']?.toString();
+    final endLocal = (endStr == null || endStr.isEmpty)
+        ? startLocal.add(const Duration(hours: 2))
+        : DateTime.parse(endStr).toLocal();
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: endLocal,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2035),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(endLocal),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    final newEnd = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    if (!newEnd.isAfter(startLocal)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('End date/time must be after start date/time.')),
+      );
+      return;
+    }
+
+    await Supabase.instance.client
+        .from('fixtures')
+        .update({
+          'end_at': newEnd.toUtc().toIso8601String(),
+        })
+        .eq('id', widget.fixtureId);
+
+    _didChangeFixture = true;
+    await _load();
   }
 
   Widget _rsvpChoiceButton(String status, String label) {
@@ -324,18 +696,73 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     final fixture = _fixture!;
+
+    final fixtureLabel = (fixture['team_name'] ?? '').toString().trim();
+
+    final teamRow = fixture['team'] as Map<String, dynamic>?;
+    final teamName = (teamRow?['name'] ?? '').toString().trim();
+    final isTeamFixture = _isTeamFixtureUi;
+
     final startAt = fixture['start_at'] as String?;
     final when = startAt != null
         ? DateTime.parse(startAt).toLocal()
         : DateTime.now();
 
-    final venue = (fixture['venue']?['name'] as String?) ?? '';
-    final opponent = (fixture['opponent_venue']?['name'] as String?) ?? '';
-    final green = (fixture['green_areas']?['name'] as String?) ?? '';
+    final endAt = fixture['end_at'] as String?;
+    final endWhen = endAt != null
+        ? DateTime.parse(endAt).toLocal()
+        : when.add(const Duration(hours: 2));
 
+    final venue = (fixture['venue']?['name'] as String?) ?? '';
+    final opponent = (fixture['opponent_venue']?['name'] ?? '').toString().trim();
+    final green = (fixture['green_areas']?['name'] as String?) ?? '';
     final isHome = (fixture['is_home'] as bool?) ?? true;
     final section = (fixture['section'] as String?) ?? '';
-    
+
+    String buildMatchHeader({
+      required bool isHome,
+      required String venue,
+      required String green,
+      required String opponent,
+      required String teamName,
+    }) {
+      if (isHome) {
+        final parts = <String>['Home'];
+        if (venue.isNotEmpty) parts.add('at $venue');
+        if (green.isNotEmpty) parts.add('on $green');
+        if (opponent.isNotEmpty) parts.add('v $opponent');
+        return parts.join(' ');
+      }
+
+      final ourSide = teamName.isNotEmpty
+          ? teamName
+          : (opponent.isNotEmpty ? opponent : 'Away club');
+
+      final parts = <String>['Away'];
+      if (venue.isNotEmpty) {
+        parts.add('at $venue');
+      }
+      parts.add('v $ourSide');
+      return parts.join(' ');
+    }
+
+    final matchHeader = buildMatchHeader(
+      isHome: isHome,
+      venue: venue,
+      green: green,
+      opponent: opponent,
+      teamName: teamName,
+    );
+
+    final fixtureTeamName =
+        (fixture['team']?['name'] ?? fixture['team_name'] ?? '')
+            .toString()
+            .trim();
+
+    final lockedFixtureLabel = isTeamFixture
+        ? 'Team Fixture${fixtureTeamName.isNotEmpty ? ' for $fixtureTeamName' : ''}'
+        : 'RSVP Fixture';
+
     final rinks = (fixture['rinks_required'] as int?) ?? 0;
     final ppr = (fixture['players_per_rink'] as int?) ?? 4;
 
@@ -345,13 +772,55 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final greenOrientationMode = ga?['orientation_mode'] as String?;
 
     final showOrientation =
-        isHome && greenDiscipline == 'outdoor' && greenOrientationMode != 'not_applicable';
+        isHome &&
+        greenDiscipline == 'outdoor' &&
+        greenOrientationMode != 'not_applicable';
 
     final captainName = (fixture['captain']?['display_name'] as String?) ?? '';
     final viceName = (fixture['vice']?['display_name'] as String?) ?? '';
 
+    final fixtureCaptainId = fixture['captain_member_profile_id']?.toString();
+    final fixtureViceCaptainId = fixture['vice_captain_member_profile_id']?.toString();
+
+    final canManageTeam =
+        _canDelete ||
+        isAdmin ||
+        isSuper ||
+        (fixtureCaptainId != null && fixtureCaptainId == _myMemberProfileId) ||
+        (fixtureViceCaptainId != null && fixtureViceCaptainId == _myMemberProfileId);
+
+    final myTeamSelection = _myTeamSelection;
+    final myTeamSelectionAcceptance =
+        (_myTeamSelectionStatus ?? '').trim().toLowerCase();
+
+//    final canRespondToTeamSelection =
+//        myTeamSelection != null &&
+//        (myTeamSelectionAcceptance.isEmpty ||
+//        myTeamSelectionAcceptance == 'pending');
+    
+    final canRespondToTeamSelection = myTeamSelection != null;
+
+    final canViewTeam = canManageTeam || myTeamSelection != null;
+
+    final showCaptainView = fixture['requires_rsvp'] == true;
+
+    final ts = fixture['ts'];
+    String? teamSelectionStatus;
+    if (ts is Map<String, dynamic>) {
+      teamSelectionStatus = ts['status']?.toString();
+    } else if (ts is List && ts.isNotEmpty) {
+      teamSelectionStatus =
+          (ts.first as Map<String, dynamic>?)?['status']?.toString();
+    }
+
+    final isPublished = teamSelectionStatus == 'published';
+    final showRsvpControls = (fixture['requires_rsvp'] == true) && !isPublished;
+
     return Scaffold(
       appBar: AppBar(
+        leading: BackButton(
+          onPressed: () => Navigator.pop(context, _didChangeFixture),
+        ),        
         title: const Text('Fixture details'),
         actions: [
           if (_canDelete)
@@ -366,7 +835,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            green.isEmpty ? venue : '$venue — $green',
+            matchHeader,
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),
@@ -375,6 +844,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             runSpacing: 8,
             children: [
               AppBadge(text: isHome ? 'HOME' : 'AWAY'),
+              if (isTeamFixture && teamName.isNotEmpty)
+                AppBadge(text: 'TEAM: $teamName')
+              else if (!isTeamFixture && fixtureLabel.isNotEmpty)
+                AppBadge(text: 'DETAILS: $fixtureLabel'),
               if (captainName.isNotEmpty) AppBadge(text: 'CAPT: $captainName'),
               if (viceName.isNotEmpty) AppBadge(text: 'VICE: $viceName'),
 
@@ -385,60 +858,127 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 AppBadge(text: ('ORIENT: ${orientation ?? 'NOT SET'}').toUpperCase()),
             ],
           ),
+          
           const SizedBox(height: 16),
-
           Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Team name', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _teamNameCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Enter team name (optional)',
-                      border: OutlineInputBorder(),
+                  if (_teamNameLocked) ...[
+                    Text(
+                      lockedFixtureLabel,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ElevatedButton(
-                      onPressed: _savingTeamName
-                          ? null
-                          : () async {
-                              setState(() => _savingTeamName = true);
-                              try {
-                                await Supabase.instance.client
-                                    .from('fixtures')
-                                    .update({
-                                      'team_name': _teamNameCtrl.text.trim().isEmpty
-                                          ? null
-                                          : _teamNameCtrl.text.trim(),
-                                    })
-                                    .eq('id', widget.fixtureId);
-                                // Refresh fixture details (keeps UI consistent)
-                                await _load();
-                              } catch (e) {
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Failed to save team name: $e')),
-                                );
-                              } finally {
-                                if (mounted) setState(() => _savingTeamName = false);
-                              }
-                            },
-                      child: _savingTeamName
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save'),
+                  ] else ...[
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Team fixture'),
+                      subtitle: const Text(
+                        'If on, this fixture uses a team and team workflows',
+                      ),
+                      value: isTeamFixture,
+                      onChanged: (v) {
+                        setState(() {
+                          _isTeamFixtureUi = v;
+                          if (v) {
+                            _selectedTeamId ??=
+                                _teams.isNotEmpty ? _teams.first['id'].toString() : null;
+                            _teamNameCtrl.text = '';
+                          } else {
+                            _selectedTeamId = null;
+                          }
+                        });
+                      },
                     ),
-                  ),
+
+                    if (isTeamFixture) ...[
+                      DropdownButtonFormField<String>(
+                        value: _selectedTeamId,
+                        decoration: const InputDecoration(
+                          hintText: 'Select a team',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _teams.map((t) {
+                          return DropdownMenuItem(
+                            value: t['id'].toString(),
+                            child: Text(t['name'].toString()),
+                          );
+                        }).toList(),
+                        onChanged: (v) => setState(() => _selectedTeamId = v),
+                      ),
+                    ] else ...[
+                      TextField(
+                        controller: _teamNameCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter fixture details (optional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ElevatedButton(
+                        onPressed: _savingTeam
+                            ? null
+                            : () async {
+                                setState(() => _savingTeam = true);
+                                try {
+                                  if (isTeamFixture) {
+                                    if (_selectedTeamId == null) {
+                                      throw Exception('Please select a team.');
+                                    }
+
+                                    final selectedTeam = _teams.firstWhere(
+                                      (t) => t['id'].toString() == _selectedTeamId,
+                                      orElse: () => <String, dynamic>{},
+                                    );
+
+                                    final selectedTeamName =
+                                        (selectedTeam['name'] ?? '').toString().trim();
+
+                                    await Supabase.instance.client
+                                        .from('fixtures')
+                                        .update({
+                                          'team_id': _selectedTeamId,
+                                          'team_name':
+                                              selectedTeamName.isEmpty ? null : selectedTeamName,
+                                        })
+                                        .eq('id', widget.fixtureId);
+                                  } else {
+                                    final lbl = _teamNameCtrl.text.trim();
+                                    await Supabase.instance.client
+                                        .from('fixtures')
+                                        .update({
+                                          'team_id': null,
+                                          'team_name': lbl.isEmpty ? null : lbl,
+                                        })
+                                        .eq('id', widget.fixtureId);
+                                  }
+
+                                  await _load();
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Failed to save: $e')),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => _savingTeam = false);
+                                }
+                              },
+                        child: _savingTeam
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Save'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -446,36 +986,136 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
           const SizedBox(height: 16),
           Card(
-            child: ListTile(
-              title: const Text('Start time'),
-              subtitle: Text(startAt != null ? formatWhenLocal(startAt) : ''),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+
+                  Row(
+                    children: [
+                      const Expanded(
+                        flex: 2,
+                        child: Text('Start'),
+                      ),
+                      Expanded(
+                        flex: 4,
+                        child: Text(_formatLocalDisplay(when)),
+                      ),
+                      if (_canDelete || isAdmin || isSuper)
+                        TextButton(
+                          onPressed: _editStartTime,
+                          child: const Text('Edit'),
+                        ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      const Expanded(
+                        flex: 2,
+                        child: Text('End'),
+                      ),
+                      Expanded(
+                        flex: 4,
+                        child: Text(_formatLocalDisplay(endWhen)),
+                      ),
+                      if (_canDelete || isAdmin || isSuper)
+                        TextButton(
+                          onPressed: _editEndTime,
+                          child: const Text('Edit'),
+                        ),
+                    ],
+                  ),
+
+                ],
+              ),
             ),
           ),
 
           SetCaptainSection(fixture: fixture),
+
+          if (canRespondToTeamSelection) ...[
+            const SizedBox(height: 24),
+            Text(
+              'Team selection',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('You have been selected for this fixture.'),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 12,
+                      children: [
+                        ElevatedButton(
+                          onPressed: () => _respondToTeamSelection('accepted'),
+                          child: const Text('Accept'),
+                        ),
+                        OutlinedButton(
+                          onPressed: () => _respondToTeamSelection('declined'),
+                          child: const Text('Decline'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+
           const SizedBox(height: 16),
+          if (showRsvpControls) ...[
+            const SizedBox(height: 24),
+            Text('Your availability', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              children: [
+                _rsvpChoiceButton('yes', 'Yes'),
+                _rsvpChoiceButton('maybe', 'Maybe'),
+                _rsvpChoiceButton('no', 'No'),
+              ],
+            ),
+          ],
+
+          if ((fixture['requires_rsvp'] == true) && isPublished) ...[
+            const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  'RSVP closed — fixture has been published.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ),
+          ],
 
           const SizedBox(height: 24),
-          Text('Your availability', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 12,
-            children: [
-              _rsvpChoiceButton('yes', 'Yes'),
-              _rsvpChoiceButton('maybe', 'Maybe'),
-              _rsvpChoiceButton('no', 'No'),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-          TeamSection(fixture: fixture),
-
-          const SizedBox(height: 24),
-          CaptainViewSection(fixture: fixture),
+          if ((fixture['requires_rsvp'] == true) && !isPublished) ...[
+            CaptainViewSection(fixture: fixture),
+          ],
+          
+          if (canViewTeam) ...[
+            const SizedBox(height: 24),
+            TeamSection(
+              key: ValueKey(
+                '${widget.fixtureId}-${_myTeamSelectionStatus ?? ''}-${fixture['ts']?['status'] ?? ''}',
+              ),
+              fixture: fixture,
+              readOnly: !canManageTeam,
+            ),
+          ],
         ],
       ),
     );
   }
 }
-
 

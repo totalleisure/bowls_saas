@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:typed_data';
-import 'package:file_picker/file_picker.dart';
 
 import 'member_edit_screen.dart';
 
@@ -18,9 +16,9 @@ class _MembersScreenState extends State<MembersScreen> {
   final SupabaseClient _client = Supabase.instance.client;
 
   bool _loading = true;
-  bool _isAdmin = false;
   String? _error;
 
+  bool _isAdmin = false;
   List<Map<String, dynamic>> _rows = const [];
 
   @override
@@ -108,172 +106,6 @@ class _MembersScreenState extends State<MembersScreen> {
     }
   }
 
-  Future<void> _importMembersCsv() async {
-    if (!_isAdmin || _loading) return;
-
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final client = Supabase.instance.client;
-
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
-        withData: true,
-      );
-
-      if (result == null || result.files.isEmpty) return;
-
-      final picked = result.files.single;
-      final String fileName = picked.name;
-      final Uint8List? bytes = picked.bytes;
-
-      if (bytes == null || bytes.isEmpty) {
-        throw Exception('Could not read CSV file bytes.');
-      }
-
-      final confirmed = await _confirmImportCsv(
-        fileName: fileName,
-        bytes: bytes.length,
-      );
-
-      if (!confirmed) return;
-
-      final storagePath =
-          '${widget.clubId}/members_${DateTime.now().millisecondsSinceEpoch}.csv';
-
-      await client.storage.from('Imports').uploadBinary(
-        storagePath,
-        bytes,
-        fileOptions: const FileOptions(
-          upsert: true,
-          contentType: 'text/csv',
-        ),
-      );
-
-      final resp = await client.functions.invoke(
-        'import_members_csv',
-        body: {
-          'club_id': widget.clubId,
-          'storage_path': storagePath,
-          'default_role': 'member',
-          'invite_redirect_to': '',
-          'bucket': 'Imports',
-        },
-      );
-
-      if (resp.status != 200) {
-        throw Exception(resp.data?.toString() ?? 'Import failed');
-      }
-
-      final data = (resp.data as Map<String, dynamic>? ?? {});
-      final summary = (data['summary'] as Map?) ?? {};
-      final report = (data['report'] as List?) ?? [];
-
-      if (!mounted) return;
-
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Import complete'),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Created: ${summary['created'] ?? 0}'),
-                  Text('Invited: ${summary['invited'] ?? 0}'),
-                  Text('Linked: ${summary['linked'] ?? 0}'),
-                  Text('Skipped: ${summary['skipped'] ?? 0}'),
-                  Text('Errors: ${summary['errors'] ?? 0}'),
-                  const SizedBox(height: 12),
-                  if (report.isNotEmpty) ...[
-                    const Text(
-                      'Report:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 6),
-                    for (final r in report)
-                      if (r is Map)
-                        Text(
-                          'Row ${r['row'] ?? ''}: '
-                          '${r['email'] ?? ''} — '
-                          '${r['status'] ?? ''}'
-                          '${r['message'] != null ? ' — ${r['message']}' : ''}',
-                        ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-
-      await _load();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import failed: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
-    }
-  }
-
-  Future<bool> _confirmImportCsv({
-    required String fileName,
-    required int bytes,
-  }) async {
-    String prettySize;
-    if (bytes < 1024) {
-      prettySize = '$bytes B';
-    } else if (bytes < 1024 * 1024) {
-      prettySize = '${(bytes / 1024).toStringAsFixed(1)} KB';
-    } else {
-      prettySize = '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Import members from CSV?'),
-        content: Text(
-          'File: $fileName\n'
-          'Size: $prettySize\n\n'
-          'Expected headers:\n'
-          'first_name,last_name,email,password\n\n'
-          'If a password is supplied, the importer can create a user directly. '
-          'If password is blank, the Edge Function may choose the invite route instead.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Import'),
-          ),
-        ],
-      ),
-    );
-
-    return ok == true;
-  }
-
   Future<void> _updateMembership({
     required String memberProfileId,
     required String role,
@@ -325,19 +157,13 @@ class _MembersScreenState extends State<MembersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Members:'),
+        title: Text('PATCHED ROW: ${Widget.email}'),
         actions: [
           IconButton(
             onPressed: _load,
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
           ),
-          if (_isAdmin)
-            IconButton(
-              tooltip: 'Import members (CSV)',
-              onPressed: _loading ? null : _importMembersCsv,
-              icon: const Icon(Icons.upload_file),
-            ),
         ],
       ),
       body: _loading
@@ -406,7 +232,7 @@ class _MembersScreenState extends State<MembersScreen> {
                     return _EditableMemberRow(
                       firstName: first,
                       lastName: last,
-                      email: email,
+                      email: displayEmail,
                       initialRole: role,
                       initialActive: active,
                       onEdit: () => _openMemberEdit(
@@ -474,7 +300,7 @@ class _EditableMemberRowState extends State<_EditableMemberRow> {
             SizedBox(
               width: 140,
               child: Text(
-                widget.lastName.isEmpty ? '-' : widget.lastName,
+                last.isEmpty ? '-' : last,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -482,14 +308,14 @@ class _EditableMemberRowState extends State<_EditableMemberRow> {
             SizedBox(
               width: 120,
               child: Text(
-                widget.firstName.isEmpty ? '-' : widget.firstName,
+                first.isEmpty ? '-' : first,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                widget.email.isEmpty ? '-' : widget.email,
+                displayEmail.isEmpty ? '-' : displayEmail,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -575,7 +401,7 @@ Widget memberTitleRow({
       SizedBox(
         width: 140,
         child: Text(
-          last.isEmpty ? '-' : last,
+          Widget.last.isEmpty ? '-' : Widget.last,
           overflow: TextOverflow.ellipsis,
         ),
       ),
@@ -583,14 +409,14 @@ Widget memberTitleRow({
       SizedBox(
         width: 120,
         child: Text(
-          first.isEmpty ? '-' : first,
+          Widget.first.isEmpty ? '-' : Widget.first,
           overflow: TextOverflow.ellipsis,
         ),
       ),
       const SizedBox(width: 8),
       Expanded(
         child: Text(
-          email.isEmpty ? '-' : email,
+          Widget.email.isEmpty ? '-' : Widget.email,
           overflow: TextOverflow.ellipsis,
         ),
       ),

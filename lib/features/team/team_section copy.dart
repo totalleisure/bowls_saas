@@ -9,13 +9,7 @@ import 'manage_team_screen.dart';
 
 class TeamSection extends StatefulWidget {
   final Map<String, dynamic> fixture;
-  final bool readOnly;
-
-  const TeamSection({
-    super.key,
-    required this.fixture,
-    this.readOnly = false,
-    });
+  const TeamSection({super.key, required this.fixture});
 
   @override
   State<TeamSection> createState() => _TeamSectionState();
@@ -224,48 +218,33 @@ class _TeamSectionState extends State<TeamSection> {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ListTile(
+              title: const Text('Team'),
+              subtitle: Text(
+                hasSelection
+                    ? (isPublished ? 'Published' : 'Draft (not published)')
+                    : 'No team selected yet',
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Team',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: 'Refresh team',
-                        icon: const Icon(Icons.refresh),
-                        onPressed: _load,
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ManageTeamScreen(
-                                fixture: widget.fixture,
-                                readOnly: widget.readOnly,
-                              ),
-                            ),
-                          );
-                          await _load();
-                        },
-                        child: Text(widget.readOnly ? 'View Team' : 'Manage Team'),
-                      ),
-                    ],
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _load,
                   ),
-
-                  const SizedBox(height: 4),
-
-                  Text(
-                    hasSelection
-                        ? (isPublished ? 'Published' : 'Draft (not published)')
-                        : 'No team selected yet',
-                  ),
+                  if (_canManage)
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ManageTeamScreen(fixture: widget.fixture),
+                          ),
+                        );
+                        await _load();
+                      },
+                    ),
                 ],
               ),
             ),
@@ -284,6 +263,36 @@ class _TeamSectionState extends State<TeamSection> {
                     ? [ListTile(title: Text('None'))]
                     : _reserves.map(_memberRow).toList(),
               ),
+
+              if (isPublished && iAmSelected) ...[
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Your confirmation',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      Text('Current: ${myAcc ?? 'pending'}'),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 12,
+                        children: [
+                          ElevatedButton(
+                            onPressed: () => _setAcceptance('accepted'),
+                            child: const Text('Accept'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => _setAcceptance('declined'),
+                            child: const Text('Decline'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ],
         ),

@@ -6,6 +6,9 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/utils/date_format.dart';
 
+import 'package:bowls_saas/Services/team_sheet_pdf.dart';
+import 'package:bowls_saas/Services/team_sheet_share.dart';
+
 class RinkAssignmentsScreen extends StatefulWidget {
   final String fixtureId;
   final String teamSelectionId;
@@ -34,6 +37,19 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   //Map<String, List<Map<String, dynamic>>> _assignmentsByRink = {};
   Map<String, Map<int, Map<String, dynamic>>> _assignmentsByRink = {};
   
+  Future<Map<String, dynamic>> _loadFixtureHeader(String fixtureId) async {
+    final client = Supabase.instance.client;
+
+    // Adjust these field names if yours differ
+    final fx = await client
+        .from('fixtures')
+        .select('start_at, is_home, section, opponent_name, club_id, clubs(name)')
+        .eq('id', fixtureId)
+        .single();
+
+    return Map<String, dynamic>.from(fx);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -192,6 +208,123 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     }
   }
 
+  Future<void> _shareTeamSheetPdf() async {
+    try {
+      // Ensure we have rinks/pool/assignments loaded
+      if (_rinks.isEmpty) {
+        await _loadAll();
+      }
+
+      final header = await _loadFixtureHeader(widget.fixtureId);
+
+      final clubName =
+          header['clubs']?['name']?.toString() ??
+          header['club_name']?.toString() ??
+          'Club';
+
+      final opponentName =
+          header['opponent_name']?.toString() ??
+          header['opponent']?.toString() ??
+          'Opponent';
+
+      final startAt = DateTime.tryParse(header['start_at']?.toString() ?? '') ?? DateTime.now();
+      final isHome = header['is_home'] == true;
+      final section = header['section']?.toString() ?? '';
+
+      // 1) role lookup + reserves from _pool (team_selection_members)
+      final roleByMember = <String, String>{};
+      final reserves = <String>[];
+
+      for (final r in _pool) {
+        final mpId = r['member_profile_id']?.toString() ?? '';
+        final role = r['role']?.toString().toLowerCase() ?? '';
+        final name = r['member_profiles']?['display_name']?.toString() ?? '';
+        if (mpId.isNotEmpty) roleByMember[mpId] = role;
+        if (role == 'reserve' && name.isNotEmpty) reserves.add(name);
+      }
+
+      // 2) Build TeamSheetRink list
+      final rinks = <TeamSheetRink>[];
+      int playersPerRink = 4;
+
+      for (final rr in _rinks) {
+        final rinkId = rr['id']?.toString() ?? '';
+        final rinkNo = (rr['fixture_rink_no'] as int?) ?? 0;
+        final label = rr['home_rink_label']?.toString();
+        final ppr = (rr['players_per_rink'] as int?) ?? 4;
+        playersPerRink = ppr;
+
+        final byPos = _assignmentsByRink[rinkId] ?? <int, Map<String, dynamic>>{};
+        final positions = byPos.keys.toList()..sort();
+
+        final players = <String>[];
+        for (final pos in positions) {
+          final a = byPos[pos]!;
+          final mpId = a['member_profile_id']?.toString() ?? '';
+          final role = roleByMember[mpId] ?? 'player';
+          if (role == 'reserve') continue;
+
+          final name = a['member_profiles']?['display_name']?.toString() ?? '';
+          if (name.isNotEmpty) players.add(name);
+        }
+
+        rinks.add(
+          TeamSheetRink(
+            rinkNumber: rinkNo,
+            homeRinkLabel: label,
+            players: players,
+          ),
+        );
+      }
+
+      // 3) Build TeamSheetData
+      final data = TeamSheetData(
+        clubName: clubName,
+        opponentName: opponentName,
+        startAt: startAt,
+        isHome: isHome,
+        section: section,
+        rinksRequired: rinks.length,
+        playersPerRink: playersPerRink,
+        dress: 'Greys/Whites or Blacks',
+        mealInfo: null,
+        notes: null,
+        captainName: null,
+        viceName: null,
+        rinks: rinks,
+        reserves: reserves,
+        primaryColor: 0xFF0B3D91,
+        secondaryColor: 0xFFFFD200,
+        logoBytes: null,
+      );
+
+      final pdfBytes = await buildTeamSheetPdf(data);
+
+      final d = data.startAt.toLocal();
+      final when = '${d.day.toString().padLeft(2,'0')}-${d.month.toString().padLeft(2,'0')}-${d.year}';
+      final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
+      final safeOpp = data.opponentName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
+
+      final path = await shareTeamSheetPdf(
+        pdfBytes,
+        message: '${data.clubName} v ${data.opponentName} — ${data.startAt.toLocal()}',
+        filename: '$safeClub v $safeOpp - $when.pdf',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PDF saved: $path')),
+      );
+
+    } catch (e) {
+      debugPrint('Share team sheet failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Share failed: $e')),
+      );
+    }
+  }
+
   List<DropdownMenuItem<String?>> _poolItems() {
     final items = <DropdownMenuItem<String?>>[
       const DropdownMenuItem<String?>(
@@ -305,6 +438,11 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         title: const Text('Assign rinks & positions'),
         actions: [
           IconButton(onPressed: _loadAll, icon: const Icon(Icons.refresh)),
+          IconButton(
+              tooltip: 'Share team sheet (PDF)',
+              icon: const Icon(Icons.picture_as_pdf),
+              onPressed: _loading ? null : _shareTeamSheetPdf,
+            ),
         ],
       ),
       body: _loading

@@ -8,10 +8,12 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/utils/date_format.dart';
 import 'club_home_screen.dart';
 import '../fixtures/fixtures_screen.dart';
-import '../members/members_screen.dart';
+import '../members/members_screen_with_Import.dart';
 import '../config/venues_screen.dart';
 import '../config/green_areas_screen.dart';
 import '../config/match_formats_screen.dart';
+import '../fixtures/fixture_display.dart';
+import '../notifications/notifications_page.dart';
 
 class ClubDashboardScreen extends StatefulWidget {
   final String clubId;
@@ -29,8 +31,11 @@ class ClubDashboardScreen extends StatefulWidget {
 
 class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   bool _loading = true;
-  String? _error;
 
+  int _unreadNotificationCount = 0; 
+
+  String? _error;
+  String _myClubName = '';
   String _formatWhenLong12h(String isoUtc) {
     final dt = DateTime.parse(isoUtc).toLocal();
     var s = DateFormat("EEEE d MMMM yyyy, h:mm a").format(dt); // Saturday 21 February 2026, 7:30 PM
@@ -38,30 +43,35 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     return s;
   }
   
+  Map<String, String> _myAvailabilityByFixtureId = {};
+
   String _fixtureTitle(Map<String, dynamic> f) {
+    String safe(String? s) => (s ?? '').trim();
+
     final isHome = f['is_home'] == true;
+    final isTeamFixture = f['team_id'] != null;
 
-    final venueId = f['venue_id']?.toString();
-    final opponentVenueId = f['opponent_venue_id']?.toString();
-    final greenAreaId = f['green_area_id']?.toString();
+    final teamName = safe(f['team_name']?.toString());
 
-    final homeVenueName = venueId == null ? '' : (_venueNameById[venueId] ?? '');
-    final opponentName = opponentVenueId == null ? '' : (_venueNameById[opponentVenueId] ?? '');
-    final greenName = greenAreaId == null ? '' : (_greenNameById[greenAreaId] ?? '');
+    final opponentVenueId = safe(f['opponent_venue_id']?.toString());
+    final opponentClubName = safe(_venueNameById[opponentVenueId]);
+
+    final greenId = safe(f['green_area_id']?.toString());
+    final greenName = safe(_greenNameById[greenId]);
 
     if (isHome) {
-      // Home: Venue — Green vs Opponent
-      final left = [
-        homeVenueName,
-        if (greenName.isNotEmpty) greenName,
-      ].where((s) => s.isNotEmpty).join(' — ');
-
-      final right = opponentName.isNotEmpty ? ' vs $opponentName' : '';
-      return '$left$right'.trim();
+      if (isTeamFixture && teamName.isNotEmpty) {
+        return '$teamName on ${greenName.isNotEmpty ? greenName : "Home"} vs '
+            '${opponentClubName.isNotEmpty ? opponentClubName : "Opponent"}';
+      }
+      return '${greenName.isNotEmpty ? greenName : "Home"} vs '
+          '${opponentClubName.isNotEmpty ? opponentClubName : "Opponent"}';
+    } else {
+      if (isTeamFixture && teamName.isNotEmpty) {
+        return '$teamName playing at ${opponentClubName.isNotEmpty ? opponentClubName : "Opponent club"}';
+      }
+      return 'Playing at ${opponentClubName.isNotEmpty ? opponentClubName : "Opponent club"}';
     }
-
-    // Away: Opponent club name
-    return opponentName.isNotEmpty ? opponentName : 'Away fixture';
   }
 
   String _fixtureSubtitle(Map<String, dynamic> f) {
@@ -78,6 +88,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   List<Map<String, dynamic>> _toRsvp = [];
+  List<Map<String, dynamic>> _awaitingSelection = [];
   List<Map<String, dynamic>> _needsAcceptance = [];
   List<Map<String, dynamic>> _upcomingAccepted = [];
 
@@ -90,6 +101,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUnreadNotificationCount();
     _load();
   }
 
@@ -100,8 +112,57 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     });
 
     try {
+            
       final client = Supabase.instance.client;
       final myId = (await client.rpc('my_member_profile_id')).toString();
+
+      final myTeamRows = await client
+          .from('team_members')
+          .select('team_id')
+          .eq('member_profile_id', myId)
+          .eq('is_active', true);
+
+      final myTeamIds = List<Map<String, dynamic>>.from(myTeamRows)
+          .map((r) => r['team_id']?.toString())
+          .whereType<String>()
+          .toSet();
+          
+      final myAvailabilityRows = await client
+          .from('fixture_rsvps')
+          .select('fixture_id, status')
+          .eq('member_profile_id', myId);
+
+      final myAvailabilityByFixtureId = <String, String>{};
+      for (final r in List<Map<String, dynamic>>.from(myAvailabilityRows)) {
+        final fixtureId = r['fixture_id']?.toString();
+        final status = r['status']?.toString();
+        if (fixtureId != null && status != null) {
+          myAvailabilityByFixtureId[fixtureId] = status;
+        }
+      }      
+
+      // 1) Load my club name
+      final clubRow = await client
+          .from('clubs')
+          .select('name')
+          .eq('id', widget.clubId)
+          .single();
+
+      final myClubName = (clubRow['name'] ?? '').toString();
+      final primaryHex = (clubRow['primary_color_hex'] ?? '#2A58A8').toString();
+      final secondaryHex = (clubRow['secondary_color_hex'] ?? '#D5A73D').toString();
+
+      Color colorFromHex(String hex) {
+        final h = hex.replaceAll('#', '').trim();
+        final full = h.length == 6 ? 'FF$h' : h; // add alpha if missing
+        return Color(int.parse(full, radix: 16));
+      }
+
+      final clubBlue = colorFromHex(primaryHex);
+      final clubYellow = colorFromHex(secondaryHex);
+
+      final homeBg = clubYellow.withOpacity(0.2);
+      final homeFg = clubBlue;      
 
       // Lookup maps (ids -> names) so dashboard can show venue/green/opponent names
       final venuesRows = await client
@@ -109,7 +170,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .select('id, name')
           .eq('club_id', widget.clubId);
 
-      _venueNameById = {
+      final venueNameById = {
         for (final v in List<Map<String, dynamic>>.from(venuesRows))
           v['id'].toString(): (v['name'] ?? '').toString(),
       };
@@ -119,78 +180,118 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .select('id, name')
           .eq('club_id', widget.clubId);
 
-      _greenNameById = {
+      final greenNameById = {
         for (final g in List<Map<String, dynamic>>.from(greensRows))
           g['id'].toString(): (g['name'] ?? '').toString(),
       };
 
-      // Fixtures to RSVP (unpublished for this club)
+      // Fixtures (future only)
       final fixturesRows = await client
           .from('fixtures')
           .select(
-            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, team_name, '
-            'venue_id, green_area_id, opponent_venue_id, '
+            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+            'requires_rsvp, team_id, team_name, '
+            'venue_id, opponent_venue_id, green_area_id, '
+            'venue:venues!fixtures_venue_id_fkey(name), '
+            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+            'team:teams(name), '
+            'green_areas(name, discipline, orientation_mode), '
             'ts:team_selections(status)'
           )
           .eq('club_id', widget.clubId)
           .gte('start_at', DateTime.now().toUtc().toIso8601String())
           .order('start_at', ascending: true);
-
+          
       final allFixtures = List<Map<String, dynamic>>.from(fixturesRows);
 
-      _toRsvp = allFixtures.where((f) {
+      debugPrint('DASH sample: ${allFixtures.isNotEmpty ? allFixtures.first : "none"}');
+
+      bool isPublished(Map<String, dynamic> f) {
         final ts = f['ts'];
-        if (ts == null) return true;
-        if (ts is List && ts.isEmpty) return true;
+        if (ts == null) return false;
+        if (ts is List && ts.isEmpty) return false;
+
         if (ts is List) {
           final status = ts.first?['status']?.toString();
-          return status != 'published';
+          return status == 'published';
         }
+
         final status = (ts as Map?)?['status']?.toString();
-        return status != 'published';
+        return status == 'published';
+      }
+
+      final toRsvp = allFixtures.where((f) {
+        final requiresRsvp = f['requires_rsvp'] == true;
+        if (!requiresRsvp) return false;
+        return !isPublished(f);
+      }).toList();
+
+      final awaitingSelection = allFixtures.where((f) {
+        final requiresRsvp = f['requires_rsvp'] == true;
+        if (requiresRsvp) return false;
+
+        if (isPublished(f)) return false;
+
+        final teamId = f['team_id']?.toString();
+
+        // Team fixture: only show if I belong to that team
+        if (teamId != null && teamId.isNotEmpty) {
+          return myTeamIds.contains(teamId);
+        }
+
+        // Non-team, no-RSVP fixture: keep visible
+        return true;
       }).toList();
 
       // Needs my acceptance (published team + pending) for this club only
       final needsRows = await client
-          .from('team_selection_members')
-          .select(
-            'acceptance, role, team_selections(status, fixture:fixtures('
-            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, team_name, '
-            'venue_id, green_area_id, opponent_venue_id'
-            '))'
-          )
-          .eq('member_profile_id', myId)
-          .eq('acceptance', 'pending');
+        .from('team_selection_members')
+        .select(
+          'acceptance, role, team_selections(status, fixture:fixtures('
+          'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+          'requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
+          'venue:venues!fixtures_venue_id_fkey(name), '
+          'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+          'team:teams(name), '
+          'green_areas(name, discipline, orientation_mode)'
+          '))'
+        )
+        .eq('member_profile_id', myId)
+        .eq('acceptance', 'pending');
 
       final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
 
-      _needsAcceptance = rawNeeds.where((r) {
+      final needsAcceptance = rawNeeds.where((r) {
         final ts = r['team_selections'] as Map<String, dynamic>?;
         if (ts?['status']?.toString() != 'published') return false;
         final fx = ts?['fixture'] as Map<String, dynamic>?;
         return fx?['club_id']?.toString() == widget.clubId;
       }).toList();
 
-      // 2c) Accepted & upcoming (strict: published + I'm selected + accepted)
+      // Accepted & upcoming (published + I'm selected + accepted)
       final acceptedRows = await client
-          .from('team_selection_members')
-          .select(
-            'team_selections!inner('
-            '  status, '
-            '  fixture:fixtures!inner('
-            '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, team_name, '
-            '    venue_id, green_area_id, opponent_venue_id'
-            '  )'
-            ')',
-          )
-          .eq('member_profile_id', myId)
-          .eq('acceptance', 'accepted')
-          .eq('team_selections.status', 'published')
-          .eq('team_selections.fixture.club_id', widget.clubId);
+        .from('team_selection_members')
+        .select(
+          'team_selections!inner('
+          '  status, '
+          '  fixture:fixtures!inner('
+          '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+          '    requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
+          '    venue:venues!fixtures_venue_id_fkey(name), '
+          '    opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+          '    team:teams(name), '
+          '    green_areas(name, discipline, orientation_mode)'
+          '  )'
+          ')'
+        )
+        .eq('member_profile_id', myId)
+        .eq('acceptance', 'accepted')
+        .eq('team_selections.status', 'published')
+        .eq('team_selections.fixture.club_id', widget.clubId);
 
       final nowUtcIso = DateTime.now().toUtc().toIso8601String();
 
-      final tmp = <Map<String, dynamic>>[];
+      final upcomingAccepted = <Map<String, dynamic>>[];
       for (final r in List<Map<String, dynamic>>.from(acceptedRows)) {
         final ts = r['team_selections'] as Map<String, dynamic>?;
         final fx = ts?['fixture'] as Map<String, dynamic>?;
@@ -200,16 +301,33 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         final startAt = fx['start_at']?.toString() ?? '';
         if (startAt.compareTo(nowUtcIso) < 0) continue;
 
-        tmp.add(fx);
+        upcomingAccepted.add(fx);
       }
 
       // sort ascending by start_at
-      tmp.sort((a, b) => (a['start_at'] as String).compareTo(b['start_at'] as String));
+      upcomingAccepted.sort(
+        (a, b) => (a['start_at'] as String).compareTo(b['start_at'] as String),
+      );
 
-      _upcomingAccepted = tmp;
+      if (!mounted) return;
 
-      setState(() => _loading = false);
+      setState(() {
+        _myClubName = myClubName;
+
+        _venueNameById = venueNameById;
+        _greenNameById = greenNameById;
+
+        _toRsvp = toRsvp;
+        _awaitingSelection = awaitingSelection;
+        _needsAcceptance = needsAcceptance;
+        _upcomingAccepted = upcomingAccepted;
+
+        _myAvailabilityByFixtureId = myAvailabilityByFixtureId;
+
+        _loading = false;
+      });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -243,7 +361,54 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     await _load();
   }
 
-Widget _fixtureTile(
+  Future<void> _setTeamAvailability(String fixtureId, String status) async {
+    try {
+      final client = Supabase.instance.client;
+      final myId = (await client.rpc('my_member_profile_id')).toString();
+
+      await client.from('fixture_rsvps').upsert(
+        {
+          'fixture_id': fixtureId,
+          'member_profile_id': myId,
+          'status': status,
+        },
+        onConflict: 'fixture_id,member_profile_id',
+      );
+
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save availability: $e')),
+      );
+    }
+  }
+
+  Future<void> _loadUnreadNotificationCount() async {
+    try {
+      final client = Supabase.instance.client;
+      final myId = (await client.rpc('my_member_profile_id')).toString();
+
+      final rows = await client
+          .from('app_notifications')
+          .select('id')
+          .eq('member_profile_id', myId)
+          .eq('is_read', false);
+
+      if (!mounted) return;
+      setState(() {
+        _unreadNotificationCount = rows.length;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _unreadNotificationCount = 0;
+      });
+    }
+  }
+/*
+
+  Widget _fixtureTile(
   Map<String, dynamic> f, {
   Color? cardColor,
   required VoidCallback onTap,
@@ -293,6 +458,7 @@ Widget _fixtureTile(
     ),
   );
 }
+ */
 
 Widget _tile(String title, String subtitle, VoidCallback onTap) {
     return ListTile(
@@ -312,6 +478,51 @@ Widget _tile(String title, String subtitle, VoidCallback onTap) {
         title: Text(widget.clubName),
         actions: [
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          IconButton(
+            tooltip: 'Notifications',
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const NotificationsPage(),
+                ),
+              );
+              await _loadUnreadNotificationCount();
+            },
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications),
+                if (_unreadNotificationCount > 0)
+                  Positioned(
+                    right: -6,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      child: Text(
+                        _unreadNotificationCount > 99
+                            ? '99+'
+                            : '$_unreadNotificationCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
       body: _loading
@@ -350,7 +561,7 @@ Widget _tile(String title, String subtitle, VoidCallback onTap) {
 
                         if (fx == null) return const SizedBox.shrink();
 
-                        final title = _fixtureTitle(fx);
+                        final title = fixtureTitleUnified(fx, myClubName: _myClubName);
                         final subtitle = _fixtureSubtitle(fx);
 
                         return Card(
@@ -375,7 +586,7 @@ Widget _tile(String title, String subtitle, VoidCallback onTap) {
                       const Text('No upcoming fixtures to RSVP.')
                     else
                       ..._toRsvp.map((f) {
-                        final title = _fixtureTitle(f);
+                        final title = fixtureTitleUnified(f, myClubName: _myClubName);
                         final subtitle = _fixtureSubtitle(f);
 
                         return Card(
@@ -391,6 +602,81 @@ Widget _tile(String title, String subtitle, VoidCallback onTap) {
                         );
                       }),
 
+                  const SizedBox(height: 12),
+                  Text('Awaiting team selection', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+
+                  if (_awaitingSelection.isEmpty)
+                    const Text('No upcoming fixtures awaiting team selection.')
+                  else
+                    ..._awaitingSelection.map((f) {
+                      final title = fixtureTitleUnified(f, myClubName: _myClubName);
+                      final subtitle = _fixtureSubtitle(f);
+                      final fixtureId = f['id']?.toString() ?? '';
+                      final myStatus = _myAvailabilityByFixtureId[fixtureId];
+
+                      final availabilityLabel =
+                          myStatus == 'yes'
+                              ? 'Available'
+                              : myStatus == 'no'
+                                  ? 'Not available'
+                                  : 'No response yet';
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              InkWell(
+                                onTap: () => _openFixtureById(fixtureId),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context).textTheme.titleMedium,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Icon(Icons.chevron_right),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                availabilityLabel,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  OutlinedButton(
+                                    onPressed: () => _setTeamAvailability(fixtureId, 'yes'),
+                                    child: const Text('Available'),
+                                  ),
+                                  OutlinedButton(
+                                    onPressed: () => _setTeamAvailability(fixtureId, 'no'),
+                                    child: const Text('Not available'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+
                     const SizedBox(height: 16),
                     Text('Accepted & published (upcoming)',
                         style: Theme.of(context).textTheme.titleMedium),
@@ -400,7 +686,7 @@ Widget _tile(String title, String subtitle, VoidCallback onTap) {
                       const Text('No upcoming accepted fixtures.')
                     else
                       ..._upcomingAccepted.map((f) {
-                        final title = _fixtureTitle(f);
+                        final title = fixtureTitleUnified(f, myClubName: _myClubName);
                         final subtitle = _fixtureSubtitle(f);
 
                         return Card(

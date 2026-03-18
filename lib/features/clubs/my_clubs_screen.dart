@@ -13,7 +13,6 @@ class MyClubsScreen extends StatefulWidget {
   State<MyClubsScreen> createState() => _MyClubsScreenState();
 }
 
-
 class _MyClubsScreenState extends State<MyClubsScreen> {
   bool _loading = true;
   String? _error;

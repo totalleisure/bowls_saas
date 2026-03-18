@@ -61,6 +61,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     setState(() => _saving = true);
 
     try {
@@ -68,23 +69,39 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
       final first = _firstName.text.trim();
       final last = _lastName.text.trim();
-
-      // Optional: keep display_name in sync (used on Members list)
       final displayName = [first, last].where((s) => s.isNotEmpty).join(' ').trim();
 
-      await client.from('member_profiles').update({
+      final payload = <String, dynamic>{
         'first_name': first.isEmpty ? null : first,
         'last_name': last.isEmpty ? null : last,
         'email_address': _email.text.trim().isEmpty ? null : _email.text.trim(),
         'phone': _phone.text.trim().isEmpty ? null : _phone.text.trim(),
         'display_name': displayName.isEmpty ? null : displayName,
-
         'address_line1': _a1.text.trim().isEmpty ? null : _a1.text.trim(),
         'address_line2': _a2.text.trim().isEmpty ? null : _a2.text.trim(),
         'town_city': _town.text.trim().isEmpty ? null : _town.text.trim(),
         'county': _county.text.trim().isEmpty ? null : _county.text.trim(),
         'postcode': _postcode.text.trim().isEmpty ? null : _postcode.text.trim(),
-      }).eq('id', widget.memberProfileId);
+      };
+
+//      debugPrint('Saving member_profile_id=${widget.memberProfileId}');
+//      debugPrint('Payload=$payload');
+
+      final updated = await client
+          .from('member_profiles')
+          .update(payload)
+          .eq('id', widget.memberProfileId)
+          .select('id, first_name, last_name, email_address, display_name');
+
+//      debugPrint('Update returned: $updated');
+
+      final check = await client
+          .from('member_profiles')
+          .select('first_name, last_name, email_address, display_name')
+          .eq('id', widget.memberProfileId)
+          .maybeSingle();
+
+//      debugPrint('Post-save row: $check');
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -92,6 +109,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       );
       Navigator.pop(context, true);
     } catch (e) {
+//      debugPrint('SAVE FAILED: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Save failed: $e')),

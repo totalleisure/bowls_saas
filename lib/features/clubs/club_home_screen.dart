@@ -1,13 +1,13 @@
 
 import '../config/venues_screen.dart';
 import '../config/match_formats_screen.dart';
-import '../members/members_screen.dart';
+import '../members/members_screen_with_Import.dart';
 import '../fixtures/fixtures_screen.dart';
+import '../team/teams_screen.dart';
+import '../config/green_areas_screen.dart';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../config/green_areas_screen.dart';
-
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
@@ -111,9 +111,26 @@ class ClubHomeScreen extends StatelessWidget {
               },
             ),
           ),
+          Card(
+            child: ListTile(
+              title: const Text('Teams'),
+              subtitle: const Text('Team pools + captains/vice/manager'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TeamsScreen(
+                      clubId: clubId,
+                      clubName: clubName,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
   }
 }
-

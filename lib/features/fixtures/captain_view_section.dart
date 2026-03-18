@@ -14,13 +14,14 @@ class CaptainViewSection extends StatefulWidget {
   State<CaptainViewSection> createState() => _CaptainViewSectionState();
 }
 
-
 class _CaptainViewSectionState extends State<CaptainViewSection> {
   bool _loading = true;
   String? _error;
-
   String? _myProfileId;
+  String _viewerLabel = '';
   bool _isCaptain = false;
+  bool _canView = false;
+  bool _showNoResponse = false;
 
   List<Map<String, dynamic>> _yes = [];
   List<Map<String, dynamic>> _maybe = [];
@@ -48,26 +49,66 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
     try {
       final fixtureId = widget.fixture['id'] as String;
       final clubId = widget.fixture['club_id'] as String;
+      
       final captainId = widget.fixture['captain_member_profile_id'] as String?;
+      final viceCaptainId = widget.fixture['vice_captain_member_profile_id'] as String?;
 
       final myId = await _getMyProfileId();
       _myProfileId = myId;
 
-      _isCaptain = (captainId != null && captainId == myId);
+      final isCaptain = (captainId != null && captainId == myId);
+      final isViceCaptain = (viceCaptainId != null && viceCaptainId == myId);
 
-      if (!_isCaptain) {
-        // Not captain: hide details, but don't treat as error.
+      // club admin?
+      final adminRows = await Supabase.instance.client
+          .from('club_memberships')
+          .select('role')
+          .eq('club_id', clubId)
+          .eq('member_profile_id', myId)
+          .eq('is_active', true);
+
+      final isAdmin = List<Map<String, dynamic>>.from(adminRows)
+          .any((r) => (r['role']?.toString() ?? '') == 'admin');
+
+      // superuser?
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      final superRows = userId == null
+          ? <dynamic>[]
+          : await Supabase.instance.client
+              .from('app_superusers')
+              .select('user_id')
+              .eq('user_id', userId);
+
+      final isSuper = (superRows as List).isNotEmpty;
+
+      _canView = isCaptain || isViceCaptain || isAdmin || isSuper;
+      _isCaptain = isCaptain;
+
+      if (isCaptain) {
+        _viewerLabel = 'You are the captain.';
+      } else if (isViceCaptain) {
+        _viewerLabel = 'You are the vice-captain.';
+      } else if (isAdmin) {
+        _viewerLabel = 'You are viewing as club admin.';
+      } else if (isSuper) {
+        _viewerLabel = 'You are viewing as superuser.';
+      } else {
+        _viewerLabel = '';
+      }
+
+      if (!_canView) {
         setState(() => _loading = false);
         return;
       }
 
-      // 1) Load RSVPs for this fixture
+/*       // 1) Load RSVPs for this fixture
       final rsvpRows = await Supabase.instance.client
           .from('fixture_rsvps')
           .select('status, responded_at, member_profiles(display_name)')
           .eq('fixture_id', fixtureId);
 
       final rsvps = List<Map<String, dynamic>>.from(rsvpRows);
+*/
 
       // 2) Load all active members in the club (for "no response yet")
       final memberRows = await Supabase.instance.client
@@ -79,11 +120,14 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
       final members = List<Map<String, dynamic>>.from(memberRows);
 
       // Build a set of member_profile_ids who responded
+
       final respondedIds = <String>{};
+/*
       for (final r in rsvps) {
         // r has member_profiles but not member_profile_id; we need it.
         // Easiest: fetch member_profile_id as well in RSVP query.
       }
+*/
 
       // Re-load RSVPs including member_profile_id (fix above)
       final rsvpRows2 = await Supabase.instance.client
@@ -179,9 +223,11 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
       );
     }
 
-    if (!_isCaptain) {
+    if (!_canView) {
       return const SizedBox.shrink(); // hide completely
     }
+
+    final isRsvpFixture = widget.fixture['requires_rsvp'] == true;
 
     return Card(
       child: Padding(
@@ -189,8 +235,12 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
         child: Column(
           children: [
             ListTile(
-              title: const Text('Captain view'),
-              subtitle: Text('You are the captain.'),
+              title: Text(
+                isRsvpFixture
+                    ? 'Responses • Yes ${_yes.length} • Maybe ${_maybe.length} • No ${_no.length}'
+                    : 'Team availability',
+              ),
+              subtitle: Text(_viewerLabel),
               trailing: IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: _load,
@@ -199,7 +249,27 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
             _section('Yes', _yes),
             _section('Maybe', _maybe),
             _section('No', _no),
-            _section('No response yet', _noResponse),
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: ExpansionTile(
+                initiallyExpanded: _showNoResponse,
+                onExpansionChanged: (v) {
+                  setState(() {
+                    _showNoResponse = v;
+                  });
+                },
+                title: Text('No response yet (${_noResponse.length})'),
+                children: _noResponse.map((r) {
+                  final name = (r['member_profiles']?['display_name'] as String?) ?? '(no name)';
+                  return ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(name),
+                    subtitle: const Text('Pending'),
+                  );
+                }).toList(),
+              ),
+            ),
           ],
         ),
       ),

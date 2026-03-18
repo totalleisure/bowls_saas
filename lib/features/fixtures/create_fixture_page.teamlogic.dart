@@ -28,7 +28,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   bool _isTeamFixture = false;
 
   DateTime? _startAtLocal;
-  DateTime? _endAtLocal;
 
   // Venues
   List<Map<String, dynamic>> _homeVenues = [];
@@ -218,32 +217,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return mode != 'off';
   }
 
-  Future<void> _pickEndDateTime() async {
-    final now = DateTime.now();
-    final initialDate =
-        _endAtLocal ??
-        _startAtLocal?.add(const Duration(hours: 2)) ??
-        now.add(const Duration(hours: 2));
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(now.year - 1),
-      lastDate: DateTime(now.year + 5),
-    );
-    if (date == null) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initialDate),
-    );
-    if (time == null) return;
-
-    setState(() {
-      _endAtLocal = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-    });
-  }
-
   Future<void> _pickDateTime() async {
     final now = DateTime.now();
     final initialDate = _startAtLocal ?? now;
@@ -264,12 +237,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     setState(() {
       _startAtLocal = DateTime(date.year, date.month, date.day, time.hour, time.minute);
-
-      // Default end time to start + 2 hours if not set yet,
-      // or if end is not after the new start.
-      if (_endAtLocal == null || !_endAtLocal!.isAfter(_startAtLocal!)) {
-        _endAtLocal = _startAtLocal!.add(const Duration(hours: 2));
-      }
     });
   }
 
@@ -392,17 +359,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       final insertedRows = await _client.from('fixtures').insert({
         'club_id': widget.clubId,
         'start_at': _startAtLocal!.toUtc().toIso8601String(),
-        'end_at': _endAtLocal!.toUtc().toIso8601String(),
         'is_home': _isHome,
         'section': _section,
         'rinks_required': _rinksRequired,
         'players_per_rink': _playersPerRink,
         'team_id': _isTeamFixture ? _teamId : null,
         'team_name': _isTeamFixture ? null : (fixtureLabel.isEmpty ? null : fixtureLabel),
-
-        // ✅ IMPORTANT: override DB default TRUE
-        'requires_rsvp': !_isTeamFixture, // team fixture => false, friendly/internal => true
-
         'venue_id': venueId,
         'opponent_venue_id': opponentVenueId,
 
@@ -431,24 +393,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         await _client.from('fixture_rinks').insert(rinkRows);
       }
       debugPrint('SAVE: pop');
-      
+//      if (mounted) Navigator.pop(context, fixtureId);
       if (!mounted) return;
-
-      debugPrint('create_fixture_page: created fixtureId=$fixtureId, opening details...');
-
-      final changed = await Navigator.of(context).push<bool>(
+      Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => FixtureDetailsPage(fixtureId: fixtureId),
         ),
-      );
-
-      debugPrint('create_fixture_page: details returned changed=$changed');
-
-      if (!context.mounted) return;
-
-      // return to fixtures_screen
-      Navigator.pop(context, true);
-
+      );    
     } catch (e) {
       debugPrint('SAVE ERROR: $e');
       if (mounted) {
@@ -466,10 +417,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final startLabel = _startAtLocal == null
         ? 'Select date & time'
         : formatWhenLocal(_startAtLocal!.toUtc().toIso8601String());
-    
-    final endLabel = _endAtLocal == null
-        ? 'Select end date & time'
-        : formatWhenLocal(_endAtLocal!.toUtc().toIso8601String());
 
     final selectedGreen = _selectedGreenArea;
     final allowedOrients =
@@ -517,40 +464,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   ),
 
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Start'),
-                            const SizedBox(height: 6),
-                            OutlinedButton(
-                              onPressed: _pickDateTime,
-                              child: Text(startLabel),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('End'),
-                            const SizedBox(height: 6),
-                            OutlinedButton(
-                              onPressed: _pickEndDateTime,
-                              child: Text(endLabel),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+
+                  OutlinedButton(
+                    onPressed: _pickDateTime,
+                    child: Text(startLabel),
                   ),
 
                   const SizedBox(height: 12),
-                  if (!_isTeamFixture) ...[
+
+                  
+
+if (!_isTeamFixture) ...[
                     TextField(
                       controller: _teamNameCtrl,
                       decoration: const InputDecoration(
