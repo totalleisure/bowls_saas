@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
+import 'dart:async';
 
 import '../../core/utils/date_format.dart';
 import 'club_home_screen.dart';
@@ -33,6 +34,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   bool _loading = true;
 
   int _unreadNotificationCount = 0; 
+
+  Timer? _notificationTimer;
 
   String? _error;
   String _myClubName = '';
@@ -101,8 +104,20 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUnreadNotificationCount();
-    _load();
+
+    _load(); // load the dashboard itself
+    _loadUnreadNotificationCount(); // load bell count
+
+    _notificationTimer =
+        Timer.periodic(const Duration(seconds: 20), (_) {
+      _loadUnreadNotificationCount();
+    });
+  }
+
+  @override
+  void dispose() {
+    _notificationTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -396,18 +411,20 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .eq('is_read', false);
 
       if (!mounted) return;
+
       setState(() {
         _unreadNotificationCount = rows.length;
       });
     } catch (_) {
       if (!mounted) return;
+
       setState(() {
         _unreadNotificationCount = 0;
       });
     }
   }
-/*
-
+  
+  /*
   Widget _fixtureTile(
   Map<String, dynamic> f, {
   Color? cardColor,

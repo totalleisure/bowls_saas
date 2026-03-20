@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -10,22 +11,37 @@ class NotificationsPage extends StatefulWidget {
 
 class _NotificationsPageState extends State<NotificationsPage> {
   bool _loading = true;
+  bool _refreshing = false;
   List<Map<String, dynamic>> _rows = [];
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (_refreshing) return;
+    _refreshing = true;
+
+    if (mounted) {
+      setState(() => _loading = _rows.isEmpty);
+    }
 
     try {
       final client = Supabase.instance.client;
-
-      final myId =
-          (await client.rpc('my_member_profile_id')).toString();
+      final myId = (await client.rpc('my_member_profile_id')).toString();
 
       final rows = await client
           .from('app_notifications')
@@ -39,12 +55,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
         _rows = List<Map<String, dynamic>>.from(rows);
         _loading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _rows = [];
         _loading = false;
       });
+    } finally {
+      _refreshing = false;
     }
   }
 
