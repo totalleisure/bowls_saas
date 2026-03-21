@@ -23,7 +23,6 @@ class RinkAssignmentsScreen extends StatefulWidget {
   State<RinkAssignmentsScreen> createState() => _RinkAssignmentsScreenState();
 }
 
-
 class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   bool _loading = true;
   String? _error;
@@ -38,16 +37,97 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   Map<String, Map<int, Map<String, dynamic>>> _assignmentsByRink = {};
   
   Future<Map<String, dynamic>> _loadFixtureHeader(String fixtureId) async {
-    final client = Supabase.instance.client;
-
-    // Adjust these field names if yours differ
-    final fx = await client
+    final row = await Supabase.instance.client
         .from('fixtures')
-        .select('start_at, is_home, section, opponent_name, club_id, clubs(name)')
+        .select('''
+          start_at,
+          is_home,
+          section,
+          club_id,
+          venue_id,
+          opponent_venue_id,
+          captain_member_profile_id,
+          vice_captain_member_profile_id,
+          clubs(name),
+          venue:venues!fixtures_venue_id_fkey(
+            id,
+            name,
+            clubs(name)
+          ),
+          opponent_venue:venues!fixtures_opponent_venue_id_fkey(
+            id,
+            name,
+            clubs(name)
+          ),
+          captain:member_profiles!fixtures_captain_member_profile_id_fkey(
+            id,
+            display_name,
+            first_name,
+            last_name,
+            email_address,
+            phone
+          ),
+          vice_captain:member_profiles!fixtures_vice_captain_member_profile_id_fkey(
+            id,
+            display_name,
+            first_name,
+            last_name,
+            email_address,
+            phone
+          )
+        ''')
         .eq('id', fixtureId)
         .single();
 
-    return Map<String, dynamic>.from(fx);
+    return Map<String, dynamic>.from(row);
+  }
+
+  Map<String, dynamic>? _memberProfileFromPool(String? memberProfileId) {
+    if (memberProfileId == null || memberProfileId.isEmpty) return null;
+
+    for (final r in _pool) {
+      final id = r['member_profile_id']?.toString() ?? '';
+      if (id == memberProfileId) {
+        final profile = r['member_profiles'];
+        if (profile is Map<String, dynamic>) return profile;
+        if (profile is Map) return Map<String, dynamic>.from(profile);
+      }
+    }
+    return null;
+  }
+
+  String _clubOrVenueName(Map<String, dynamic>? venueRow) {
+    if (venueRow == null) return '';
+    final club = venueRow['clubs'];
+    if (club is Map && (club['name']?.toString().trim().isNotEmpty ?? false)) {
+      return club['name'].toString().trim();
+    }
+    final venueName = venueRow['name']?.toString().trim() ?? '';
+    return venueName;
+  }
+
+  String _displayNameFromProfile(Map<String, dynamic>? profile) {
+    if (profile == null) return '';
+
+    final display = profile['display_name']?.toString().trim() ?? '';
+    if (display.isNotEmpty) return display;
+
+    final first = profile['first_name']?.toString().trim() ?? '';
+    final last = profile['last_name']?.toString().trim() ?? '';
+    return '$first $last'.trim();
+  }
+
+  String _emailFromProfile(Map<String, dynamic>? profile) {
+    if (profile == null) return '';
+    return profile['email_address']?.toString().trim() ?? '';
+  }
+
+  String _phoneFromProfile(Map<String, dynamic>? profile) {
+    if (profile == null) return '';
+    return profile['telephone']?.toString().trim() ??
+        profile['phone']?.toString().trim() ??
+        profile['mobile']?.toString().trim() ??
+        '';
   }
 
   @override
@@ -217,18 +297,37 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
       final header = await _loadFixtureHeader(widget.fixtureId);
 
+      Map<String, dynamic>? asMap(dynamic v) {
+        if (v is Map<String, dynamic>) return v;
+        if (v is Map) return Map<String, dynamic>.from(v);
+        return null;
+      }
+
+      String venueNameOnly(Map<String, dynamic>? venueRow) {
+        if (venueRow == null) return '';
+        return venueRow['name']?.toString().trim() ?? '';
+      }
+
       final clubName =
-          header['clubs']?['name']?.toString() ??
-          header['club_name']?.toString() ??
+          header['clubs']?['name']?.toString().trim() ??
           'Club';
 
-      final opponentName =
-          header['opponent_name']?.toString() ??
-          header['opponent']?.toString() ??
-          'Opponent';
+      final isHome = header['is_home'] == true;
+
+      final venueRow = asMap(header['venue']);
+      final opponentVenueRow = asMap(header['opponent_venue']);
+
+      // IMPORTANT RULE:
+      // home  -> opponent is opponent_venue.name
+      // away  -> opponent is venue.name
+      final opponentName = isHome
+          ? venueNameOnly(opponentVenueRow)
+          : venueNameOnly(venueRow);
+
+      final safeOpponentName =
+          opponentName.isEmpty ? 'Opponent' : opponentName;
 
       final startAt = DateTime.tryParse(header['start_at']?.toString() ?? '') ?? DateTime.now();
-      final isHome = header['is_home'] == true;
       final section = header['section']?.toString() ?? '';
 
       // 1) role lookup + reserves from _pool (team_selection_members)
@@ -277,10 +376,33 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         );
       }
 
+      final captainId = header['captain_member_profile_id']?.toString() ?? '';
+      final viceId = header['vice_captain_member_profile_id']?.toString() ?? '';
+
+      final captainProfile = _memberProfileFromPool(captainId);
+      final viceProfile = _memberProfileFromPool(viceId);
+
+      final captain = asMap(header['captain']);
+      final vice = asMap(header['vice_captain']);
+
+      final captainName = _displayNameFromProfile(captain);
+      final captainEmail = _emailFromProfile(captain);
+      final captainPhone = _phoneFromProfile(captain);
+
+      final viceName = _displayNameFromProfile(vice);
+      final viceEmail = _emailFromProfile(vice);
+      final vicePhone = _phoneFromProfile(vice);
+
+      debugPrint('TEAM_SHEET isHome=$isHome');
+      debugPrint('TEAM_SHEET venueRow=$venueRow');
+      debugPrint('TEAM_SHEET opponentVenueRow=$opponentVenueRow');
+      debugPrint('TEAM_SHEET clubName=$clubName');
+      debugPrint('TEAM_SHEET opponentName=$safeOpponentName');
+
       // 3) Build TeamSheetData
       final data = TeamSheetData(
         clubName: clubName,
-        opponentName: opponentName,
+        opponentName: safeOpponentName,
         startAt: startAt,
         isHome: isHome,
         section: section,
@@ -289,8 +411,12 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         dress: 'Greys/Whites or Blacks',
         mealInfo: null,
         notes: null,
-        captainName: null,
-        viceName: null,
+        captainName: captainName,
+        captainEmail: captainEmail,
+        captainPhone: captainPhone,
+        viceName: viceName,
+        viceEmail: viceEmail,
+        vicePhone: vicePhone,
         rinks: rinks,
         reserves: reserves,
         primaryColor: 0xFF0B3D91,
