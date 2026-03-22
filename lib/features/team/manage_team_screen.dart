@@ -381,17 +381,39 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     final members = <Map<String, dynamic>>[];
     for (final r in (rows as List)) {
       final mp = r['member_profiles'] as Map<String, dynamic>?;
-      final first = (mp?['first_name'] ?? '').toString();
-      final last = (mp?['last_name'] ?? '').toString();
+      final first = (mp?['first_name'] ?? '').toString().trim();
+      final last = (mp?['last_name'] ?? '').toString().trim();
       final name = ('$first $last').trim();
+
       members.add({
         'member_profile_id': r['member_profile_id']?.toString(),
-        'display_name': name.isEmpty ? r['member_profile_id']?.toString() : name,
+        'first_name': first,
+        'last_name': last,
+        'display_name': name.isEmpty
+            ? (r['member_profile_id']?.toString() ?? '')
+            : name,
       });
     }
-    members.sort((a,b)=> (a['display_name'] as String).compareTo(b['display_name'] as String));
 
-    if (mounted) setState(() => _clubMembers = members);
+    members.sort((a, b) {
+      final lastA = (a['last_name'] ?? '').toString().toLowerCase();
+      final lastB = (b['last_name'] ?? '').toString().toLowerCase();
+      final lastCmp = lastA.compareTo(lastB);
+      if (lastCmp != 0) return lastCmp;
+
+      final firstA = (a['first_name'] ?? '').toString().toLowerCase();
+      final firstB = (b['first_name'] ?? '').toString().toLowerCase();
+      final firstCmp = firstA.compareTo(firstB);
+      if (firstCmp != 0) return firstCmp;
+
+      final nameA = (a['display_name'] ?? '').toString().toLowerCase();
+      final nameB = (b['display_name'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
+
+    if (mounted) {
+      setState(() => _clubMembers = members);
+    }
   }
 
   Future<void> _loadCanAddMembers() async {
@@ -553,7 +575,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           builder: (ctx, setLocalState) {
             return AlertDialog(
               title: Text(
-                _isTeamFixture ? 'Add members to team pool' : 'Add members to RSVP pool',
+                _isTeamFixture ? 'Add players to team pool' : 'Add players to RSVP pool',
               ),
               content: SizedBox(
                 width: 420,
@@ -912,7 +934,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           if (!effectiveReadOnly)
             IconButton(
               icon: const Icon(Icons.person_add),
-              tooltip: 'Add member',
+              tooltip: 'Add Player(s)',
               onPressed: () async {
                 // 1) Not allowed -> show why
                 if (!_canManage) {

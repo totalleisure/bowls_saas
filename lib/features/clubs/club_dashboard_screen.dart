@@ -15,6 +15,11 @@ import '../config/green_areas_screen.dart';
 import '../config/match_formats_screen.dart';
 import '../fixtures/fixture_display.dart';
 import '../notifications/notifications_page.dart';
+import '../../Core/permissions/club_role_resolver.dart';
+import '../../Core/permissions/dashboard_permissions.dart';
+import '../../Core/permissions/fixture_permissions.dart';
+import '../../Core/permissions/fixture_role_resolver.dart';
+import '../../Core/permissions/permission_models.dart';
 
 class ClubDashboardScreen extends StatefulWidget {
   final String clubId;
@@ -31,6 +36,14 @@ class ClubDashboardScreen extends StatefulWidget {
 }
 
 class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
+  bool _isSuperuser = false;
+  bool _isClubAdmin = false;
+  bool _isSelector = false;
+  bool _isFixtureCreator = false; // keep false for now unless you already have this
+  String? _currentMemberId;
+
+  bool _loadingPermissions = true;  
+  
   bool _loading = true;
 
   int _unreadNotificationCount = 0; 
@@ -105,8 +118,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   void initState() {
     super.initState();
 
-    _load(); // load the dashboard itself
-    _loadUnreadNotificationCount(); // load bell count
+    _initDashboard();
 
     _notificationTimer =
         Timer.periodic(const Duration(seconds: 20), (_) {
@@ -120,6 +132,90 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     super.dispose();
   }
 
+  Future<void> _initDashboard() async {
+    try {
+      await _loadUserPermissions();
+      await _load();
+      await _loadUnreadNotificationCount();
+    } catch (e, st) {
+      debugPrint('Dashboard init failed: $e');
+      debugPrintStack(stackTrace: st);
+
+      if (mounted) {
+        setState(() {
+          _loadingPermissions = false;
+          _loading = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> _loadUserPermissions() async {
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No logged-in user');
+    }
+
+    final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
+
+    // 1) Global superuser
+    final superuserRow = await supabase
+        .from('app_superusers')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    _isSuperuser = superuserRow != null;
+
+    // 2) Club membership for this club, using member_profile_id
+    final membership = await supabase
+        .from('club_memberships')
+        .select('id, club_id, member_profile_id, role')
+        .eq('member_profile_id', myProfileId)
+        .eq('club_id', widget.clubId)
+        .maybeSingle();
+
+    debugPrint('AUTH user.id       = ${user.id}');
+    debugPrint('PROFILE myProfileId = $myProfileId');
+    debugPrint('MEMBERSHIP row      = $membership');
+
+    if (membership != null) {
+      _currentMemberId = myProfileId;
+
+      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
+
+      debugPrint('MEMBERSHIP role raw = ${membership['role']}');
+      debugPrint('MEMBERSHIP role norm= $role');
+
+      _isClubAdmin = role == 'admin';
+      _isSelector = role == 'selector';
+
+      _isFixtureCreator = _isSuperuser || _isClubAdmin || _isSelector;
+    } else {
+      _currentMemberId = myProfileId;
+      _isClubAdmin = false;
+      _isSelector = false;
+      _isFixtureCreator = _isSuperuser;
+    }
+
+    debugPrint(
+      'Dashboard perms: super=$_isSuperuser '
+      'admin=$_isClubAdmin '
+      'selector=$_isSelector '
+      'fixtureCreator=$_isFixtureCreator '
+      'memberId=$_currentMemberId',
+    );
+
+    if (mounted) {
+      setState(() {
+        _loadingPermissions = false;
+      });
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -127,7 +223,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     });
 
     try {
-            
       final client = Supabase.instance.client;
       final myId = (await client.rpc('my_member_profile_id')).toString();
 
@@ -159,7 +254,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       // 1) Load my club name
       final clubRow = await client
           .from('clubs')
-          .select('name')
+          .select('name, primary_color_hex, secondary_color_hex')
           .eq('id', widget.clubId)
           .single();
 
@@ -324,6 +419,14 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         (a, b) => (a['start_at'] as String).compareTo(b['start_at'] as String),
       );
 
+      debugPrint(
+        'DASH counts: '
+        'needs=${needsAcceptance.length}, '
+        'rsvp=${toRsvp.length}, '
+        'awaiting=${awaitingSelection.length}, '
+        'accepted=${upcomingAccepted.length}',
+      );
+
       if (!mounted) return;
 
       setState(() {
@@ -424,60 +527,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
   }
   
-  /*
-  Widget _fixtureTile(
-  Map<String, dynamic> f, {
-  Color? cardColor,
-  required VoidCallback onTap,
-}) {
-  final startAt = (f['start_at'] ?? '').toString();
-  final whenLabel =
-      startAt.isNotEmpty ? _formatWhenLong12h(startAt) : 'Date/time not set';
-
-  final isHome = f['is_home'] == true;
-  final section = (f['section'] ?? '').toString();
-
-  final venueId = f['venue_id']?.toString();
-  final opponentVenueId = f['opponent_venue_id']?.toString();
-  final greenId = f['green_area_id']?.toString();
-
-  final venueName = venueId == null ? '' : (_venueNameById[venueId] ?? '');
-  final opponentName =
-      opponentVenueId == null ? '' : (_venueNameById[opponentVenueId] ?? '');
-  final greenName = greenId == null ? '' : (_greenNameById[greenId] ?? '');
-
-  // Title rule:
-  // Home: Venue — Green vs Opponent
-  // Away: Opponent name
-  final titleText = isHome
-      ? [
-          venueName,
-          if (greenName.isNotEmpty) greenName,
-        ].where((s) => s.isNotEmpty).join(' — ') +
-          (opponentName.isNotEmpty ? ' vs $opponentName' : '')
-      : (opponentName.isNotEmpty ? opponentName : 'Away fixture');
-
-  final subtitleText = [
-    whenLabel,
-    if (section.isNotEmpty) section.toUpperCase(),
-  ].join(' • ');
-
-  return Card(
-    color: cardColor,
-    margin: const EdgeInsets.symmetric(vertical: 4),
-    child: ListTile(
-      dense: true,
-      visualDensity: VisualDensity.compact,
-      title: Text(titleText, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(subtitleText, maxLines: 2, overflow: TextOverflow.ellipsis),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
-    ),
-  );
-}
- */
-
-Widget _tile(String title, String subtitle, VoidCallback onTap) {
+  Widget _tile(String title, String subtitle, VoidCallback onTap) {
     return ListTile(
       dense: true,
       visualDensity: VisualDensity.compact,
@@ -490,6 +540,15 @@ Widget _tile(String title, String subtitle, VoidCallback onTap) {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadingPermissions) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final canAccessAdmin =
+        _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.clubName),
@@ -549,23 +608,24 @@ Widget _tile(String title, String subtitle, VoidCallback onTap) {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ClubHomeScreen(
-                              clubId: widget.clubId,
-                              clubName: widget.clubName,
+                    if (canAccessAdmin) ...[
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ClubHomeScreen(
+                                clubId: widget.clubId,
+                                clubName: widget.clubName,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.settings),
-                      label: const Text('Go to admin'),
-                    ),
-                    const SizedBox(height: 16),
-
+                          );
+                        },
+                        icon: const Icon(Icons.settings),
+                        label: const Text('Go to admin'),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     Text('Needs your acceptance',
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),

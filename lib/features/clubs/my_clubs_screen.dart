@@ -169,10 +169,10 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                             final client = Supabase.instance.client;
                             final myId = (await client.rpc('my_member_profile_id')).toString();
 
-                            // Count: unpublished fixtures (future) for this club
+                            // 1) RSVP / unpublished items
                             final fixtures = await client
                                 .from('fixtures')
-                                .select('id, ts:team_selections(status)')
+                                .select('id, start_at, ts:team_selections(status)')
                                 .eq('club_id', clubId)
                                 .gte('start_at', DateTime.now().toUtc().toIso8601String());
 
@@ -186,7 +186,7 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                               return (ts as Map?)?['status']?.toString() != 'published';
                             });
 
-                            // Count: pending acceptance for published team selections in this club
+                            // 2) Pending acceptance items
                             final needs = await client
                                 .from('team_selection_members')
                                 .select('team_selections(status, fixture:fixtures(club_id))')
@@ -202,7 +202,37 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                               return fx?['club_id']?.toString() == clubId;
                             });
 
-                            final shouldShowDashboard = hasRsvpItems || hasAcceptanceItems;
+                            // 3) Accepted & upcoming items  <-- this is the missing piece
+                            final accepted = await client
+                                .from('team_selection_members')
+                                .select(
+                                  'team_selections!inner('
+                                  '  status, '
+                                  '  fixture:fixtures!inner('
+                                  '    id, club_id, start_at'
+                                  '  )'
+                                  ')'
+                                )
+                                .eq('member_profile_id', myId)
+                                .eq('acceptance', 'accepted')
+                                .eq('team_selections.status', 'published')
+                                .eq('team_selections.fixture.club_id', clubId);
+
+                            final nowUtcIso = DateTime.now().toUtc().toIso8601String();
+
+                            final acceptedList = List<Map<String, dynamic>>.from(accepted);
+
+                            final hasAcceptedUpcomingItems = acceptedList.any((r) {
+                              final ts = r['team_selections'] as Map<String, dynamic>?;
+                              final fx = ts?['fixture'] as Map<String, dynamic>?;
+                              if (fx == null) return false;
+
+                              final startAt = fx['start_at']?.toString() ?? '';
+                              return startAt.compareTo(nowUtcIso) >= 0;
+                            });
+
+                            final shouldShowDashboard =
+                                hasRsvpItems || hasAcceptanceItems || hasAcceptedUpcomingItems;
 
                             Navigator.push(
                               context,
