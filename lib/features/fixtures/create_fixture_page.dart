@@ -114,6 +114,111 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         _opponentVenues.isNotEmpty ? _opponentVenues.first['id'].toString() : null;
   }
 
+  Future<String?> _pickVenue({
+    required List<Map<String, dynamic>> venues,
+    required String title,
+    required bool isHomeVenue,
+  }) async {
+    String search = '';
+    List<Map<String, dynamic>> filtered = List.from(venues);
+
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setStateSheet) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 12,
+                  right: 12,
+                  top: 12,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 12,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.75,
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () async {
+                              final newId = await _createVenueFromFixture(
+                                isHomeVenue: isHomeVenue,
+                              );
+                              if (newId == null) return;
+
+                              Navigator.pop(sheetContext, newId);
+                            },
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        decoration: const InputDecoration(
+                          hintText: 'Search venues...',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) {
+                          search = value.toLowerCase();
+                          setStateSheet(() {
+                            filtered = venues.where((v) {
+                              final name = (v['name'] ?? '').toString().toLowerCase();
+                              final town = (v['town_city'] ?? '').toString().toLowerCase();
+                              final postcode = (v['postcode'] ?? '').toString().toLowerCase();
+                              return name.contains(search) ||
+                                  town.contains(search) ||
+                                  postcode.contains(search);
+                            }).toList();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? const Center(child: Text('No venues match your search.'))
+                            : ListView.builder(
+                                itemCount: filtered.length,
+                                itemBuilder: (_, i) {
+                                  final v = filtered[i];
+                                  final name = (v['name'] ?? '').toString();
+                                  final town = (v['town_city'] ?? '').toString().trim();
+                                  final postcode = (v['postcode'] ?? '').toString().trim();
+
+                                  return ListTile(
+                                    title: Text(name),
+                                    subtitle: Text([
+                                      if (town.isNotEmpty) town,
+                                      if (postcode.isNotEmpty) postcode,
+                                    ].join(' • ')),
+                                    onTap: () => Navigator.pop(
+                                      sheetContext,
+                                      v['id'].toString(),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   Future<void> _loadTeams() async {
     final rows = await _client
@@ -216,6 +321,86 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (g == null) return false;
     final mode = (g['orientation_mode'] ?? '').toString().toLowerCase();
     return mode != 'off';
+  }
+
+  Future<String?> _createVenueFromFixture({required bool isHomeVenue}) async {
+    final nameCtrl = TextEditingController();
+    final townCtrl = TextEditingController();
+    final postcodeCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(isHomeVenue ? 'Add home venue' : 'Add opponent venue'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'Venue name'),
+              ),
+              TextField(
+                controller: townCtrl,
+                decoration: const InputDecoration(labelText: 'Town/City (optional)'),
+              ),
+              TextField(
+                controller: postcodeCtrl,
+                decoration: const InputDecoration(labelText: 'Postcode (optional)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return null;
+
+    final venueName = nameCtrl.text.trim();
+    if (venueName.isEmpty) return null;
+
+    try {
+      final inserted = await _client
+          .from('venues')
+          .insert({
+            'club_id': widget.clubId,
+            'name': venueName,
+            'is_home_venue': isHomeVenue,
+            'town_city': townCtrl.text.trim().isEmpty ? null : townCtrl.text.trim(),
+            'postcode': postcodeCtrl.text.trim().isEmpty ? null : postcodeCtrl.text.trim(),
+          })
+          .select('id')
+          .single();
+
+      final newId = inserted['id']?.toString();
+
+      await _loadVenues();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Venue created ✅')),
+        );
+      }
+
+      return newId;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Create venue error: $e')),
+        );
+      }
+      return null;
+    }
   }
 
   Future<void> _pickEndDateTime() async {
@@ -599,39 +784,70 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
                   const SizedBox(height: 12),
 
-                  DropdownButtonFormField<String>(
-                    value: _homeVenueId,
-                    decoration: const InputDecoration(labelText: 'Home venue'),
-                    items: _homeVenues.map((v) {
-                      return DropdownMenuItem(
-                        value: v['id'].toString(),
-                        child: Text(v['name'].toString()),
+                  InkWell(
+                    onTap: () async {
+                      final selected = await _pickVenue(
+                        venues: _homeVenues,
+                        title: 'Select home venue',
+                        isHomeVenue: true,
                       );
-                    }).toList(),
-                    onChanged: (v) async {
-                      setState(() {
-                        _homeVenueId = v;
-                        _greenAreas = [];
-                        _greenAreaId = null;
-                        _orientation = null;
-                      });
-                      await _loadGreenAreas();
-                      setState(() {});
+
+                      if (selected != null) {
+                        setState(() {
+                          _homeVenueId = selected;
+                          _greenAreas = [];
+                          _greenAreaId = null;
+                          _orientation = null;
+                        });
+                        await _loadGreenAreas();
+                      }
                     },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Home venue',
+                        border: OutlineInputBorder(),
+                      ),
+                      child: Text(
+                        _homeVenues
+                                .firstWhere(
+                                  (v) => v['id'].toString() == _homeVenueId,
+                                  orElse: () => {'name': 'Select venue'},
+                                )['name']
+                                ?.toString() ??
+                            'Select venue',
+                      ),
+                    ),
                   ),
 
                   const SizedBox(height: 12),
 
-                  DropdownButtonFormField<String>(
-                    value: _opponentVenueId,
-                    decoration: const InputDecoration(labelText: 'Opponent venue'),
-                    items: _opponentVenues.map((v) {
-                      return DropdownMenuItem(
-                        value: v['id'].toString(),
-                        child: Text(v['name'].toString()),
+                  InkWell(
+                    onTap: () async {
+                      final selected = await _pickVenue(
+                        venues: _opponentVenues,
+                        title: 'Select opponent venue',
+                        isHomeVenue: false,
                       );
-                    }).toList(),
-                    onChanged: (v) => setState(() => _opponentVenueId = v),
+
+                      if (selected != null) {
+                        setState(() => _opponentVenueId = selected);
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Opponent venue',
+                        border: OutlineInputBorder(),
+                      ),
+                      child: Text(
+                        _opponentVenues
+                                .firstWhere(
+                                  (v) => v['id'].toString() == _opponentVenueId,
+                                  orElse: () => {'name': 'Select venue'},
+                                )['name']
+                                ?.toString() ??
+                            'Select venue',
+                      ),
+                    ),
                   ),
 
                   const SizedBox(height: 12),
