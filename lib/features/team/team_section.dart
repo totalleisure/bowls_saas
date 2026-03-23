@@ -95,7 +95,10 @@ class _TeamSectionState extends State<TeamSection> {
       // load members of selection
       final rows = await client
           .from('team_selection_members')
-          .select('member_profile_id, role, acceptance, responded_at, member_profiles(display_name, phone)')
+          .select(
+            'member_profile_id, role, acceptance, responded_at, '
+            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, phone)'
+          )
           .eq('team_selection_id', _selectionId!)
           .order('created_at');
 

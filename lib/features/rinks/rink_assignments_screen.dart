@@ -180,7 +180,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           .from('team_selection_members')
           .select(
             'member_profile_id, role, acceptance, '
-            'member_profiles(display_name)',
+            'member_profiles!team_selection_members_member_profile_id_fkey(display_name)',
           )
           .eq('team_selection_id', widget.teamSelectionId)
           .inFilter('role', ['player', 'reserve']);

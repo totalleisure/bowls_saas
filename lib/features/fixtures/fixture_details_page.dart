@@ -692,16 +692,25 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               ),
           ],
         ),
+        body: Center(
+          child: Text('Error: $_error'),
+        ),
       );
     }
 
     final fixture = _fixture!;
 
+    final isTeamFixture = _isTeamFixtureUi;
+    final isHome = (fixture['is_home'] as bool?) ?? true;
+
+    final pageTitle =
+        '${isHome ? 'Home' : 'Away'} '
+        '${isTeamFixture ? 'Team' : 'RSVP'} Fixture Details';
+
     final fixtureLabel = (fixture['team_name'] ?? '').toString().trim();
 
     final teamRow = fixture['team'] as Map<String, dynamic>?;
     final teamName = (teamRow?['name'] ?? '').toString().trim();
-    final isTeamFixture = _isTeamFixtureUi;
 
     final startAt = fixture['start_at'] as String?;
     final when = startAt != null
@@ -716,7 +725,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final venue = (fixture['venue']?['name'] as String?) ?? '';
     final opponent = (fixture['opponent_venue']?['name'] ?? '').toString().trim();
     final green = (fixture['green_areas']?['name'] as String?) ?? '';
-    final isHome = (fixture['is_home'] as bool?) ?? true;
     final section = (fixture['section'] as String?) ?? '';
 
     String buildMatchHeader({
@@ -790,8 +798,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         (fixtureViceCaptainId != null && fixtureViceCaptainId == _myMemberProfileId);
 
     final myTeamSelection = _myTeamSelection;
-    final myTeamSelectionAcceptance =
-        (_myTeamSelectionStatus ?? '').trim().toLowerCase();
 
 //    final canRespondToTeamSelection =
 //        myTeamSelection != null &&
@@ -820,8 +826,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       appBar: AppBar(
         leading: BackButton(
           onPressed: () => Navigator.pop(context, _didChangeFixture),
-        ),        
-        title: const Text('Fixture details'),
+        ),
+        title: Text(pageTitle),
         actions: [
           if (_canDelete)
             IconButton(
@@ -872,26 +878,40 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ] else ...[
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Team fixture'),
-                      subtitle: const Text(
-                        'If on, this fixture uses a team and team workflows',
-                      ),
-                      value: isTeamFixture,
-                      onChanged: (v) {
-                        setState(() {
-                          _isTeamFixtureUi = v;
-                          if (v) {
-                            _selectedTeamId ??=
-                                _teams.isNotEmpty ? _teams.first['id'].toString() : null;
-                            _teamNameCtrl.text = '';
-                          } else {
-                            _selectedTeamId = null;
-                          }
-                        });
-                      },
+                    const Text('Fixture type', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                          value: false,
+                          label: Text('RSVP'),
+                          icon: Icon(Icons.how_to_reg),
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          label: Text('Team'),
+                          icon: Icon(Icons.groups),
+                        ),
+                      ],
+                      selected: {_isTeamFixtureUi},
+                      onSelectionChanged: _teamNameLocked
+                          ? null
+                          : (newSelection) {
+                              final v = newSelection.first;
+                              setState(() {
+                                _isTeamFixtureUi = v;
+                                if (v) {
+                                  _selectedTeamId ??=
+                                      _teams.isNotEmpty ? _teams.first['id'].toString() : null;
+                                  _teamNameCtrl.text = '';
+                                } else {
+                                  _selectedTeamId = null;
+                                }
+                              });
+                            },
                     ),
+                    const SizedBox(height: 12),
 
                     if (isTeamFixture) ...[
                       DropdownButtonFormField<String>(
@@ -990,45 +1010,41 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-
                   Row(
                     children: [
-                      const Expanded(
-                        flex: 2,
-                        child: Text('Start'),
-                      ),
                       Expanded(
-                        flex: 4,
-                        child: Text(_formatLocalDisplay(when)),
-                      ),
-                      if (_canDelete || isAdmin || isSuper)
-                        TextButton(
-                          onPressed: _editStartTime,
-                          child: const Text('Edit'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Start'),
+                            const SizedBox(height: 6),
+                            OutlinedButton(
+                              onPressed: (_canDelete || isAdmin || isSuper)
+                                  ? _editStartTime
+                                  : null,
+                              child: Text(_formatLocalDisplay(when)),
+                            ),
+                          ],
                         ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('End'),
+                            const SizedBox(height: 6),
+                            OutlinedButton(
+                              onPressed: (_canDelete || isAdmin || isSuper)
+                                  ? _editEndTime
+                                  : null,
+                              child: Text(_formatLocalDisplay(endWhen)),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-
-                  const SizedBox(height: 12),
-
-                  Row(
-                    children: [
-                      const Expanded(
-                        flex: 2,
-                        child: Text('End'),
-                      ),
-                      Expanded(
-                        flex: 4,
-                        child: Text(_formatLocalDisplay(endWhen)),
-                      ),
-                      if (_canDelete || isAdmin || isSuper)
-                        TextButton(
-                          onPressed: _editEndTime,
-                          child: const Text('Edit'),
-                        ),
-                    ],
-                  ),
-
                 ],
               ),
             ),
@@ -1037,7 +1053,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           SetCaptainSection(fixture: fixture),
 
           if (canRespondToTeamSelection) ...[
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             Text(
               'Team selection',
               style: Theme.of(context).textTheme.titleMedium,
@@ -1072,7 +1088,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
           const SizedBox(height: 16),
           if (showRsvpControls) ...[
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             Text('Your availability', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             Wrap(

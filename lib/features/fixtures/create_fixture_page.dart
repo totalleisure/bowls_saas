@@ -4,6 +4,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/date_format.dart';
 import 'fixture_details_page.dart';
 
+enum FixtureLocationType { home, away }
+enum FixtureWorkflowType { rsvp, team }
+
 class CreateFixturePage extends StatefulWidget {
   final String clubId;
   final String clubName;
@@ -29,6 +32,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   DateTime? _startAtLocal;
   DateTime? _endAtLocal;
+
+  FixtureLocationType _fixtureLocation = FixtureLocationType.home;
+  FixtureWorkflowType _workflowType = FixtureWorkflowType.rsvp;
 
   // Venues
   List<Map<String, dynamic>> _homeVenues = [];
@@ -115,12 +121,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   Future<String?> _pickVenue({
-    required List<Map<String, dynamic>> venues,
+    required List<Map<String, dynamic>> Function() getVenues,
     required String title,
     required bool isHomeVenue,
   }) async {
     String search = '';
-    List<Map<String, dynamic>> filtered = List.from(venues);
+    List<Map<String, dynamic>> filtered = List.from(getVenues());
 
     return showModalBottomSheet<String>(
       context: context,
@@ -172,7 +178,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                         onChanged: (value) {
                           search = value.toLowerCase();
                           setStateSheet(() {
-                            filtered = venues.where((v) {
+                            filtered = getVenues().where((v) {
                               final name = (v['name'] ?? '').toString().toLowerCase();
                               final town = (v['town_city'] ?? '').toString().toLowerCase();
                               final postcode = (v['postcode'] ?? '').toString().toLowerCase();
@@ -685,23 +691,37 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                     const SizedBox(height: 12),
                   ],
 
-                  SwitchListTile(
-                    title: const Text('Home fixture'),
-                    value: _isHome,
-                    onChanged: (v) async {
+                  const Text('Location', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+
+                  SegmentedButton<FixtureLocationType>(
+                    segments: const [
+                      ButtonSegment(
+                        value: FixtureLocationType.home,
+                        label: Text('Home'),
+                        icon: Icon(Icons.home),
+                      ),
+                      ButtonSegment(
+                        value: FixtureLocationType.away,
+                        label: Text('Away'),
+                        icon: Icon(Icons.directions_bus),
+                      ),
+                    ],
+                    selected: {_fixtureLocation},
+                    onSelectionChanged: (newSelection) async {
+                      final v = newSelection.first;
                       setState(() {
-                        _isHome = v;
-                        // reset green selection when toggling
+                        _fixtureLocation = v;
+                        _isHome = v == FixtureLocationType.home;
                         _greenAreas = [];
                         _greenAreaId = null;
                         _orientation = null;
                       });
                       await _loadGreenAreas();
-                      setState(() {});
                     },
                   ),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -735,6 +755,39 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   ),
 
                   const SizedBox(height: 12),
+                  const Text('Fixture type', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+
+                  SegmentedButton<FixtureWorkflowType>(
+                    segments: const [
+                      ButtonSegment(
+                        value: FixtureWorkflowType.rsvp,
+                        label: Text('RSVP'),
+                        icon: Icon(Icons.how_to_reg),
+                      ),
+                      ButtonSegment(
+                        value: FixtureWorkflowType.team,
+                        label: Text('Team'),
+                        icon: Icon(Icons.groups),
+                      ),
+                    ],
+                    selected: {_workflowType},
+                    onSelectionChanged: (newSelection) {
+                      final v = newSelection.first;
+                      setState(() {
+                        _workflowType = v;
+                        _isTeamFixture = v == FixtureWorkflowType.team;
+
+                        if (_isTeamFixture) {
+                          _teamId ??= _teams.isNotEmpty ? _teams.first['id'].toString() : null;
+                        } else {
+                          _teamId = null;
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+
                   if (!_isTeamFixture) ...[
                     TextField(
                       controller: _teamNameCtrl,
@@ -765,29 +818,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                     const SizedBox(height: 12),
                   ],
 
-                  SwitchListTile(
-                    title: const Text('Team fixture'),
-                    subtitle: const Text('If on, this fixture uses team workflows (selection, pools, etc.)'),
-                    value: _isTeamFixture,
-                    onChanged: (v) {
-                      setState(() {
-                        _isTeamFixture = v;
-                        if (_isTeamFixture) {
-                          _teamId ??= _teams.isNotEmpty ? _teams.first['id'].toString() : null;
-                        } else {
-                          _teamId = null;
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  const SizedBox(height: 12),
-
                   InkWell(
                     onTap: () async {
                       final selected = await _pickVenue(
-                        venues: _homeVenues,
+                        getVenues: () => _homeVenues,
                         title: 'Select home venue',
                         isHomeVenue: true,
                       );
@@ -824,28 +858,27 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   InkWell(
                     onTap: () async {
                       final selected = await _pickVenue(
-                        venues: _opponentVenues,
-                        title: 'Select opponent venue',
+                        getVenues: () => _opponentVenues,
+                        title: 'Select Opponent Club',
                         isHomeVenue: false,
                       );
-
                       if (selected != null) {
                         setState(() => _opponentVenueId = selected);
                       }
                     },
                     child: InputDecorator(
                       decoration: const InputDecoration(
-                        labelText: 'Opponent venue',
+                        labelText: 'Opponent Club',
                         border: OutlineInputBorder(),
                       ),
                       child: Text(
                         _opponentVenues
                                 .firstWhere(
                                   (v) => v['id'].toString() == _opponentVenueId,
-                                  orElse: () => {'name': 'Select venue'},
+                                  orElse: () => {'name': 'Select Club'},
                                 )['name']
                                 ?.toString() ??
-                            'Select venue',
+                            'Select Club',
                       ),
                     ),
                   ),
