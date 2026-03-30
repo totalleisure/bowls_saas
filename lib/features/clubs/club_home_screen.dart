@@ -1,7 +1,7 @@
 
 import '../config/venues_screen.dart';
 import '../config/match_formats_screen.dart';
-import '../members/members_screen_with_Import.dart';
+import '../members/members_screen.dart';
 import '../fixtures/fixtures_screen.dart';
 import '../team/teams_screen.dart';
 import '../config/green_areas_screen.dart';

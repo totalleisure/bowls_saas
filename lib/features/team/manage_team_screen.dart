@@ -45,12 +45,26 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   List<Map<String, dynamic>> _pool = [];        // RSVP yes/maybe
   List<Map<String, dynamic>> _selected = [];    // team_selection_members
 
-  bool _canManage = false;                      // club admin or superuser
-  bool _checkingCanManage = true;
+  bool _checkingPermissions = true;
+
+  bool _isSuperuser = false;
+  bool _isClubAdmin = false;
+  bool _isSelector = false;
+  bool _isFixtureCaptain = false;
+  bool _isFixtureViceCaptain = false;
+
+  bool _canEditSelection = false;
+  bool _canAssignRinks = false;
+  bool _canEditRinkSetup = false;
+  bool _canPublish = false;
+  bool _canForceAccept = false;
+  bool _canAddPeople = false;
+
+  bool get effectiveReadOnly => widget.readOnly || !_canEditSelection;
 
   List<Map<String, dynamic>> _clubMembers = []; // for Add Member dialog
  
-  bool get effectiveReadOnly => widget.readOnly || !_canManage;
+  String? _currentMemberProfileId;
 
   @override
   void initState() {
@@ -59,7 +73,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _init() async {
-    await _loadCanManage();
+    await _loadUserPermissions();
     await _load();
   }
 
@@ -143,8 +157,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       _isTeamFixture = teamId != null;
       _usesRsvpPool = !_isTeamFixture && requiresRsvp;
 
-      await _loadCanManage();
-
       // get or create selection
       final existing = await client
           .from('team_selections')
@@ -193,8 +205,34 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             .eq('fixture_id', fixtureId)
             .inFilter('status', ['yes', 'maybe']);
 
-        candidates = List<Map<String, dynamic>>.from(rows);
+        final roleByMemberId = <String, String>{};
+
+        if (_selectionId != null) {
+          final roleRows = await client
+              .from('team_selection_members')
+              .select('member_profile_id, role')
+              .eq('team_selection_id', _selectionId!);
+
+          for (final r in (roleRows as List)) {
+            final memberId = r['member_profile_id']?.toString() ?? '';
+            final role = (r['role'] ?? 'player').toString().toLowerCase().trim();
+            if (memberId.isNotEmpty) {
+              roleByMemberId[memberId] = role;
+            }
+          }
+        }
+
+        candidates = List<Map<String, dynamic>>.from(rows).map((r) {
+          final memberId = r['member_profile_id']?.toString() ?? '';
+          return {
+            ...r,
+            'role': roleByMemberId[memberId] ?? 'player',
+            'rsvp_status': r['status'],
+          };
+        }).toList();
+
         debugPrint('MANAGE_TEAM branch: fixture_rsvps yes/maybe');
+        debugPrint('MANAGE_TEAM roleByMemberId=$roleByMemberId');
       } else {
         // 3) Non-team, no-RSVP fixture -> all active club members
         final rows = await client
@@ -252,6 +290,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
       _selected = List<Map<String, dynamic>>.from(selRows);
 
+      debugPrint('MANAGE_TEAM _selected=$_selected');
+
+      for (final s in _selected) {
+        debugPrint(
+          'MANAGE_TEAM selected member=${s['member_profile_id']} role=${s['role']} is_selected=${s['is_selected']}',
+        );
+      }      
+
       // sort pool by name
       int availabilityRank(Map<String, dynamic> r) {
         final s =
@@ -297,7 +343,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _acceptOnBehalf(String memberId) async {
-    if (widget.readOnly || !_canManage) return;
+    if (widget.readOnly || !_canForceAccept) return;
     if (_selectionId == null) return;
 
     try {
@@ -330,90 +376,152 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     }
   }
 
-  Future<void> _loadCanManage() async {
+  Future<void> _loadUserPermissions() async {
+    if (mounted) {
+      setState(() => _checkingPermissions = true);
+    }
 
-    if (mounted) setState(() => _checkingCanManage = true);    
     try {
       final user = _client.auth.currentUser;
       if (user == null) {
-        if (mounted) setState(() => _canManage = false);
+        if (!mounted) return;
+        setState(() {
+          _isSuperuser = false;
+          _isClubAdmin = false;
+          _isSelector = false;
+          _isFixtureCaptain = false;
+          _isFixtureViceCaptain = false;
+          _canEditSelection = false;
+          _canAssignRinks = false;
+          _canEditRinkSetup = false;
+          _canPublish = false;
+          _canForceAccept = false;
+          _canAddPeople = false;
+        });
         return;
       }
 
-      final clubId = (widget.fixture['club_id'] ?? widget.fixture['clubId'] ?? '').toString();
-      if (clubId.isEmpty) {
-        if (mounted) setState(() => _canManage = false);
-        return;
-      }
+      final clubId =
+          (widget.fixture['club_id'] ?? widget.fixture['clubId'] ?? '').toString();
 
-      // superuser?
+      final fixtureCaptainId =
+          (widget.fixture['captain_member_profile_id'] ?? '').toString();
+      final fixtureViceCaptainId =
+          (widget.fixture['vice_captain_member_profile_id'] ?? '').toString();
+
+      bool isSuperuser = false;
+      bool isClubAdmin = false;
+      bool isSelector = false;
+      bool isFixtureCaptain = false;
+      bool isFixtureViceCaptain = false;
+
+      String? myMemberProfileId;
+
       final su = await _client
           .from('app_superusers')
           .select('user_id')
           .eq('user_id', user.id)
           .maybeSingle();
-      if (su != null) {
-        if (mounted) setState(() => _canManage = true);
-        return;
-      }
 
-      // map auth user -> member_profile_id
+      isSuperuser = su != null;
+
       final mp = await _client
           .from('member_profiles')
           .select('id')
           .eq('user_id', user.id)
           .maybeSingle();
 
-      final memberProfileId = mp?['id']?.toString();
-      if (memberProfileId == null) {
-        if (mounted) setState(() => _canManage = false);
-        return;
-      }
+      myMemberProfileId = mp?['id']?.toString();
+      _currentMemberProfileId = myMemberProfileId;
 
-      // club admin or selector? (active membership)
-      final cm = await _client
-          .from('club_memberships')
-          .select('role, is_active')
-          .eq('club_id', clubId)
-          .eq('member_profile_id', memberProfileId)
-          .maybeSingle();
-
-      final isActive = cm?['is_active'] == true;
-      final role = cm?['role']?.toString();
-      final isAdminOrSelector =
-          isActive && (role == 'admin' || role == 'selector');
-
-      if (isAdminOrSelector) {
-        if (mounted) setState(() => _canManage = true);
-        return;
-      }
-
-      // If this is a team fixture, allow team captain/vice/manager
-      final teamId = widget.fixture['team_id']?.toString();
-      if (teamId != null && teamId.isNotEmpty) {
-        final team = await _client
-            .from('teams')
-            .select('captain_member_profile_id, vice_captain_member_profile_id, manager_member_profile_id')
-            .eq('id', teamId)
+      if (clubId.isNotEmpty && myMemberProfileId != null) {
+        final cm = await _client
+            .from('club_memberships')
+            .select('role, is_active')
+            .eq('club_id', clubId)
+            .eq('member_profile_id', myMemberProfileId)
             .maybeSingle();
 
-        final captainId = team?['captain_member_profile_id']?.toString();
-        final viceId = team?['vice_captain_member_profile_id']?.toString();
-        final managerId = team?['manager_member_profile_id']?.toString();
+        final isActive = cm?['is_active'] == true;
+        final role = (cm?['role'] ?? '').toString().toLowerCase();
 
-        final isTeamLeader = memberProfileId == captainId ||
-            memberProfileId == viceId ||
-            memberProfileId == managerId;
-
-        if (mounted) setState(() => _canManage = isTeamLeader);
-        return;
+        isClubAdmin = isActive && role == 'admin';
+        isSelector = isActive && role == 'selector';
       }
-      // Otherwise no
-      if (mounted) setState(() => _canManage = false);
-    } catch (_) {
-      if (mounted) setState(() => _canManage = false);
+
+      if (myMemberProfileId != null && myMemberProfileId.isNotEmpty) {
+        isFixtureCaptain =
+            fixtureCaptainId.isNotEmpty && fixtureCaptainId == myMemberProfileId;
+        isFixtureViceCaptain =
+            fixtureViceCaptainId.isNotEmpty &&
+            fixtureViceCaptainId == myMemberProfileId;
+      }
+
+      final canEditSelection = isSuperuser ||
+          isClubAdmin ||
+          isSelector ||
+          isFixtureCaptain ||
+          isFixtureViceCaptain;
+
+      final canAssignRinks = canEditSelection;
+
+      final canEditRinkSetup = isSuperuser || isClubAdmin || isSelector;
+
+      final canPublish = canEditSelection;
+      final canForceAccept = canEditSelection;
+
+      // Keep Add People stricter for now if that is your intention.
+      final canAddPeople = isSuperuser || isClubAdmin;
+
+      debugPrint('--- MANAGE_TEAM permissions ---');
+      debugPrint('_isSuperuser=$isSuperuser');
+      debugPrint('_isClubAdmin=$isClubAdmin');
+      debugPrint('_isSelector=$isSelector');
+      debugPrint('_isFixtureCaptain=$isFixtureCaptain');
+      debugPrint('_isFixtureViceCaptain=$isFixtureViceCaptain');
+      debugPrint('_canEditSelection=$canEditSelection');
+      debugPrint('_canAssignRinks=$canAssignRinks');
+      debugPrint('_canEditRinkSetup=$canEditRinkSetup');
+      debugPrint('_canPublish=$canPublish');
+      debugPrint('_canForceAccept=$canForceAccept');
+      debugPrint('_canAddPeople=$canAddPeople');
+
+      if (!mounted) return;
+      setState(() {
+        _isSuperuser = isSuperuser;
+        _isClubAdmin = isClubAdmin;
+        _isSelector = isSelector;
+        _isFixtureCaptain = isFixtureCaptain;
+        _isFixtureViceCaptain = isFixtureViceCaptain;
+
+        _canEditSelection = canEditSelection;
+        _canAssignRinks = canAssignRinks;
+        _canEditRinkSetup = canEditRinkSetup;
+        _canPublish = canPublish;
+        _canForceAccept = canForceAccept;
+        _canAddPeople = canAddPeople;
+      });
+    } catch (e) {
+      debugPrint('MANAGE_TEAM _loadUserPermissions error: $e');
+
+      if (!mounted) return;
+      setState(() {
+        _isSuperuser = false;
+        _isClubAdmin = false;
+        _isSelector = false;
+        _isFixtureCaptain = false;
+        _isFixtureViceCaptain = false;
+        _canEditSelection = false;
+        _canAssignRinks = false;
+        _canEditRinkSetup = false;
+        _canPublish = false;
+        _canForceAccept = false;
+        _canAddPeople = false;
+      });
     } finally {
-      if (mounted) setState(() => _checkingCanManage = false);
+      if (mounted) {
+        setState(() => _checkingPermissions = false);
+      }
     }
   }
 
@@ -464,51 +572,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     }
   }
 
-  Future<void> _loadCanAddMembers() async {
-    final userId = _client.auth.currentUser?.id;
-    if (userId == null) {
-      _canManage = false;
-      return;
-    }
-
-    // get my member_profile_id
-    final mp = await _client
-        .from('member_profiles')
-        .select('id')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    final myProfileId = mp?['id']?.toString();
-    if (myProfileId == null) {
-      _canManage = false;
-      return;
-    }
-
-    // check club admin
-    final adminRow = await _client
-        .from('club_memberships')
-        .select('id')
-        .eq('club_id', widget.fixture['club_id'].toString())
-        .eq('member_profile_id', myProfileId)
-        .eq('role', 'admin')
-        .maybeSingle();
-
-    final isAdmin = adminRow != null;
-
-    // check superuser (table must exist)
-    final suRow = await _client
-        .from('app_superusers')
-        .select('id')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    final isSuper = suRow != null;
-
-    _canManage = isAdmin || isSuper;
-  }
-
   Future<void> _showAddMemberDialog() async {
-    if (!_canManage) return;
+    if (!_canAddPeople) return;
 
     await _loadClubMembers();
     if (!mounted) return;
@@ -731,7 +796,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
       }
 
-      await _loadCanManage();
       await _load();
 
       if (mounted) {
@@ -809,7 +873,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _togglePlayer(String memberId) async {
-    if (widget.readOnly || !_canManage) return;
+    if (widget.readOnly || !_canEditSelection) return;
     if (_selectionId == null) return;
 
     final client = Supabase.instance.client;
@@ -858,17 +922,90 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _setRole(String memberId, String role) async {
-    if (widget.readOnly || !_canManage) return;
+    if (widget.readOnly || !_canEditSelection) return;
     if (_selectionId == null) return;
+
     try {
+      final existing = await Supabase.instance.client
+          .from('team_selection_members')
+          .select('role')
+          .eq('team_selection_id', _selectionId!)
+          .eq('member_profile_id', memberId)
+          .maybeSingle();
+
+      final oldRole = (existing?['role'] ?? '').toString().toLowerCase().trim();
+      final newRole = role.toLowerCase().trim();
+
+      debugPrint('SETROLE memberId=$memberId');
+      debugPrint('SETROLE existing=$existing');
+      debugPrint('SETROLE oldRole=$oldRole newRole=$newRole');
+      debugPrint('SETROLE selectionId=$_selectionId');
+
       await Supabase.instance.client
           .from('team_selection_members')
           .update({'role': role})
           .eq('team_selection_id', _selectionId!)
           .eq('member_profile_id', memberId);
 
+      if (oldRole == 'reserve' && newRole == 'player') {
+        debugPrint('SETROLE reserve->player trigger fired for $memberId');
+
+        final fixture = widget.fixture;
+        final profileRow = await Supabase.instance.client
+            .from('member_profiles')
+            .select('display_name, first_name, last_name')
+            .eq('id', memberId)
+            .maybeSingle();
+
+        final playerProfile =
+            profileRow == null ? null : Map<String, dynamic>.from(profileRow);
+
+        final playerName =
+            playerProfile?['display_name']?.toString().trim().isNotEmpty == true
+                ? playerProfile!['display_name'].toString().trim()
+                : [
+                    playerProfile?['first_name']?.toString().trim() ?? '',
+                    playerProfile?['last_name']?.toString().trim() ?? '',
+                  ].where((s) => s.isNotEmpty).join(' ');
+
+        final isHome = fixture['is_home'] == true;
+        final startAtText = fixture['start_at']?.toString();
+
+        final fixtureLabel =
+            (fixture['team_name']?.toString().trim().isNotEmpty ?? false)
+                ? fixture['team_name'].toString().trim()
+                : 'Fixture';
+
+        final venueName =
+            (fixture['venue_name']?.toString().trim().isNotEmpty ?? false)
+                ? fixture['venue_name'].toString().trim()
+                : ((fixture['opponent_name']?.toString().trim().isNotEmpty ?? false)
+                    ? fixture['opponent_name'].toString().trim()
+                    : '');
+
+        await Supabase.instance.client.from('notification_queue').insert({
+          'event_type': 'reserve_promoted',
+          'member_profile_id': _currentMemberProfileId,
+          'target_member_profile_id': memberId,
+          'fixture_id': fixture['id'],
+          'team_selection_id': _selectionId,
+          'payload': {
+            'player_name': playerName,
+            'fixture_label': fixtureLabel,
+            'fixture_date': startAtText,
+            'home_away': isHome ? 'Home' : 'Away',
+            'venue_name': venueName,
+            'old_role': 'reserve',
+            'new_role': 'player',
+          },
+          'status': 'pending',
+        });
+      }
+
       await _load();
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('SETROLE error: $e');
+      debugPrint('SETROLE stack: $st');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Set role error: $e')),
       );
@@ -876,7 +1013,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _publish() async {
-    if (widget.readOnly || !_canManage) return;
+    if (widget.readOnly || !_canEditSelection) return;
     if (_selectionId == null) return;
     try {
       final client = Supabase.instance.client;
@@ -905,7 +1042,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _removeSelected(String memberProfileId) async {
-    if (widget.readOnly || !_canManage) return;
+    if (widget.readOnly || !_canEditSelection) return;
     if (_selectionId == null) return;
 
     final selectedRow = _selected.firstWhere(
@@ -1015,7 +1152,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
               const Icon(Icons.help, size: 14, color: Colors.orange),
           ],
         ),
-        onTap: effectiveReadOnly ? null : () => _togglePlayer(memberId),
+        onTap: _canEditSelection ? () => _togglePlayer(memberId) : null,
       ),
     );
   }
@@ -1050,39 +1187,30 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     final selectedCount = _selected.where((s) => (s['role'] ?? 'player') == 'player').length;
 
     final reservesCount = _selected.where((s) => (s['role'] ?? 'player') == 'reserve').length;
-
+    
     return Scaffold(
         appBar: AppBar(
           title: Text(pageTitle),
         actions: [
-          if (!effectiveReadOnly)
+          if (_canAddPeople)
             IconButton(
               icon: const Icon(Icons.person_add),
               tooltip: 'Add Player(s)',
               onPressed: () async {
-                // 1) Not allowed -> show why
-                if (!_canManage) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Only Club Admins / SuperUsers can add members.')),
-                  );
-                  return;
-                }
-
-                // 2) Ensure we have the data needed
                 if (_selectionId == null) {
                   if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Team selection not loaded yet. Try again in a moment.')),
+                    const SnackBar(
+                      content: Text('Team selection not loaded yet. Try again in a moment.'),
+                    ),
                   );
                   return;
                 }
 
-                // 3) If club members list not loaded yet, load it now
                 if (_clubMembers.isEmpty) {
                   setState(() => _loading = true);
                   try {
-                    await _loadClubMembers(); // you should already have this method; if not, see Step 4 below
+                    await _loadClubMembers();
                   } catch (e) {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1094,7 +1222,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                   }
                 }
 
-                // 4) Now show dialog
                 await _showAddMemberDialog();
               },
             ),
@@ -1115,9 +1242,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-
                             ElevatedButton.icon(
-                              onPressed: _selectionId == null
+                              onPressed: (_selectionId == null || !_canEditRinkSetup)
                                   ? null
                                   : () async {
                                       await Navigator.push(
@@ -1131,7 +1257,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                       );
                                     },
                               icon: const Icon(Icons.grid_view),
-                              label: const Text('Rinks setup'),
+                              label: const Text('Rinks Setup'),
                             ),
 
                             const SizedBox(height: 8),
@@ -1140,26 +1266,37 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                               onPressed: _selectionId == null
                                   ? null
                                   : () async {
-                                      await Navigator.push(
+                                      final changed = await Navigator.push<bool>(
                                         context,
                                         MaterialPageRoute(
                                           builder: (_) => RinkAssignmentsScreen(
                                             fixtureId: widget.fixture['id'].toString(),
                                             teamSelectionId: _selectionId!,
+                                            readOnly: !_canAssignRinks,
                                           ),
                                         ),
                                       );
+
+                                      debugPrint('MANAGE_TEAM returned from Rinks changed=$changed');
+
+                                      if (changed == true) {
+                                        await _load();
+                                      }
                                     },
                               icon: const Icon(Icons.groups),
-                              label: const Text('Assign rinks & positions'),
+                              label: Text(
+                                _canAssignRinks
+                                    ? 'Assign Rinks & Positions'
+                                    : 'View Rinks & Positions',
+                              ),    
                             ),
 
                             const SizedBox(height: 8),
 
                             if (!isPublished)
                               ElevatedButton(
-                                onPressed: effectiveReadOnly ? null : _publish,
-                                child: const Text('Publish team'),
+                                onPressed: _canPublish ? _publish : null,
+                                child: const Text('Publish Team'),
                               )
                             else
                               Row(
@@ -1248,7 +1385,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                           child: ListTile(
                             dense: true,
                             visualDensity: VisualDensity.compact,
-                            onTap: effectiveReadOnly ? null : () async { await _removeSelected(memberId); },
+                            onTap: _canEditSelection ? () async { await _removeSelected(memberId); } : null,
                             title: Row(
                               children: [
                                 Expanded(
@@ -1284,22 +1421,29 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                   ),
                               ],
                             ),
-                            trailing: effectiveReadOnly
-                                ? null
-                                : PopupMenuButton<String>(
-                                    onSelected: (v) async {
-                                      if (v == 'player' || v == 'reserve') {
-                                        await _setRole(memberId, v);
-                                      } else if (v == 'accept') {
-                                        await _acceptOnBehalf(memberId);
-                                      }
-                                    },
-                                    itemBuilder: (_) => const [
-                                      PopupMenuItem(value: 'player', child: Text('Make player')),
-                                      PopupMenuItem(value: 'reserve', child: Text('Make reserve')),
-                                      PopupMenuItem(value: 'accept', child: Text('Accept')),
-                                    ],
-                                  ),
+                      trailing: !_canEditSelection && !_canForceAccept
+                          ? null
+                          : PopupMenuButton<String>(
+                              onSelected: (v) async {
+                                if (v == 'player' || v == 'reserve') {
+                                  if (_canEditSelection) {
+                                    await _setRole(memberId, v);
+                                  }
+                                } else if (v == 'accept') {
+                                  if (_canForceAccept) {
+                                    await _acceptOnBehalf(memberId);
+                                  }
+                                }
+                              },
+                              itemBuilder: (_) => [
+                                if (_canEditSelection)
+                                  const PopupMenuItem(value: 'player', child: Text('Make player')),
+                                if (_canEditSelection)
+                                  const PopupMenuItem(value: 'reserve', child: Text('Make reserve')),
+                                if (_canForceAccept)
+                                  const PopupMenuItem(value: 'accept', child: Text('Accept')),
+                              ],
+                            ),
                           ),
                         );
                       }

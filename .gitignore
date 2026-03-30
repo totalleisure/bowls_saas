@@ -71,3 +71,4 @@ linux/flutter/ephemeral/
 # Secrets / local config
 # =========================
 lib/secrets.dart
+Supabase Configuration/Bowls Mailer Secret.txt

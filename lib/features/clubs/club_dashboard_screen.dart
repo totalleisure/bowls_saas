@@ -625,6 +625,22 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                         label: const Text('Go to admin'),
                       ),
                       const SizedBox(height: 16),
+                    ] else ...[
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MembersScreen(
+                                clubId: widget.clubId,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.people),
+                        label: const Text('View members'),
+                      ),
+                      const SizedBox(height: 16),
                     ],
                     Text('Needs your acceptance',
                         style: Theme.of(context).textTheme.titleMedium),

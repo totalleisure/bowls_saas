@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
-
+import 'dart:convert';
 import '../../core/utils/date_format.dart';
 
 import 'package:bowls_saas/Services/team_sheet_pdf.dart';
@@ -13,27 +13,42 @@ class RinkAssignmentsScreen extends StatefulWidget {
   final String fixtureId;
   final String teamSelectionId;
 
+  final bool readOnly;
+
   const RinkAssignmentsScreen({
     super.key,
     required this.fixtureId,
     required this.teamSelectionId,
+    this.readOnly = false,
   });
-
+  
   @override
   State<RinkAssignmentsScreen> createState() => _RinkAssignmentsScreenState();
 }
 
 class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
+
   bool _loading = true;
+  bool _changed = false;
+
   String? _error;
+  String? _currentMemberProfileId;
+
+  bool _checkingPermissions = true;
+
+  bool _isSuperuser = false;
+  bool _isClubAdmin = false;
+  bool _isSelector = false;
+  bool _isFixtureCaptain = false;
+  bool _isFixtureViceCaptain = false;
+
+  bool _canAssignRinks = false;
+  bool _canPublishTeamSheet = false;
+  bool _canView = true;
 
   List<Map<String, dynamic>> _rinks = [];
   List<Map<String, dynamic>> _pool = [];
-
-  // For colouring dropdown options: member_profile_id values already assigned
   Set<String> _assignedMemberIds = {};
-
-  //Map<String, List<Map<String, dynamic>>> _assignmentsByRink = {};
   Map<String, Map<int, Map<String, dynamic>>> _assignmentsByRink = {};
   
   Future<Map<String, dynamic>> _loadFixtureHeader(String fixtureId) async {
@@ -133,7 +148,416 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadAll();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _loadUserPermissions();
+    await _loadAll();
+  }
+
+  Future<String?> _myMemberProfileId() async {
+    try {
+      final id = await Supabase.instance.client.rpc('my_member_profile_id');
+      return id?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _loadUserPermissions() async {
+    if (mounted) {
+      setState(() => _checkingPermissions = true);
+    }
+
+    try {
+      final client = Supabase.instance.client;
+      final user = client.auth.currentUser;
+
+      if (user == null) {
+        if (!mounted) return;
+        setState(() {
+          _isSuperuser = false;
+          _isClubAdmin = false;
+          _isSelector = false;
+          _isFixtureCaptain = false;
+          _isFixtureViceCaptain = false;
+          _canAssignRinks = false;
+          _canPublishTeamSheet = false;
+        });
+        return;
+      }
+
+      final header = await _loadFixtureHeader(widget.fixtureId);
+      final clubId = header['club_id']?.toString() ?? '';
+
+      final fixtureCaptainId =
+          header['captain_member_profile_id']?.toString() ?? '';
+      final fixtureViceCaptainId =
+          header['vice_captain_member_profile_id']?.toString() ?? '';
+
+      bool isSuperuser = false;
+      bool isClubAdmin = false;
+      bool isSelector = false;
+      bool isFixtureCaptain = false;
+      bool isFixtureViceCaptain = false;
+
+      final su = await client
+          .from('app_superusers')
+          .select('user_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      isSuperuser = su != null;
+
+      final mp = await client
+          .from('member_profiles')
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      final myMemberProfileId = mp?['id']?.toString();
+      _currentMemberProfileId = myMemberProfileId;
+
+      if (clubId.isNotEmpty && myMemberProfileId != null) {
+        final cm = await client
+            .from('club_memberships')
+            .select('role, is_active')
+            .eq('club_id', clubId)
+            .eq('member_profile_id', myMemberProfileId)
+            .maybeSingle();
+
+        final isActive = cm?['is_active'] == true;
+        final role = (cm?['role'] ?? '').toString().toLowerCase();
+
+        isClubAdmin = isActive && role == 'admin';
+        isSelector = isActive && role == 'selector';
+      }
+
+      if (myMemberProfileId != null && myMemberProfileId.isNotEmpty) {
+        isFixtureCaptain =
+            fixtureCaptainId.isNotEmpty && fixtureCaptainId == myMemberProfileId;
+        isFixtureViceCaptain =
+            fixtureViceCaptainId.isNotEmpty &&
+            fixtureViceCaptainId == myMemberProfileId;
+      }
+
+      final canAssignRinks = !widget.readOnly &&
+          (isSuperuser ||
+              isClubAdmin ||
+              isSelector ||
+              isFixtureCaptain ||
+              isFixtureViceCaptain);
+
+      final canPublishTeamSheet = !widget.readOnly &&
+          (isSuperuser ||
+              isClubAdmin ||
+              isSelector ||
+              isFixtureCaptain ||
+              isFixtureViceCaptain);
+
+      debugPrint('--- RINK_ASSIGN permissions ---');
+      debugPrint('_isSuperuser=$isSuperuser');
+      debugPrint('_isClubAdmin=$isClubAdmin');
+      debugPrint('_isSelector=$isSelector');
+      debugPrint('_isFixtureCaptain=$isFixtureCaptain');
+      debugPrint('_isFixtureViceCaptain=$isFixtureViceCaptain');
+      debugPrint('_canAssignRinks=$canAssignRinks');
+      debugPrint('_canPublishTeamSheet=$canPublishTeamSheet');
+
+      if (!mounted) return;
+      setState(() {
+        _isSuperuser = isSuperuser;
+        _isClubAdmin = isClubAdmin;
+        _isSelector = isSelector;
+        _isFixtureCaptain = isFixtureCaptain;
+        _isFixtureViceCaptain = isFixtureViceCaptain;
+        _canAssignRinks = canAssignRinks;
+        _canPublishTeamSheet = canPublishTeamSheet;
+      });
+    } catch (e) {
+      debugPrint('RINK_ASSIGN _loadUserPermissions error: $e');
+      if (!mounted) return;
+      setState(() {
+        _isSuperuser = false;
+        _isClubAdmin = false;
+        _isSelector = false;
+        _isFixtureCaptain = false;
+        _isFixtureViceCaptain = false;
+        _canAssignRinks = false;
+        _canPublishTeamSheet = false;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _checkingPermissions = false);
+      }
+    }
+  }
+
+  Future<void> _emailTeamSheet({required bool isResend}) async {
+    try {
+      if (_rinks.isEmpty) {
+        await _loadAll();
+      }
+
+      final header = await _loadFixtureHeader(widget.fixtureId);
+
+      Map<String, dynamic>? asMap(dynamic v) {
+        if (v is Map<String, dynamic>) return v;
+        if (v is Map) return Map<String, dynamic>.from(v);
+        return null;
+      }
+
+      String venueNameOnly(Map<String, dynamic>? venueRow) {
+        if (venueRow == null) return '';
+        return venueRow['name']?.toString().trim() ?? '';
+      }
+
+      final clubName = header['clubs']?['name']?.toString().trim() ?? 'Club';
+      final isHome = header['is_home'] == true;
+
+      final venueRow = asMap(header['venue']);
+      final opponentVenueRow = asMap(header['opponent_venue']);
+
+      final opponentName = isHome
+          ? venueNameOnly(opponentVenueRow)
+          : venueNameOnly(venueRow);
+
+      final safeOpponentName = opponentName.isEmpty ? 'Opponent' : opponentName;
+      final startAt =
+          DateTime.tryParse(header['start_at']?.toString() ?? '') ?? DateTime.now();
+      final section = header['section']?.toString() ?? '';
+
+      final roleByMember = <String, String>{};
+      final reserves = <String>[];
+
+      for (final r in _pool) {
+        final mpId = r['member_profile_id']?.toString() ?? '';
+        final role = r['role']?.toString().toLowerCase() ?? '';
+        final name = r['member_profiles']?['display_name']?.toString() ?? '';
+        if (mpId.isNotEmpty) roleByMember[mpId] = role;
+        if (role == 'reserve' && name.isNotEmpty) reserves.add(name);
+      }
+
+      final rinks = <TeamSheetRink>[];
+      int playersPerRink = 4;
+
+      for (final rr in _rinks) {
+        final rinkId = rr['id']?.toString() ?? '';
+        final rinkNo = (rr['fixture_rink_no'] as int?) ?? 0;
+        final label = rr['home_rink_label']?.toString();
+        final ppr = (rr['players_per_rink'] as int?) ?? 4;
+        playersPerRink = ppr;
+
+        final byPos =
+            _assignmentsByRink[rinkId] ?? <int, Map<String, dynamic>>{};
+        final positions = byPos.keys.toList()..sort();
+
+        final players = <String>[];
+        for (final pos in positions) {
+          final a = byPos[pos]!;
+          final mpId = a['member_profile_id']?.toString() ?? '';
+          final role = roleByMember[mpId] ?? 'player';
+          if (role == 'reserve') continue;
+
+          final name = a['member_profiles']?['display_name']?.toString() ?? '';
+          if (name.isNotEmpty) players.add(name);
+        }
+
+        rinks.add(
+          TeamSheetRink(
+            rinkNumber: rinkNo,
+            homeRinkLabel: label,
+            players: players,
+          ),
+        );
+      }
+
+      final captain = asMap(header['captain']);
+      final vice = asMap(header['vice_captain']);
+
+      final data = TeamSheetData(
+        clubName: clubName,
+        opponentName: safeOpponentName,
+        startAt: startAt,
+        isHome: isHome,
+        section: section,
+        rinksRequired: rinks.length,
+        playersPerRink: playersPerRink,
+        dress: 'Greys/Whites or Blacks',
+        mealInfo: null,
+        notes: null,
+        captainName: _displayNameFromProfile(captain),
+        captainEmail: _emailFromProfile(captain),
+        captainPhone: _phoneFromProfile(captain),
+        viceName: _displayNameFromProfile(vice),
+        viceEmail: _emailFromProfile(vice),
+        vicePhone: _phoneFromProfile(vice),
+        rinks: rinks,
+        reserves: reserves,
+        primaryColor: 0xFF0B3D91,
+        secondaryColor: 0xFFFFD200,
+        logoBytes: null,
+      );
+
+      final pdfBytes = await buildTeamSheetPdf(data);
+
+      final recipientsByEmail = <String, Map<String, dynamic>>{};
+
+      void addOrUpgradeRecipient({
+        required String? email,
+        required String? memberId,
+        required String type,
+        required String name,
+      }) {
+        if (email == null || email.trim().isEmpty) return;
+
+        final cleanEmail = email.trim();
+
+        const priority = {
+          'reserve': 1,
+          'player': 2,
+          'vice_captain': 3,
+          'captain': 4,
+        };
+
+        final existing = recipientsByEmail[cleanEmail];
+        if (existing == null) {
+          recipientsByEmail[cleanEmail] = {
+            'member_profile_id': memberId,
+            'email': cleanEmail,
+            'type': type,
+            'name': name,
+          };
+          return;
+        }
+
+        final existingType = existing['type']?.toString() ?? 'reserve';
+        final existingPriority = priority[existingType] ?? 0;
+        final newPriority = priority[type] ?? 0;
+
+        if (newPriority >= existingPriority) {
+          recipientsByEmail[cleanEmail] = {
+            'member_profile_id': memberId ?? existing['member_profile_id'],
+            'email': cleanEmail,
+            'type': type,
+            'name': name,
+          };
+        }
+      }
+
+      String? emailForDisplayName(String displayName) {
+        for (final r in _pool) {
+          final mp = r['member_profiles'];
+          final name = mp?['display_name']?.toString().trim() ?? '';
+          final email = mp?['email_address']?.toString().trim() ?? '';
+          if (name == displayName && email.isNotEmpty) return email;
+        }
+        return null;
+      }
+
+      String? memberIdForDisplayName(String displayName) {
+        for (final r in _pool) {
+          final mp = r['member_profiles'];
+          final name = mp?['display_name']?.toString().trim() ?? '';
+          final memberId = r['member_profile_id']?.toString();
+          if (name == displayName && memberId != null && memberId.isNotEmpty) {
+            return memberId;
+          }
+        }
+        return null;
+      }
+
+      // Players
+      for (final rink in data.rinks) {
+        for (final playerName in rink.players) {
+          addOrUpgradeRecipient(
+            email: emailForDisplayName(playerName),
+            memberId: memberIdForDisplayName(playerName),
+            type: 'player',
+            name: playerName,
+          );
+        }
+      }
+
+      // Reserves
+      for (final reserveName in data.reserves) {
+        addOrUpgradeRecipient(
+          email: emailForDisplayName(reserveName),
+          memberId: memberIdForDisplayName(reserveName),
+          type: 'reserve',
+          name: reserveName,
+        );
+      }
+
+      // Captain
+      final captainId = header['captain_member_profile_id']?.toString();
+      final captainRoleName = _displayNameFromProfile(captain);
+      final captainRoleEmail = _emailFromProfile(captain);
+
+      addOrUpgradeRecipient(
+        email: captainRoleEmail,
+        memberId: captainId,
+        type: 'captain',
+        name: captainRoleName.isNotEmpty ? captainRoleName : 'Captain',
+      );
+
+      // Vice-captain
+      final viceId = header['vice_captain_member_profile_id']?.toString();
+      final viceRoleName = _displayNameFromProfile(vice);
+      final viceRoleEmail = _emailFromProfile(vice);
+
+      addOrUpgradeRecipient(
+        email: viceRoleEmail,
+        memberId: viceId,
+        type: 'vice_captain',
+        name: viceRoleName.isNotEmpty ? viceRoleName : 'Vice-Captain',
+      );
+
+      final recipients = recipientsByEmail.values.toList();
+
+      final d = data.startAt.toLocal();
+      final when =
+          '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+      final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
+      final safeOpp = data.opponentName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
+      final filename = '$safeClub v $safeOpp - $when.pdf';
+
+      final res = await Supabase.instance.client.functions.invoke(
+        'send-team-sheet-emails',
+        body: {
+          'fixture_id': widget.fixtureId,
+          'club_name': data.clubName,
+          'opponent': data.opponentName,
+          'start_at': data.startAt.toIso8601String(),
+          'recipients': recipients,
+          'attachment': {
+            'name': filename,
+            'contentType': 'application/pdf',
+            'contentBytes': base64Encode(pdfBytes),
+          },
+        },
+      );
+
+      debugPrint('TEAM SHEET EMAIL RESPONSE: ${res.data}');
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isResend
+                ? 'Team sheet emails re-sent'
+                : 'Team sheet published and emailed',
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Team sheet email failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Email failed: $e')),
+      );
+    }
   }
 
   Future<void> _loadAll() async {
@@ -143,6 +567,11 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     });
 
     try {
+
+      _currentMemberProfileId = await _myMemberProfileId();
+
+      debugPrint('RINK currentMemberProfileId=$_currentMemberProfileId');
+
       final client = Supabase.instance.client;
 
       // 1) Load rinks for this fixture
@@ -180,7 +609,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           .from('team_selection_members')
           .select(
             'member_profile_id, role, acceptance, '
-            'member_profiles!team_selection_members_member_profile_id_fkey(display_name)',
+            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, email_address)',
           )
           .eq('team_selection_id', widget.teamSelectionId)
           .inFilter('role', ['player', 'reserve']);
@@ -231,6 +660,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   }
 
   Future<void> _clearSlot(String rinkId, int position) async {
+    if (!_canAssignRinks) return;
     try {
       await Supabase.instance.client
           .from('fixture_rink_assignments')
@@ -253,8 +683,117 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     required int position,
     required String memberProfileId,
   }) async {
+    if (widget.readOnly || !_canAssignRinks) return;
     try {
       final client = Supabase.instance.client;
+
+      // Check current selection role from source of truth
+      final existing = await client
+          .from('team_selection_members')
+          .select('role')
+          .eq('team_selection_id', widget.teamSelectionId)
+          .eq('member_profile_id', memberProfileId)
+          .maybeSingle();
+
+      final oldRole = (existing?['role'] ?? '').toString().toLowerCase().trim();
+
+      // If reserve, confirm promotion before assignment
+      if (oldRole == 'reserve') {
+        final memberRow = _pool.cast<Map<String, dynamic>?>().firstWhere(
+          (r) => (r?['member_profile_id']?.toString() ?? '') == memberProfileId,
+          orElse: () => null,
+        );
+
+        final profile = memberRow?['member_profiles'] as Map<String, dynamic>?;
+        final playerName =
+            profile?['display_name']?.toString().trim().isNotEmpty == true
+                ? profile!['display_name'].toString().trim()
+                : [
+                    profile?['first_name']?.toString().trim() ?? '',
+                    profile?['last_name']?.toString().trim() ?? '',
+                  ].where((s) => s.isNotEmpty).join(' ');
+
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Promote reserve to player?'),
+            content: Text(
+              playerName.isNotEmpty
+                  ? '$playerName is currently marked as a reserve. Assigning them to a rink will promote them to player. Continue?'
+                  : 'This member is currently marked as a reserve. Assigning them to a rink will promote them to player. Continue?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Promote and assign'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true) return;
+
+        debugPrint('RINK_ASSIGN oldRole=$oldRole memberProfileId=$memberProfileId');
+        debugPrint('RINK_ASSIGN promoting reserve to player...');
+
+        // Promote reserve -> player
+        await client
+            .from('team_selection_members')
+            .update({'role': 'player'})
+            .eq('team_selection_id', widget.teamSelectionId)
+            .eq('member_profile_id', memberProfileId);
+
+        debugPrint('RINK_ASSIGN promotion update complete');
+        
+        // Queue notification
+        final header = await _loadFixtureHeader(widget.fixtureId);
+
+        Map<String, dynamic>? asMap(dynamic v) {
+          if (v is Map<String, dynamic>) return v;
+          if (v is Map) return Map<String, dynamic>.from(v);
+          return null;
+        }
+
+        String venueNameOnly(Map<String, dynamic>? venueRow) {
+          if (venueRow == null) return '';
+          return venueRow['name']?.toString().trim() ?? '';
+        }
+
+        final isHome = header['is_home'] == true;
+        final venueRow = asMap(header['venue']);
+        final opponentVenueRow = asMap(header['opponent_venue']);
+
+        final venueName = isHome
+            ? venueNameOnly(opponentVenueRow)
+            : venueNameOnly(venueRow);
+
+        final fixtureLabel =
+            (header['clubs']?['name']?.toString().trim().isNotEmpty ?? false)
+                ? '${header['clubs']['name']} v ${venueName.isNotEmpty ? venueName : 'Opponent'}'
+                : 'Fixture';
+
+        await client.from('notification_queue').insert({
+          'event_type': 'reserve_promoted',
+          'member_profile_id': _currentMemberProfileId,
+          'target_member_profile_id': memberProfileId,
+          'fixture_id': widget.fixtureId,
+          'team_selection_id': widget.teamSelectionId,
+          'payload': {
+            'player_name': playerName,
+            'fixture_label': fixtureLabel,
+            'fixture_date': header['start_at']?.toString(),
+            'home_away': isHome ? 'Home' : 'Away',
+            'venue_name': venueName,
+            'old_role': 'reserve',
+            'new_role': 'player',
+          },
+          'status': 'pending',
+        });
+      }
 
       // Remove any existing occupant of this slot
       await client
@@ -278,13 +817,47 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         'position': position,
       });
 
+      _changed = true;
+
       await _loadAll();
     } catch (e) {
-      debugPrint('RinkAssignments load error: $e');
+      debugPrint('RinkAssignments assign error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Assign failed: $e')));
       }
+    }
+  }
+
+  Future<void> _publishAndEmailTeamSheet() async {
+    if (!_canPublishTeamSheet) return;
+    await _emailTeamSheet(isResend: false);
+  }
+
+  Future<void> _resendTeamSheetEmails() async {
+    if (!_canPublishTeamSheet) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Resend team sheet emails?'),
+        content: const Text(
+          'This will send the current team sheet emails again to the listed players and reserves.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Resend'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      await _emailTeamSheet(isResend: true);
     }
   }
 
@@ -378,9 +951,6 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
       final captainId = header['captain_member_profile_id']?.toString() ?? '';
       final viceId = header['vice_captain_member_profile_id']?.toString() ?? '';
-
-      final captainProfile = _memberProfileFromPool(captainId);
-      final viceProfile = _memberProfileFromPool(viceId);
 
       final captain = asMap(header['captain']);
       final vice = asMap(header['vice_captain']);
@@ -519,6 +1089,43 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     return position.toString();
   }
 
+  Widget _buildTeamSheetActions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _shareTeamSheetPdf,
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              label: const Text('Save / Share Team Sheet PDF'),
+            ),
+            ElevatedButton.icon(
+              onPressed: _canPublishTeamSheet ? _publishAndEmailTeamSheet : null,
+              icon: const Icon(Icons.publish),
+              label: const Text('Publish & Email Team Sheet'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _canPublishTeamSheet ? _resendTeamSheetEmails : null,
+              icon: const Icon(Icons.mark_email_read_outlined),
+              label: const Text('Resend Team Sheet Emails'),
+            ),
+          ],
+        ),
+        if (!_canAssignRinks)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'You have readonly access to rink assignments.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _slotRow({
     required String rinkId,
     required int position,
@@ -538,19 +1145,24 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           child: DropdownButtonFormField<String?>(
             value: selectedId,
             isDense: true,
-            decoration: const InputDecoration(labelText: 'Player'),
+            decoration: InputDecoration(
+              labelText: 'Player',
+              enabled: _canAssignRinks,
+            ),
             items: _poolItems(),
-            onChanged: (v) async {
-              if (v == null) {
-                await _clearSlot(rinkId, position);
-              } else {
-                await _assign(
-                  rinkId: rinkId,
-                  position: position,
-                  memberProfileId: v,
-                );
-              }
-            },
+            onChanged: widget.readOnly || !_canAssignRinks
+                ? null
+                : (v) async {
+                    if (v == null) {
+                      await _clearSlot(rinkId, position);
+                    } else {
+                      await _assign(
+                        rinkId: rinkId,
+                        position: position,
+                        memberProfileId: v,
+                      );
+                    }
+                  },
           ),
         ),
       ],
@@ -561,14 +1173,20 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Assign rinks & positions'),
+        title: Text(
+          widget.readOnly
+              ? 'View Rinks & Positions'
+              : 'Assign Rinks & Positions',
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context, _changed),
+        ),
         actions: [
-          IconButton(onPressed: _loadAll, icon: const Icon(Icons.refresh)),
           IconButton(
-              tooltip: 'Share team sheet (PDF)',
-              icon: const Icon(Icons.picture_as_pdf),
-              onPressed: _loading ? null : _shareTeamSheetPdf,
-            ),
+            onPressed: _loadAll,
+            icon: const Icon(Icons.refresh),
+          ),
         ],
       ),
       body: _loading
@@ -578,6 +1196,8 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    _buildTeamSheetActions(),
+                    const SizedBox(height: 16),
                     if (_rinks.isEmpty)
                       const Text('No rinks created yet. Go back and set up rinks first.')
                     else
@@ -605,7 +1225,6 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
                                   style: const TextStyle(fontWeight: FontWeight.w600),
                                 ),
                                 const SizedBox(height: 8),
-
                                 for (int pos = 1; pos <= ppr; pos++) ...[
                                   _slotRow(
                                     rinkId: rinkId,
