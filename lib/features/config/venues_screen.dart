@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 //import 'package:flutter/services.dart';
 //import 'package:intl/intl.dart';
 //import 'package:share_plus/share_plus.dart';
-//import '../../core/utils/date_format.dart';
 
+//import '../../core/utils/date_format.dart';
 //import '../../Core/permissions/club_role_resolver.dart';
 //import '../../Core/permissions/dashboard_permissions.dart';
 //import '../../Core/permissions/fixture_permissions.dart';
@@ -37,6 +38,133 @@ class _VenuesScreenState extends State<VenuesScreen> {
   String _searchText = '';
 
   bool get _canManage => _isSuperuser || _isClubAdmin;
+
+  String _s(dynamic v) => (v ?? '').toString().trim();
+
+  String _buildAddress(Map<String, dynamic> venue) {
+    final parts = [
+      _s(venue['address_line1']),
+      _s(venue['address_line2']),
+      _s(venue['town_city']),
+      _s(venue['postcode']),
+    ].where((e) => e.isNotEmpty).toList();
+
+    return parts.join(', ');
+  }
+
+  Future<void> _openMapForVenue(Map<String, dynamic> venue) async {
+    final directionsUrl = _s(venue['directions_url']);
+    final address = _buildAddress(venue);
+    final query = Uri.encodeComponent(
+      address.isNotEmpty ? address : _s(venue['name']),
+    );
+
+    final uri = directionsUrl.isNotEmpty
+        ? Uri.parse(directionsUrl)
+        : Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _showVenueDetails(Map<String, dynamic> venue) async {
+    final address = _buildAddress(venue);
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(_s(venue['name'])),
+        content: SizedBox(
+          width: 700,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Chip(
+                        label: Text(
+                          venue['is_home_venue'] == true
+                              ? 'Home venue'
+                              : 'Opponent venue',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (address.isNotEmpty) ...[
+                        const Text(
+                          'Address',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(address),
+                        const SizedBox(height: 16),
+                      ],
+                      if (_s(venue['contact_name']).isNotEmpty ||
+                          _s(venue['contact_phone']).isNotEmpty ||
+                          _s(venue['contact_email']).isNotEmpty) ...[
+                        const Text(
+                          'Contact',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        if (_s(venue['contact_name']).isNotEmpty)
+                          Text(_s(venue['contact_name'])),
+                        if (_s(venue['contact_phone']).isNotEmpty)
+                          Text(_s(venue['contact_phone'])),
+                        if (_s(venue['contact_email']).isNotEmpty)
+                          Text(_s(venue['contact_email'])),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 2,
+                child: Container(
+                  height: 260,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.black12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.map_outlined, size: 40),
+                      const SizedBox(height: 12),
+                      const Text('Map preview area'),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: () => _openMapForVenue(venue),
+                        icon: const Icon(Icons.open_in_new),
+                        label: const Text('Open in Google Maps'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          if (_canManage)
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _editVenue(venue);
+              },
+              child: const Text('Edit'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _applyFilter() {
     final q = _searchText.trim().toLowerCase();
@@ -140,8 +268,13 @@ class _VenuesScreenState extends State<VenuesScreen> {
 
     try {
       final rows = await Supabase.instance.client
-          .from('venues')
-          .select('id, name, is_home_venue, town_city, postcode')
+          .from('venues_with_details')
+          .select(
+            'id, club_id, name, is_home_venue, '
+            'contact_name, contact_phone, contact_email, '
+            'address_line1, address_line2, town_city, postcode, directions_url, '
+            'venue_master_id'
+          )
           .eq('club_id', widget.clubId)
           .order('name');
 
@@ -158,8 +291,15 @@ class _VenuesScreenState extends State<VenuesScreen> {
 
   Future<void> _createVenue() async {
     final name = TextEditingController();
+    final contactName = TextEditingController();
+    final contactPhone = TextEditingController();
+    final contactEmail = TextEditingController();
+    final address1 = TextEditingController();
+    final address2 = TextEditingController();
     final town = TextEditingController();
     final postcode = TextEditingController();
+    final directionsUrl = TextEditingController();
+
     bool isHome = true;
 
     final ok = await showDialog<bool>(
@@ -167,59 +307,125 @@ class _VenuesScreenState extends State<VenuesScreen> {
       builder: (_) => StatefulBuilder(
         builder: (context, setStateDialog) => AlertDialog(
           title: const Text('Create venue'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: name,
-                  decoration: const InputDecoration(labelText: 'Venue name'),
-                ),
-                TextField(
-                  controller: town,
-                  decoration: const InputDecoration(labelText: 'Town/City (optional)'),
-                ),
-                TextField(
-                  controller: postcode,
-                  decoration: const InputDecoration(labelText: 'Postcode (optional)'),
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile(
-                  value: isHome,
-                  onChanged: (v) => setStateDialog(() => isHome = v),
-                  title: const Text('Home venue'),
-                ),
-              ],
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Venue name'),
+                  ),
+                  TextField(
+                    controller: address1,
+                    decoration: const InputDecoration(labelText: 'Address line 1'),
+                  ),
+                  TextField(
+                    controller: address2,
+                    decoration: const InputDecoration(labelText: 'Address line 2 (optional)'),
+                  ),
+                  TextField(
+                    controller: town,
+                    decoration: const InputDecoration(labelText: 'Town/City'),
+                  ),
+                  TextField(
+                    controller: postcode,
+                    decoration: const InputDecoration(labelText: 'Postcode'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: contactName,
+                    decoration: const InputDecoration(labelText: 'Contact name (optional)'),
+                  ),
+                  TextField(
+                    controller: contactPhone,
+                    decoration: const InputDecoration(labelText: 'Contact phone (optional)'),
+                  ),
+                  TextField(
+                    controller: contactEmail,
+                    decoration: const InputDecoration(labelText: 'Contact email (optional)'),
+                  ),
+                  TextField(
+                    controller: directionsUrl,
+                    decoration: const InputDecoration(labelText: 'Directions URL (optional)'),
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: isHome,
+                    onChanged: (v) => setStateDialog(() => isHome = v),
+                    title: const Text('Home venue'),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Create'),
+            ),
           ],
         ),
       ),
     );
 
     if (ok != true) return;
+
     final venueName = name.text.trim();
-    if (venueName.isEmpty) return;
+    if (venueName.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Venue name is required.')),
+        );
+      }
+      return;
+    }
 
     try {
-      await Supabase.instance.client.from('venues').insert({
-        'club_id': widget.clubId,
-        'name': venueName,
-        'is_home_venue': isHome,
-        'town_city': town.text.trim().isEmpty ? null : town.text.trim(),
-        'postcode': postcode.text.trim().isEmpty ? null : postcode.text.trim(),
-      });
+      await Supabase.instance.client.rpc(
+        'create_club_venue',
+        params: {
+          'p_club_id': widget.clubId,
+          'p_name': venueName,
+          'p_is_home_venue': isHome,
+          'p_contact_name': contactName.text.trim(),
+          'p_contact_phone': contactPhone.text.trim(),
+          'p_contact_email': contactEmail.text.trim(),
+          'p_address_line1': address1.text.trim(),
+          'p_address_line2': address2.text.trim(),
+          'p_town_city': town.text.trim(),
+          'p_postcode': postcode.text.trim(),
+          'p_directions_url': directionsUrl.text.trim(),
+        },
+      );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Venue created ✅')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Venue created ✅')),
+        );
       }
+
       await _load();
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        final msg = e.message.contains('already exists for this club')
+            ? 'A venue with this name already exists for this club.'
+            : 'Create venue error: ${e.message}';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Create venue error: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Create venue error: $e')),
+        );
       }
     }
   }
@@ -229,8 +435,23 @@ class _VenuesScreenState extends State<VenuesScreen> {
     if (id == null || id.isEmpty) return;
 
     final name = TextEditingController(text: (venue['name'] ?? '').toString());
-    final town = TextEditingController(text: (venue['town_city'] ?? '').toString());
-    final postcode = TextEditingController(text: (venue['postcode'] ?? '').toString());
+    final contactName =
+        TextEditingController(text: (venue['contact_name'] ?? '').toString());
+    final contactPhone =
+        TextEditingController(text: (venue['contact_phone'] ?? '').toString());
+    final contactEmail =
+        TextEditingController(text: (venue['contact_email'] ?? '').toString());
+    final address1 =
+        TextEditingController(text: (venue['address_line1'] ?? '').toString());
+    final address2 =
+        TextEditingController(text: (venue['address_line2'] ?? '').toString());
+    final town =
+        TextEditingController(text: (venue['town_city'] ?? '').toString());
+    final postcode =
+        TextEditingController(text: (venue['postcode'] ?? '').toString());
+    final directionsUrl =
+        TextEditingController(text: (venue['directions_url'] ?? '').toString());
+
     bool isHome = venue['is_home_venue'] == true;
 
     final ok = await showDialog<bool>(
@@ -238,30 +459,58 @@ class _VenuesScreenState extends State<VenuesScreen> {
       builder: (_) => StatefulBuilder(
         builder: (context, setStateDialog) => AlertDialog(
           title: const Text('Edit venue'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: name,
-                  decoration: const InputDecoration(labelText: 'Venue name'),
-                ),
-                TextField(
-                  controller: town,
-                  decoration: const InputDecoration(labelText: 'Town/City (optional)'),
-                ),
-                TextField(
-                  controller: postcode,
-                  decoration: const InputDecoration(labelText: 'Postcode (optional)'),
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: isHome,
-                  onChanged: (v) => setStateDialog(() => isHome = v),
-                  title: const Text('Home venue'),
-                ),
-              ],
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Venue name'),
+                  ),
+                  TextField(
+                    controller: address1,
+                    decoration: const InputDecoration(labelText: 'Address line 1'),
+                  ),
+                  TextField(
+                    controller: address2,
+                    decoration: const InputDecoration(labelText: 'Address line 2 (optional)'),
+                  ),
+                  TextField(
+                    controller: town,
+                    decoration: const InputDecoration(labelText: 'Town/City'),
+                  ),
+                  TextField(
+                    controller: postcode,
+                    decoration: const InputDecoration(labelText: 'Postcode'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: contactName,
+                    decoration: const InputDecoration(labelText: 'Contact name (optional)'),
+                  ),
+                  TextField(
+                    controller: contactPhone,
+                    decoration: const InputDecoration(labelText: 'Contact phone (optional)'),
+                  ),
+                  TextField(
+                    controller: contactEmail,
+                    decoration: const InputDecoration(labelText: 'Contact email (optional)'),
+                  ),
+                  TextField(
+                    controller: directionsUrl,
+                    decoration: const InputDecoration(labelText: 'Directions URL (optional)'),
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: isHome,
+                    onChanged: (v) => setStateDialog(() => isHome = v),
+                    title: const Text('Home venue'),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -284,15 +533,22 @@ class _VenuesScreenState extends State<VenuesScreen> {
     if (venueName.isEmpty) return;
 
     try {
-      await Supabase.instance.client
-          .from('venues')
-          .update({
-            'name': venueName,
-            'is_home_venue': isHome,
-            'town_city': town.text.trim().isEmpty ? null : town.text.trim(),
-            'postcode': postcode.text.trim().isEmpty ? null : postcode.text.trim(),
-          })
-          .eq('id', id);
+      await Supabase.instance.client.rpc(
+        'update_club_venue',
+        params: {
+          'p_venue_id': id,
+          'p_name': venueName,
+          'p_is_home_venue': isHome,
+          'p_contact_name': contactName.text.trim(),
+          'p_contact_phone': contactPhone.text.trim(),
+          'p_contact_email': contactEmail.text.trim(),
+          'p_address_line1': address1.text.trim(),
+          'p_address_line2': address2.text.trim(),
+          'p_town_city': town.text.trim(),
+          'p_postcode': postcode.text.trim(),
+          'p_directions_url': directionsUrl.text.trim(),
+        },
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -301,6 +557,15 @@ class _VenuesScreenState extends State<VenuesScreen> {
       }
 
       await _load();
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        final msg = e.message.contains('already exists for this club')
+            ? 'A venue with this name already exists for this club.'
+            : 'Edit venue error: ${e.message}';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -447,6 +712,7 @@ class _VenuesScreenState extends State<VenuesScreen> {
                             final pc = (v['postcode'] ?? '').toString().trim();
 
                             return ListTile(
+                              onTap: () => _showVenueDetails(v),
                               tileColor: isHome
                                   ? Colors.green.withOpacity(0.08)
                                   : Colors.orange.withOpacity(0.08),
@@ -460,6 +726,11 @@ class _VenuesScreenState extends State<VenuesScreen> {
                                   ? Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
+                                        IconButton(
+                                          tooltip: 'View venue details',
+                                          icon: const Icon(Icons.visibility_outlined),
+                                          onPressed: () => _showVenueDetails(v),
+                                        ),
                                         IconButton(
                                           tooltip: 'Edit venue',
                                           icon: const Icon(Icons.edit_outlined),

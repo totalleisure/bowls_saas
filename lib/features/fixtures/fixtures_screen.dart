@@ -1,6 +1,3 @@
-import '../../core/widgets/app_badge.dart';
-import '../../data/repositories/fixtures_repository.dart';
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +5,11 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/utils/date_format.dart';
+import '../../core/utils/hex_color.dart';
+import '../../core/widgets/app_badge.dart';
+
+import '../../data/repositories/fixtures_repository.dart';
+
 import 'create_fixture_page.dart';
 import 'fixture_details_page.dart';
 import 'fixture_display.dart';
@@ -46,28 +48,6 @@ class _FixturesScreenState extends State<FixturesScreen> {
     _load();
   }
 
-/*   Future<void> _loadFixtures() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final data = await _repo.getFixturesForClub(widget.clubId);
-
-      setState(() {
-        _fixtures = data;
-        _loading = false;
-        _myClubName = myClubName;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
-    }
-  } */
-
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -78,10 +58,9 @@ class _FixturesScreenState extends State<FixturesScreen> {
       final client = Supabase.instance.client;
       final nowIso = DateTime.now().toUtc().toIso8601String();
 
-      // 1) Load my club name
       final clubRow = await client
           .from('clubs')
-          .select('name')
+          .select('name, primary_color_hex, secondary_color_hex')
           .eq('id', widget.clubId)
           .single();
 
@@ -89,29 +68,25 @@ class _FixturesScreenState extends State<FixturesScreen> {
       final primaryHex = (clubRow['primary_color_hex'] ?? '#2A58A8').toString();
       final secondaryHex = (clubRow['secondary_color_hex'] ?? '#FFFFD600').toString();
 
-      Color colorFromHex(String hex) {
-        final h = hex.replaceAll('#', '').trim();
-        final full = h.length == 6 ? 'FF$h' : h; // add alpha if missing
-        return Color(int.parse(full, radix: 16));
-      }
-
       _clubBlue = colorFromHex(primaryHex);
       _clubYellow = colorFromHex(secondaryHex);
 
-      final homeBg = _clubYellow.withOpacity(0.2);
-      final homeFg = _clubBlue;      
-
-      // 2) Build fixtures query (keep your pattern)
       var q = client
           .from('fixtures')
           .select(
             'id, start_at, is_home, section, rinks_required, players_per_rink, orientation, '
-            'requires_rsvp, team_id, '
+            'requires_rsvp, team_id, team_name, competition_type_id, '
             'captain_member_profile_id, vice_captain_member_profile_id, '
+            'competition_type:competition_types!fixtures_competition_type_id_fkey('
+              'id, name, is_internal, selection_mode, '
+              'colour_scheme:fixture_colour_schemes('
+                'id, name, background_hex, foreground_hex'
+              ')'
+            '), '
             'team:teams(name), '
             'venue:venues!fixtures_venue_id_fkey(name), '
             'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
-            'green_areas(name, discipline, orientation_mode)',
+            'green_areas(name, discipline, orientation_mode)'
           )
           .eq('club_id', widget.clubId);
 
@@ -123,11 +98,6 @@ class _FixturesScreenState extends State<FixturesScreen> {
       final fixtures = List<Map<String, dynamic>>.from(rows);
 
       if (fixtures.isNotEmpty) {
-        debugPrint('Sample fixture row: ${fixtures.first}');
-      }   
-
-      // Debug (safe)
-      if (fixtures.isNotEmpty) {
         debugPrint('First fixture row: ${fixtures.first}');
       } else {
         debugPrint('No fixtures returned');
@@ -135,7 +105,6 @@ class _FixturesScreenState extends State<FixturesScreen> {
 
       if (!mounted) return;
 
-      // 3) Update state *together* so UI rebuilds correctly
       setState(() {
         _myClubName = myClubName;
         _fixtures = fixtures;
@@ -263,9 +232,29 @@ class _FixturesScreenState extends State<FixturesScreen> {
     final when = DateTime.parse(f['start_at'] as String).toLocal();
     final whenText = formatWhenLocal(f['start_at'] as String);
     final isHome = f['is_home'] as bool;
+
     final venue = (f['venue']?['name'] as String?) ?? '';
     final opponent = (f['opponent_venue']?['name'] as String?) ?? '';
-    final section = f['section'] as String;
+    final section = f['section'] as String;    final competitionType = f['competition_type'] as Map<String, dynamic>?;
+    final competitionTypeName =
+        (competitionType?['name'] ?? '').toString().trim();
+    final competitionColourScheme =
+        competitionType?['colour_scheme'] as Map<String, dynamic>?;
+
+    final fixtureTypeBg = competitionColourScheme != null
+        ? colorFromHex(
+            competitionColourScheme['background_hex']?.toString(),
+            fallback: Colors.grey.shade200,
+          )
+        : null;
+
+    final fixtureTypeFg = competitionColourScheme != null
+        ? colorFromHex(
+            competitionColourScheme['foreground_hex']?.toString(),
+            fallback: Colors.black87,
+          )
+        : null;
+
     final rinks = f['rinks_required'] as int;
     final ppr = f['players_per_rink'] as int;
     final orientation = f['orientation'] as String?;
@@ -283,44 +272,68 @@ class _FixturesScreenState extends State<FixturesScreen> {
       return 'Rinks';
     }
 
-    return ListTile(
-      tileColor: isHome ? _clubYellow.withOpacity(0.20) : null,
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              fixtureTitleUnified(f, myClubName: _myClubName),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: isHome ? TextStyle(color: _clubBlue) : null,
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: fixtureTypeBg ?? (isHome ? _clubYellow.withOpacity(0.20) : null),
+      child: ListTile(
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                fixtureTitleUnified(f, myClubName: _myClubName),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: fixtureTypeFg ?? (isHome ? _clubBlue : null),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            AppBadge(text: isHome ? 'HOME' : 'AWAY'),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (competitionTypeName.isNotEmpty) ...[
+              Text(
+                competitionTypeName,
+                style: TextStyle(
+                  color: fixtureTypeFg ?? (isHome ? _clubBlue : null),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+            ],
+            Text(
+              '$whenText • $section • ${formatLabel(ppr)} • $rinks rinks'
+              '${showOrientation ? ' • orient: ${orientation ?? 'not set'}' : ''}',
+              style: TextStyle(
+                color: fixtureTypeFg?.withOpacity(0.85) ?? (isHome ? _clubBlue : null),
+              ),
+            ),
+          ],
+        ),
+        trailing: Icon(
+          Icons.chevron_right,
+          color: fixtureTypeFg ?? (isHome ? _clubBlue : null),
+        ),
+        onTap: () async {
+          final changed = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FixtureDetailsPage(fixtureId: f['id'].toString()),
+            ),
+          );
 
-          const SizedBox(width: 8),
-          AppBadge(text: isHome ? 'HOME' : 'AWAY'),
-        ],
+          if (!context.mounted) return;
+
+          if (changed == true) {
+            await _load();
+          }
+        },
       ),
-
-      subtitle: Text(
-        '$whenText • $section • ${formatLabel(ppr)} • $rinks rinks'
-        '${showOrientation ? ' • orient: ${orientation ?? 'not set'}' : ''}',
-        style: isHome ? TextStyle(color: _clubBlue) : null,
-      ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () async {
-        final changed = await Navigator.push<bool>(
-          context,
-          MaterialPageRoute(
-            builder: (_) => FixtureDetailsPage(fixtureId: f['id'].toString()),
-          ),
-        );
-
-        if (!context.mounted) return;
-
-        if (changed == true) {
-          await _load();
-        }
-      },
     );
   }
 

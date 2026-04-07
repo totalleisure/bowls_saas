@@ -34,6 +34,8 @@ class _TeamSectionState extends State<TeamSection> {
   String? _myProfileId;
 
   List<Map<String, dynamic>> _players = [];
+  List<Map<String, dynamic>> _opponents = [];
+  List<Map<String, dynamic>> _markers = [];
   List<Map<String, dynamic>> _reserves = [];
 
   @override
@@ -83,6 +85,8 @@ class _TeamSectionState extends State<TeamSection> {
           _selectionId = null;
           _status = 'draft';
           _players = [];
+          _opponents = [];
+          _markers = [];
           _reserves = [];
           _loading = false;
         });
@@ -96,19 +100,24 @@ class _TeamSectionState extends State<TeamSection> {
       final rows = await client
           .from('team_selection_members')
           .select(
-            'member_profile_id, role, acceptance, responded_at, '
+            'member_profile_id, role, acceptance, responded_at, is_selected, '
             'member_profiles!team_selection_members_member_profile_id_fkey(display_name, phone)'
           )
           .eq('team_selection_id', _selectionId!)
+          .eq('is_selected', true)
           .order('created_at');
 
       final all = List<Map<String, dynamic>>.from(rows);
 
       final players = all.where((r) => r['role'] == 'player').toList();
+      final opponents = all.where((r) => r['role'] == 'opponent').toList();
+      final markers = all.where((r) => r['role'] == 'marker').toList();
       final reserves = all.where((r) => r['role'] == 'reserve').toList();
 
       setState(() {
         _players = players;
+        _opponents = opponents;
+        _markers = markers;
         _reserves = reserves;
         _loading = false;
       });
@@ -122,13 +131,13 @@ class _TeamSectionState extends State<TeamSection> {
 
   bool _amISelected() {
     if (_myProfileId == null) return false;
-    final all = [..._players, ..._reserves];
+    final all = [..._players, ..._opponents, ..._markers, ..._reserves];
     return all.any((r) => r['member_profile_id'] == _myProfileId);
   }
 
   String? _myAcceptance() {
     if (_myProfileId == null) return null;
-    final all = [..._players, ..._reserves];
+    final all = [..._players, ..._opponents, ..._markers, ..._reserves];
     final me = all.where((r) => r['member_profile_id'] == _myProfileId).toList();
     if (me.isEmpty) return null;
     return me.first['acceptance']?.toString();
@@ -222,6 +231,13 @@ class _TeamSectionState extends State<TeamSection> {
     final iAmSelected = _amISelected();
     final myAcc = _myAcceptance();
 
+    final competitionType =
+        widget.fixture['competition_type'] as Map<String, dynamic>?;
+    final selectionMode =
+        (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
+
+    final isPreselectFixture = selectionMode == 'preselect';    
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -278,15 +294,33 @@ class _TeamSectionState extends State<TeamSection> {
                 title: Text('Players (${_players.length})'),
                 initiallyExpanded: true,
                 children: _players.isEmpty
-                    ? [ListTile(title: Text('None'))]
+                    ? [const ListTile(title: Text('None'))]
                     : _players.map(_memberRow).toList(),
               ),
-              ExpansionTile(
-                title: Text('Reserves (${_reserves.length}/3)'),
-                children: _reserves.isEmpty
-                    ? [ListTile(title: Text('None'))]
-                    : _reserves.map(_memberRow).toList(),
-              ),
+
+              if (isPreselectFixture)
+                ExpansionTile(
+                  title: Text('Opponents (${_opponents.length})'),
+                  children: _opponents.isEmpty
+                      ? [const ListTile(title: Text('None'))]
+                      : _opponents.map(_memberRow).toList(),
+                ),
+
+              if (isPreselectFixture)
+                ExpansionTile(
+                  title: Text('Markers (${_markers.length})'),
+                  children: _markers.isEmpty
+                      ? [const ListTile(title: Text('None'))]
+                      : _markers.map(_memberRow).toList(),
+                ),
+
+              if (!isPreselectFixture)
+                ExpansionTile(
+                  title: Text('Reserves (${_reserves.length}/3)'),
+                  children: _reserves.isEmpty
+                      ? [const ListTile(title: Text('None'))]
+                      : _reserves.map(_memberRow).toList(),
+                ),
             ],
           ],
         ),

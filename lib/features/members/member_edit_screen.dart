@@ -26,6 +26,9 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   late final TextEditingController _town;
   late final TextEditingController _county;
   late final TextEditingController _postcode;
+  late final TextEditingController _genderSelfDescribed;
+  String? _gender;
+  String? _sexAtBirth;
 
   bool _saving = false;
 
@@ -44,6 +47,11 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     _town = TextEditingController(text: (i['town_city'] ?? '').toString());
     _county = TextEditingController(text: (i['county'] ?? '').toString());
     _postcode = TextEditingController(text: (i['postcode'] ?? '').toString());
+    _gender = i['gender']?.toString();
+    _sexAtBirth = i['sex_at_birth']?.toString();
+    _genderSelfDescribed = TextEditingController(
+      text: (i['gender_self_described'] ?? '').toString(),
+    );    
   }
 
   @override
@@ -57,6 +65,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     _town.dispose();
     _county.dispose();
     _postcode.dispose();
+    _genderSelfDescribed.dispose();
     super.dispose();
   }
 
@@ -82,6 +91,13 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
         'town_city': _town.text.trim().isEmpty ? null : _town.text.trim(),
         'county': _county.text.trim().isEmpty ? null : _county.text.trim(),
         'postcode': _postcode.text.trim().isEmpty ? null : _postcode.text.trim(),
+        'gender': _gender,
+        'gender_self_described': _gender == 'prefer_to_self_describe'
+            ? (_genderSelfDescribed.text.trim().isEmpty
+                ? null
+                : _genderSelfDescribed.text.trim())
+            : null,
+        'sex_at_birth': _sexAtBirth,        
       };
 
 //      debugPrint('Saving member_profile_id=${widget.memberProfileId}');
@@ -133,6 +149,29 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     );
   }
 
+  Widget _dropdownField({
+    required String label,
+    required String? value,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+    String? helperText,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        items: items,
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          isDense: true,
+          labelText: label,
+          helperText: helperText,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -148,7 +187,60 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           _field('Last name (surname)', _lastName),
           _field('Email', _email, type: TextInputType.emailAddress),
           _field('Phone', _phone, type: TextInputType.phone),
+          
+          const SizedBox(height: 12),
+          Text('Personal details', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
 
+          _dropdownField(
+            label: 'Gender',
+            value: _gender,
+            items: const [
+              DropdownMenuItem(value: 'male', child: Text('Male')),
+              DropdownMenuItem(value: 'female', child: Text('Female')),
+              DropdownMenuItem(value: 'non_binary', child: Text('Non-binary')),
+              DropdownMenuItem(
+                value: 'prefer_to_self_describe',
+                child: Text('Prefer to self-describe'),
+              ),
+              DropdownMenuItem(
+                value: 'prefer_not_to_say',
+                child: Text('Prefer not to say'),
+              ),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _gender = value;
+                if (_gender != 'prefer_to_self_describe') {
+                  _genderSelfDescribed.clear();
+                }
+              });
+            },
+          ),
+
+          if (_gender == 'prefer_to_self_describe')
+            _field('Please describe your gender', _genderSelfDescribed),
+
+          _dropdownField(
+            label: 'Sex at birth',
+            value: _sexAtBirth,
+            helperText: 'Optional',
+            items: const [
+              DropdownMenuItem(value: 'male', child: Text('Male')),
+              DropdownMenuItem(value: 'female', child: Text('Female')),
+              DropdownMenuItem(value: 'intersex', child: Text('Intersex')),
+              DropdownMenuItem(
+                value: 'prefer_not_to_say',
+                child: Text('Prefer not to say'),
+              ),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _sexAtBirth = value;
+              });
+            },
+          ),
+          
           const SizedBox(height: 12),
           Text('Address', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),

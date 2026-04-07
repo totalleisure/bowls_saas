@@ -1,11 +1,12 @@
-import 'club_home_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
-import '../../core/utils/date_format.dart';
+import 'club_home_screen.dart';
 import 'club_dashboard_screen.dart';
+import '../../core/utils/date_format.dart';
 
 class MyClubsScreen extends StatefulWidget {
   const MyClubsScreen({super.key});

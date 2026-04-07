@@ -6,11 +6,15 @@ import 'package:pdf/widgets.dart' as pw;
 class TeamSheetRink {
   final int rinkNumber;
   final List<String> players;
+  final List<String> opponents;
+  final String? marker;
   final String? homeRinkLabel;
 
   TeamSheetRink({
     required this.rinkNumber,
     required this.players,
+    this.opponents = const [],
+    this.marker,
     this.homeRinkLabel,
   });
 }
@@ -20,12 +24,12 @@ class TeamSheetData {
   final String opponentName;
   final DateTime startAt;
   final bool isHome;
-  final String section; // e.g. mixed/men/ladies
+  final String section;
   final int rinksRequired;
-  final int playersPerRink; // 2/3/4
-  final String dress; // optional
-  final String? mealInfo; // optional
-  final String? notes; // optional (friendly triples etc.)
+  final int playersPerRink;
+  final String dress;
+  final String? mealInfo;
+  final String? notes;
 
   final String? captainName;
   final String? captainEmail;
@@ -35,13 +39,21 @@ class TeamSheetData {
   final String? viceEmail;
   final String? vicePhone;
 
-  final List<TeamSheetRink> rinks; // up to 6
+  final List<TeamSheetRink> rinks;
   final List<String> reserves;
 
   // branding
-  final int primaryColor;   // 0xFF......
-  final int secondaryColor; // 0xFF......
-  final Uint8List? logoBytes; // optional (download earlier or from storage)
+  final int primaryColor;
+  final int secondaryColor;
+  final Uint8List? logoBytes;
+
+  // NEW
+  final String? fixtureTypeName;
+  final int? fixtureTypeBgColor;
+  final int? fixtureTypeFgColor;
+
+  final bool? isInternal;
+  final String? selectionMode;
 
   TeamSheetData({
     required this.clubName,
@@ -65,6 +77,13 @@ class TeamSheetData {
     this.viceName,
     this.viceEmail,
     this.vicePhone,
+
+    // NEW
+    this.fixtureTypeName,
+    this.fixtureTypeBgColor,
+    this.fixtureTypeFgColor,
+    this.isInternal,
+    this.selectionMode,
   });
 }
 
@@ -91,6 +110,48 @@ String _matchTitle(TeamSheetData data) {
   return 'Away at ${data.opponentName} v ${data.clubName}';
 }
 
+String? _internalLabel(bool? isInternal) {
+  if (isInternal == null) return null;
+  return isInternal ? 'INTERNAL' : 'EXTERNAL';
+}
+
+String? _selectionModeLabel(String? mode) {
+  final m = (mode ?? '').trim().toLowerCase();
+
+  switch (m) {
+    case 'preselect':
+    case 'pre_select':
+    case 'pre-selected':
+    case 'preselected':
+      return 'PRE-SELECTED';
+
+    case 'rsvp':
+      return 'RSVP';
+
+    case 'selection':
+      return 'SELECTED';
+
+    case 'open':
+      return 'OPEN SELECTION';
+
+    default:
+      return m.isEmpty ? null : m.toUpperCase();
+  }
+}
+
+String _positionLabel(int position, int playersPerRink) {
+  if (position == 1) return 'Lead';
+  if (position == playersPerRink) return 'Skip';
+
+  if (playersPerRink == 4) {
+    return position == 2 ? '2' : '3';
+  }
+  if (playersPerRink == 3) {
+    return '2';
+  }
+  return position.toString();
+}
+
 pw.Widget _badge(String text, PdfColor bg, PdfColor fg) {
   return pw.Container(
     padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -106,26 +167,180 @@ pw.Widget _badge(String text, PdfColor bg, PdfColor fg) {
   );
 }
 
+pw.Widget _fixtureTypeBand(
+  TeamSheetData data,
+  PdfColor fallbackBg,
+  PdfColor fallbackFg,
+) {
+  final isInternal = data.isInternal == true;
+  final rawName = (data.fixtureTypeName ?? '').trim();
+
+  final displayName = isInternal
+      ? 'Internal Fixture'
+      : rawName;
+
+  if (displayName.isEmpty) return pw.SizedBox();
+
+  final bg = data.fixtureTypeBgColor != null
+      ? PdfColor.fromInt(data.fixtureTypeBgColor!)
+      : fallbackBg;
+
+  final fg = data.fixtureTypeFgColor != null
+      ? PdfColor.fromInt(data.fixtureTypeFgColor!)
+      : fallbackFg;
+
+  return pw.Container(
+    width: double.infinity,
+    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: pw.BoxDecoration(
+      color: bg,
+      borderRadius: pw.BorderRadius.circular(6),
+      border: pw.Border.all(color: fg, width: 0.8),
+    ),
+    child: pw.Row(
+      children: [
+        pw.Expanded(
+          child: pw.Text(
+            displayName.toUpperCase(),
+            style: pw.TextStyle(
+              fontSize: 12,
+              fontWeight: pw.FontWeight.bold,
+              color: fg,
+            ),
+          ),
+        ),
+        pw.Text(
+          '${_fmtDate(data.startAt)}  ${_fmtTime(data.startAt)}',
+          style: pw.TextStyle(
+            fontSize: 12,
+            fontWeight: pw.FontWeight.bold,
+            color: fg,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 pw.Widget _rinkBox({
   required TeamSheetRink rink,
   required int playersPerRink,
   required PdfColor primary,
   required PdfColor accent,
 }) {
-  // Ensure we always show the right number of lines (2/3/4)
-  final lines = List<String>.from(rink.players);
-  while (lines.length < playersPerRink) {
-    lines.add('');
+  final playerLines = List<String>.from(rink.players);
+  while (playerLines.length < playersPerRink) {
+    playerLines.add('');
   }
-  if (lines.length > playersPerRink) {
-    lines.removeRange(playersPerRink, lines.length);
+  if (playerLines.length > playersPerRink) {
+    playerLines.removeRange(playersPerRink, playerLines.length);
   }
+
+  final opponentLines = List<String>.from(rink.opponents);
+  while (opponentLines.length < playersPerRink) {
+    opponentLines.add('');
+  }
+  if (opponentLines.length > playersPerRink) {
+    opponentLines.removeRange(playersPerRink, opponentLines.length);
+  }
+
+  final showMatchups = opponentLines.any((o) => o.trim().isNotEmpty) ||
+      ((rink.marker ?? '').trim().isNotEmpty);
 
   final label = (rink.homeRinkLabel ?? '').trim();
   final title = label.isNotEmpty
-      ? 'RINK ${rink.rinkNumber}  -  HOME RINK: $label'
-      : 'RINK ${rink.rinkNumber}';
-      
+      ? 'TEAM ${rink.rinkNumber}  -  HOME RINK: $label'
+      : 'TEAM ${rink.rinkNumber}';
+
+  pw.Widget standardLine(int index, String player) {
+    final posLabel = _positionLabel(index + 1, playersPerRink);
+
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+      decoration: pw.BoxDecoration(
+        border: pw.Border(
+          bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.8),
+        ),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(
+            width: 42,
+            child: pw.Text(
+              posLabel,
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: primary,
+              ),
+            ),
+          ),
+          pw.Expanded(
+            child: pw.Text(
+              player,
+              style: const pw.TextStyle(fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget matchupLine(int index, String player, String opponent) {
+    final posLabel = _positionLabel(index + 1, playersPerRink);
+
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+      decoration: pw.BoxDecoration(
+        border: pw.Border(
+          bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.8),
+        ),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(
+            width: 42,
+            child: pw.Text(
+              posLabel,
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: primary,
+              ),
+            ),
+          ),
+          pw.Expanded(
+            child: pw.Text(
+              player,
+              style: const pw.TextStyle(fontSize: 11),
+            ),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6),
+            child: pw.Text(
+              'v',
+              style: pw.TextStyle(
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
+                color: primary,
+              ),
+            ),
+          ),
+          pw.Expanded(
+            child: pw.Text(
+              opponent,
+              style: const pw.TextStyle(fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   return pw.Container(
     padding: const pw.EdgeInsets.all(10),
     decoration: pw.BoxDecoration(
@@ -151,21 +366,25 @@ pw.Widget _rinkBox({
           ),
         ),
         pw.SizedBox(height: 8),
-        ...lines.map((p) {
-          return pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 6),
-            decoration: pw.BoxDecoration(
-              border: pw.Border(
-                bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.8),
+
+        if (showMatchups) ...[
+          for (int i = 0; i < playersPerRink; i++)
+            matchupLine(i, playerLines[i], opponentLines[i]),
+          if ((rink.marker ?? '').trim().isNotEmpty) ...[
+            pw.SizedBox(height: 8),
+            pw.Text(
+              'Marker: ${rink.marker!}',
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: primary,
               ),
             ),
-            child: pw.Text(
-              p,
-              style: const pw.TextStyle(fontSize: 11),
-            ),
-          );
-        }),
+          ],
+        ] else ...[
+          for (int i = 0; i < playersPerRink; i++)
+            standardLine(i, playerLines[i]),
+        ],
       ],
     ),
   );
@@ -283,11 +502,27 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
   final pdf = pw.Document();
 
   final primary = PdfColor.fromInt(data.primaryColor);
-  // then just use a light grey background instead of opacity:
+  final clubBg = PdfColor.fromInt(data.primaryColor);
+  final clubFg = PdfColor.fromInt(data.secondaryColor);
   final secondaryWash = PdfColors.grey200;
+
+  final fixtureTypeBg = data.fixtureTypeBgColor != null
+      ? PdfColor.fromInt(data.fixtureTypeBgColor!)
+      : PdfColors.grey300;
+
+  final fixtureTypeFg = data.fixtureTypeFgColor != null
+      ? PdfColor.fromInt(data.fixtureTypeFgColor!)
+      : PdfColors.black;
 
   final logo = data.logoBytes != null ? pw.MemoryImage(data.logoBytes!) : null;
 
+  final internalLabel = _internalLabel(data.isInternal);
+  final selectionModeLabel = _selectionModeLabel(data.selectionMode);
+
+  final showOpponentsAndMarker =
+      (data.selectionMode ?? '').trim().toLowerCase() == 'preselect' &&
+      data.isInternal == true;
+      
   pdf.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
@@ -298,9 +533,9 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
           pw.Container(
             padding: const pw.EdgeInsets.all(12),
             decoration: pw.BoxDecoration(
-              color: secondaryWash,
+              color: clubBg,
               borderRadius: pw.BorderRadius.circular(12),
-              border: pw.Border.all(color: primary, width: 1.2),
+              border: pw.Border.all(color: clubFg, width: 1.2),
             ),
             child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -321,26 +556,55 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                         style: pw.TextStyle(
                           fontSize: 16,
                           fontWeight: pw.FontWeight.bold,
-                          color: primary,
+                          color: clubFg,
                         ),
                       ),
                       pw.SizedBox(height: 4),
                       pw.Text(
-                        data.isHome
-                            ? '${data.clubName}  v  ${data.opponentName}'
-                            : 'Away at ${data.opponentName}  v  ${data.clubName}',
-                        style: pw.TextStyle(fontSize: 12, color: primary),
+                        () {
+                          final opp = (data.opponentName ?? '').trim();
+
+                          if (opp.isEmpty) {
+                            return data.isHome
+                                ? data.clubName
+                                : 'Away fixture';
+                          }
+
+                          return data.isHome
+                              ? '${data.clubName}  v  $opp'
+                              : 'Away at $opp  v  ${data.clubName}';
+                        }(),
+                        style: pw.TextStyle(fontSize: 12, color: clubFg),
                       ),
+
+//                      if ((data.fixtureTypeName ?? '').trim().isNotEmpty) ...[
+//                        pw.SizedBox(height: 8),
+//                        _fixtureTypeBand(data, secondaryWash, primary),
+//                      ],
+
                       pw.SizedBox(height: 8),
 
-                      // Badges row
                       pw.Wrap(
                         spacing: 6,
                         runSpacing: 6,
                         children: [
+                          if ((internalLabel ?? '').isNotEmpty)
+                            _badge(
+                              internalLabel!,
+                              secondaryWash,
+                              primary,
+                            ),
+
+                          if ((selectionModeLabel ?? '').isNotEmpty)
+                            _badge(
+                              selectionModeLabel!,
+                              secondaryWash,
+                              primary,
+                            ),
+
                           _badge(data.isHome ? 'HOME' : 'AWAY', secondaryWash, primary),
                           _badge(data.section.toUpperCase(), secondaryWash, primary),
-                          _badge('${data.rinksRequired} RINKS', secondaryWash, primary),
+                          _badge('${data.rinksRequired} TEAMS', secondaryWash, primary),
                           _badge(
                             data.playersPerRink == 2
                                 ? 'PAIRS'
@@ -350,26 +614,30 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                             secondaryWash,
                             primary,
                           ),
-                          _badge('${_fmtDate(data.startAt)} - ${_fmtTime(data.startAt)}', secondaryWash, primary),
+                          _badge(
+                            '${_fmtDate(data.startAt)} - ${_fmtTime(data.startAt)}',
+                            secondaryWash,
+                            primary,
+                          ),
                         ],
                       ),
 
                       pw.SizedBox(height: 8),
 
-                      // Optional info line
                       pw.Text(
                         [
                           if (data.dress.trim().isNotEmpty) 'Dress: ${data.dress}',
-                          if ((data.mealInfo ?? '').trim().isNotEmpty) 'Meal: ${data.mealInfo}',
+                          if ((data.mealInfo ?? '').trim().isNotEmpty)
+                            'Meal: ${data.mealInfo}',
                         ].join('   -   '),
-                        style: pw.TextStyle(fontSize: 10, color: PdfColors.grey800),
+                        style: pw.TextStyle(fontSize: 10, color: clubFg),
                       ),
 
                       if ((data.notes ?? '').trim().isNotEmpty) ...[
                         pw.SizedBox(height: 6),
                         pw.Text(
                           data.notes!,
-                          style: pw.TextStyle(fontSize: 10, color: PdfColors.grey800),
+                          style: pw.TextStyle(fontSize: 10, color: clubFg),
                         ),
                       ],
                     ],
@@ -379,46 +647,60 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
             ),
           ),
 
+          // 👇 NEW — fixture type strip OUTSIDE header
+          if ((data.fixtureTypeName ?? '').trim().isNotEmpty ||
+              data.isInternal == true) ...[
+            pw.SizedBox(height: 6),
+            _fixtureTypeBand(data, secondaryWash, primary),
+          ],
+
           pw.SizedBox(height: 12),
           _captainContactsBox(data, primary),
           pw.SizedBox(height: 14),
 
-          // Rinks - 2 columns grid, centred row-by-row
-          _sectionTitle('TEAM', primary),
+          // Teams - 2 columns grid, centred row-by-row
+          _sectionTitle('TEAMS', primary),
           pw.Column(
-            children: [
-              for (int i = 0; i < data.rinks.length; i += 2) ...[
-                pw.Row(
+            children: List.generate((data.rinks.length / 2).ceil(), (rowIndex) {
+              final leftIndex = rowIndex * 2;
+              final rightIndex = leftIndex + 1;
+
+              final leftRink = data.rinks[leftIndex];
+              final TeamSheetRink? rightRink =
+                  rightIndex < data.rinks.length ? data.rinks[rightIndex] : null;
+
+              return pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 12),
+                child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.center,
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
                     pw.SizedBox(
                       width: 230,
                       child: _rinkBox(
-                        rink: data.rinks[i],
+                        rink: leftRink,
                         playersPerRink: data.playersPerRink,
                         primary: primary,
                         accent: secondaryWash,
                       ),
-                      ),
-                      if (i + 1 < data.rinks.length) ...[
-                        pw.SizedBox(width: 12),
-                        pw.SizedBox(
-                          width: 230,
-                          child: _rinkBox(
-                            rink: data.rinks[i + 1],
-                            playersPerRink: data.playersPerRink,
-                            primary: primary,
-                            accent: secondaryWash,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (i + 2 < data.rinks.length) pw.SizedBox(height: 12),
-                ],
-              ],
-            ),
+                    ),
+                    pw.SizedBox(width: 12),
+                    pw.SizedBox(
+                      width: 230,
+                      child: rightRink == null
+                          ? pw.SizedBox()
+                          : _rinkBox(
+                              rink: rightRink,
+                              playersPerRink: data.playersPerRink,
+                              primary: primary,
+                              accent: secondaryWash,
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
           pw.SizedBox(height: 14),
 
           // Reserves

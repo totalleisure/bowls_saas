@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+
 // lib/core/fixtures/fixture_display.dart
 
 String _s(dynamic v) => (v?.toString() ?? '').trim();
@@ -54,4 +56,26 @@ String fixtureTitleUnified(
     final vs = hasTeam ? teamName : myClubName;
     return 'AWAY — at $where vs $vs';
   }
+}
+
+String formatFixtureWhenLong12h(String isoUtc) {
+  final dt = DateTime.parse(isoUtc).toLocal();
+  var s = DateFormat("EEEE d MMMM yyyy, h:mm a").format(dt);
+  s = s.replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.');
+  return s;
+}
+
+String fixtureSubtitleUnified(Map<String, dynamic> f) {
+  final startAt = (f['start_at'] ?? '').toString();
+  final whenText =
+      startAt.isEmpty ? 'Date/time not set' : formatFixtureWhenLong12h(startAt);
+
+  final section = (f['section'] ?? '').toString().trim();
+
+  final parts = <String>[
+    whenText,
+    if (section.isNotEmpty) section.toUpperCase(),
+  ];
+
+  return parts.join(' • ');
 }

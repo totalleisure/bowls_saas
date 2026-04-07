@@ -6,13 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../../core/utils/date_format.dart';
 import 'captain_view_section.dart';
 import 'set_captain_section.dart';
 import '../team/team_section.dart';
 import '../team/manage_team_screen.dart';
 import '../rinks/rinks_setup_screen.dart';
 import '../rinks/rink_assignments_screen.dart';
+import '../../core/utils/date_format.dart';
+import '../../core/utils/hex_color.dart';
 import '../../features/fixtures/fixture_rsvp_section.dart';
 
 String _formatLocalDateTime(DateTime dt) {
@@ -172,8 +173,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       final f = await Supabase.instance.client
           .from('fixtures')
           .select(
-            'id, club_id, start_at, end_at, is_home, section, rinks_required, players_per_rink, orientation, team_id, team_name, '
+            'id, club_id, start_at, end_at, is_home, section, rinks_required, players_per_rink, orientation, '
+            'team_id, team_name, competition_type_id, '
             'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
+            'competition_type:competition_types!fixtures_competition_type_id_fkey('
+              'id, name, is_internal, selection_mode, '
+              'colour_scheme:fixture_colour_schemes('
+                'id, name, background_hex, foreground_hex'
+              ')'
+            '), '
             'team:teams!fixtures_team_id_fkey(name), '
             'venue:venues!fixtures_venue_id_fkey(name), '
             'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
@@ -700,14 +708,49 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final fixture = _fixture!;
 
-    final isTeamFixture = _isTeamFixtureUi;
+    final competitionType =
+        fixture['competition_type'] as Map<String, dynamic>?;
+    final competitionColourScheme =
+        competitionType?['colour_scheme'] as Map<String, dynamic>?;
+    final fixtureTypeBg = competitionColourScheme != null
+        ? colorFromHex(
+            competitionColourScheme['background_hex']?.toString(),
+            fallback: Colors.grey.shade200,
+          )
+        : null;
+    final fixtureTypeFg = competitionColourScheme != null
+        ? colorFromHex(
+            competitionColourScheme['foreground_hex']?.toString(),
+            fallback: Colors.black87,
+          )
+        : null;
+
+    final competitionTypeName =
+        (competitionType?['name'] ?? '').toString().trim();
+    final competitionSelectionMode =
+        (competitionType?['selection_mode'] ?? '').toString().trim();
+    final isInternalFixtureType =
+        competitionType?['is_internal'] == true;
+
+    final isPreselectFixture = competitionSelectionMode == 'preselect';
+    final isTeamFixture =
+        (_isTeamFixtureUi || competitionSelectionMode == 'team') &&
+        !isPreselectFixture;
+    final isRsvpFixture =
+        (fixture['requires_rsvp'] == true) && !isPreselectFixture;    
+
     final isHome = (fixture['is_home'] as bool?) ?? true;
 
+    final modeLabel = isPreselectFixture
+        ? 'Pre-Select'
+        : (isTeamFixture ? 'Team' : 'RSVP');
+
     final pageTitle =
-        '${isHome ? 'Home' : 'Away'} '
-        '${isTeamFixture ? 'Team' : 'RSVP'} Fixture Details';
+        '${isHome ? 'Home' : 'Away'} $modeLabel Fixture Details';
 
     final fixtureLabel = (fixture['team_name'] ?? '').toString().trim();
+    final displayFixtureLabel =
+        competitionTypeName.isNotEmpty ? competitionTypeName : fixtureLabel;
 
     final teamRow = fixture['team'] as Map<String, dynamic>?;
     final teamName = (teamRow?['name'] ?? '').toString().trim();
@@ -729,11 +772,21 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     String buildMatchHeader({
       required bool isHome,
+      required bool isInternal,
       required String venue,
       required String green,
       required String opponent,
       required String teamName,
+      required String fixtureLabel,
     }) {
+      if (isInternal) {
+        final parts = <String>['Internal'];
+        if (venue.isNotEmpty) parts.add('at $venue');
+        if (green.isNotEmpty) parts.add('on $green');
+        if (fixtureLabel.isNotEmpty) parts.add('· $fixtureLabel');
+        return parts.join(' ');
+      }
+
       if (isHome) {
         final parts = <String>['Home'];
         if (venue.isNotEmpty) parts.add('at $venue');
@@ -756,10 +809,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final matchHeader = buildMatchHeader(
       isHome: isHome,
+      isInternal: isInternalFixtureType,
       venue: venue,
       green: green,
       opponent: opponent,
       teamName: teamName,
+      fixtureLabel: displayFixtureLabel,
     );
 
     final fixtureTeamName =
@@ -767,9 +822,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             .toString()
             .trim();
 
-    final lockedFixtureLabel = isTeamFixture
-        ? 'Team Fixture${fixtureTeamName.isNotEmpty ? ' for $fixtureTeamName' : ''}'
-        : 'RSVP Fixture';
+    final lockedFixtureLabel = isPreselectFixture
+        ? 'Pre-Select Fixture${displayFixtureLabel.isNotEmpty ? ' for $displayFixtureLabel' : ''}'
+        : isTeamFixture
+            ? 'Team Fixture${fixtureTeamName.isNotEmpty ? ' for $fixtureTeamName' : ''}'
+            : 'RSVP Fixture';
 
     final rinks = (fixture['rinks_required'] as int?) ?? 0;
     final ppr = (fixture['players_per_rink'] as int?) ?? 4;
@@ -808,7 +865,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final canViewTeam = canManageTeam || myTeamSelection != null;
 
-    final showCaptainView = fixture['requires_rsvp'] == true;
+//    final showCaptainView = fixture['requires_rsvp'] == true;
 
     final ts = fixture['ts'];
     String? teamSelectionStatus;
@@ -820,7 +877,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     final isPublished = teamSelectionStatus == 'published';
-    final showRsvpControls = (fixture['requires_rsvp'] == true) && !isPublished;
+    final showRsvpControls = isRsvpFixture && !isPublished;
 
     return Scaffold(
       appBar: AppBar(
@@ -850,16 +907,20 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             runSpacing: 8,
             children: [
               AppBadge(text: isHome ? 'HOME' : 'AWAY'),
+
               if (isTeamFixture && teamName.isNotEmpty)
                 AppBadge(text: 'TEAM: $teamName')
-              else if (!isTeamFixture && fixtureLabel.isNotEmpty)
-                AppBadge(text: 'DETAILS: $fixtureLabel'),
+              else if (displayFixtureLabel.isNotEmpty)
+                AppBadge(text: displayFixtureLabel.toUpperCase()),
+
               if (captainName.isNotEmpty) AppBadge(text: 'CAPT: $captainName'),
+
               if (viceName.isNotEmpty) AppBadge(text: 'VICE: $viceName'),
 
               AppBadge(text: section.toUpperCase()),
               AppBadge(text: _formatLabel(ppr).toUpperCase()),
               AppBadge(text: '$rinks RINKS'),
+
               if (showOrientation)
                 AppBadge(text: ('ORIENT: ${orientation ?? 'NOT SET'}').toUpperCase()),
             ],
@@ -872,13 +933,27 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_teamNameLocked) ...[
-                    Text(
-                      lockedFixtureLabel,
-                      style: Theme.of(context).textTheme.titleMedium,
+                  if (_teamNameLocked || isPreselectFixture) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: fixtureTypeBg ?? Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: fixtureTypeFg?.withOpacity(0.25) ?? Colors.black12,
+                        ),
+                      ),
+                      child: Text(
+                        lockedFixtureLabel,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: fixtureTypeFg,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
                     ),
                   ] else ...[
-                    const Text('Fixture type', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text('Fixture workflow', style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
 
                     SegmentedButton<bool>(
@@ -1101,7 +1176,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ),
           ],
 
-          if ((fixture['requires_rsvp'] == true) && isPublished) ...[
+          if (isRsvpFixture && isPublished) ...[
             const SizedBox(height: 24),
             Card(
               child: Padding(
@@ -1114,13 +1189,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ),
           ],
 
-          const SizedBox(height: 24),
-          if ((fixture['requires_rsvp'] == true) && !isPublished) ...[
+          const SizedBox(height: 12),
+          if (isRsvpFixture && !isPublished) ...[
             CaptainViewSection(fixture: fixture),
           ],
           
           if (canViewTeam) ...[
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
             TeamSection(
               key: ValueKey(
                 '${widget.fixtureId}-${_myTeamSelectionStatus ?? ''}-${fixture['ts']?['status'] ?? ''}',
@@ -1134,4 +1209,3 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     );
   }
 }
-

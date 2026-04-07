@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
 import 'fixture_details_page.dart';
 
@@ -29,6 +30,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   bool _isHome = true;
   bool _isTeamFixture = false;
+  bool _isPreselectFixture = false;
 
   DateTime? _startAtLocal;
   DateTime? _endAtLocal;
@@ -60,6 +62,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   int _rinksRequired = 6;
   int _playersPerRink = 4; // 4 = rinks, 3 = triples, 2 = pairs
 
+    // Fixture types
+  List<Map<String, dynamic>> _fixtureTypes = [];
+  String? _fixtureTypeId;
+  bool _workflowLockedByFixtureType = false;
+
   SupabaseClient get _client => Supabase.instance.client;
 
   @override
@@ -82,6 +89,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     try {
       await _loadVenues();
+      await _loadFixtureTypes();
       await _loadTeams();
       // Only load greens once we have a home venue selected
       await _loadGreenAreas();
@@ -94,6 +102,34 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _loadFixtureTypes() async {
+    final rows = await _client
+        .from('competition_types')
+        .select('''
+          id,
+          name,
+          is_internal,
+          section,
+          default_rinks_required,
+          default_players_per_rink,
+          team_selection_enabled,
+          selection_mode,
+          team_id,
+          is_active,
+          colour_scheme:fixture_colour_schemes(
+            id,
+            name,
+            background_hex,
+            foreground_hex
+          )
+        ''')
+        .eq('club_id', widget.clubId)
+        .eq('is_active', true)
+        .order('name');
+
+    _fixtureTypes = List<Map<String, dynamic>>.from(rows);
   }
 
   Future<void> _loadVenues() async {
@@ -239,18 +275,28 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   Future<void> _loadGreenAreas() async {
-    // Green areas are only relevant for HOME fixtures (you pick an actual green)
+    debugPrint('GREEN LOAD: _isHome=$_isHome, _homeVenueId=$_homeVenueId');
+
+    // Green areas are only relevant for HOME fixtures
     if (!_isHome) {
-      _greenAreas = [];
-      _greenAreaId = null;
-      _orientation = null;
+      if (mounted) {
+        setState(() {
+          _greenAreas = [];
+          _greenAreaId = null;
+          _orientation = null;
+        });
+      }
       return;
     }
 
     if (_homeVenueId == null) {
-      _greenAreas = [];
-      _greenAreaId = null;
-      _orientation = null;
+      if (mounted) {
+        setState(() {
+          _greenAreas = [];
+          _greenAreaId = null;
+          _orientation = null;
+        });
+      }
       return;
     }
 
@@ -260,13 +306,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         .eq('venue_id', _homeVenueId!)
         .order('name');
 
-    _greenAreas = List<Map<String, dynamic>>.from(greens);
+    debugPrint('GREEN LOAD: found ${greens.length} greens for venue $_homeVenueId');
+    debugPrint('GREEN LOAD: greens=$greens');
 
-    // Default green
-    _greenAreaId ??= _greenAreas.isNotEmpty ? _greenAreas.first['id'].toString() : null;
+    final loadedGreens = List<Map<String, dynamic>>.from(greens);
 
-    // Ensure orientation is valid for the selected green
-    _syncOrientationToSelectedGreen();
+    if (!mounted) return;
+
+    setState(() {
+      _greenAreas = loadedGreens;
+      _greenAreaId = _greenAreas.isNotEmpty ? _greenAreas.first['id'].toString() : null;
+      _syncOrientationToSelectedGreen();
+    });
   }
 
   void _syncOrientationToSelectedGreen() {
@@ -285,6 +336,76 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (_orientation == null || !allowed.contains(_orientation)) {
       _orientation = allowed.first;
     }
+  }
+
+  void _applyFixtureType(String? fixtureTypeId) {
+    if (fixtureTypeId == null) return;
+
+    final row = _fixtureTypes.cast<Map<String, dynamic>?>().firstWhere(
+      (r) => r?['id']?.toString() == fixtureTypeId,
+      orElse: () => null,
+    );
+
+    if (row == null) return;
+
+    final selectionMode = (row['selection_mode'] ?? '').toString();
+    final name = (row['name'] ?? '').toString().trim();
+    final section = (row['section'] ?? '').toString().trim();
+    final isInternal = row['is_internal'] == true;
+    final defaultRinksRequired = row['default_rinks_required'] as int?;
+    final defaultPlayersPerRink = row['default_players_per_rink'] as int?;
+    final linkedTeamId = row['team_id']?.toString();
+
+    setState(() {
+      _fixtureTypeId = fixtureTypeId;
+      _workflowLockedByFixtureType = true;
+
+      if (isInternal) {
+        _isHome = true;
+        _fixtureLocation = FixtureLocationType.home;
+        _opponentVenueId = null;
+      }
+
+      if (selectionMode == 'team') {
+        _workflowType = FixtureWorkflowType.team;
+        _isTeamFixture = true;
+        _isPreselectFixture = false;
+
+        _teamNameCtrl.text = name;
+
+        if (linkedTeamId != null && linkedTeamId.isNotEmpty) {
+          _teamId = linkedTeamId;
+        } else {
+          _teamId ??= _teams.isNotEmpty ? _teams.first['id'].toString() : null;
+        }
+      } else if (selectionMode == 'preselect') {
+        _isTeamFixture = false;
+        _isPreselectFixture = true;
+        _teamId = null;
+
+        _teamNameCtrl.text = name;
+      } else {
+        // rsvp / practice
+        _workflowType = FixtureWorkflowType.rsvp;
+        _isTeamFixture = false;
+        _isPreselectFixture = false;
+        _teamId = null;
+
+        _teamNameCtrl.text = name;
+      }
+
+      if (section.isNotEmpty) {
+        _section = section;
+      }
+      if (defaultPlayersPerRink != null) {
+        _playersPerRink = defaultPlayersPerRink;
+      }
+      if (defaultRinksRequired != null) {
+        _rinksRequired = defaultRinksRequired;
+      }
+    });
+
+    _loadGreenAreas();
   }
 
   Map<String, dynamic>? get _selectedGreenArea {
@@ -556,7 +677,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (_homeVenueId == null) {
         throw Exception('Please select a home venue.');
       }
-      if (_opponentVenueId == null) {
+      final selectedFixtureType = _fixtureTypeById(_fixtureTypeId);
+      final isInternalFixtureType = selectedFixtureType?['is_internal'] == true;
+
+      if (!isInternalFixtureType && _opponentVenueId == null) {
         throw Exception('Please select an opponent venue.');
       }
 
@@ -572,7 +696,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       // - For AWAY fixtures, venue_id should be the OPPONENT venue (the venue you travel to).
       //
       final String venueId = _isHome ? _homeVenueId! : _opponentVenueId!;
-      final String opponentVenueId = _isHome ? _opponentVenueId! : _homeVenueId!;
+      final String? opponentVenueId = isInternalFixtureType
+          ? null
+          : (_isHome ? _opponentVenueId! : _homeVenueId!);
 
       final fixtureLabel = _teamNameCtrl.text.trim();
 
@@ -588,11 +714,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'section': _section,
         'rinks_required': _rinksRequired,
         'players_per_rink': _playersPerRink,
+        'competition_type_id': _fixtureTypeId,
         'team_id': _isTeamFixture ? _teamId : null,
-        'team_name': _isTeamFixture ? null : (fixtureLabel.isEmpty ? null : fixtureLabel),
+        'team_name': fixtureLabel.isEmpty ? null : fixtureLabel,
 
         // ✅ IMPORTANT: override DB default TRUE
-        'requires_rsvp': !_isTeamFixture, // team fixture => false, friendly/internal => true
+        // RSVP => true
+        // Team / Preselect => false
+        'requires_rsvp': (!_isTeamFixture && !_isPreselectFixture), // team fixture => false, friendly/internal => true
 
         'venue_id': venueId,
         'opponent_venue_id': opponentVenueId,
@@ -652,6 +781,225 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
   }
 
+  Map<String, dynamic>? _fixtureTypeById(String? id) {
+    if (id == null) return null;
+
+    for (final ft in _fixtureTypes) {
+      if (ft['id'].toString() == id) return ft;
+    }
+    return null;
+  }
+
+  Widget _fixtureTypeSwatch(Map<String, dynamic> ft) {
+    final colourScheme = ft['colour_scheme'] as Map<String, dynamic>?;
+    final hasColours = colourScheme != null;
+
+    final bg = hasColours
+        ? colorFromHex(
+            colourScheme['background_hex']?.toString(),
+            fallback: Colors.grey.shade200,
+          )
+        : Colors.grey.shade100;
+
+    final fg = hasColours
+        ? colorFromHex(
+            colourScheme['foreground_hex']?.toString(),
+            fallback: Colors.black87,
+          )
+        : Colors.black87;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: fg.withOpacity(0.20),
+        ),
+      ),
+      child: Text(
+        ft['name']?.toString() ?? '',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: fg,
+          fontWeight: FontWeight.w600,
+          fontSize: 16,
+        ),
+      ),
+    );
+  }
+
+  Widget _selectedFixtureTypeField() {
+    final selected = _fixtureTypeById(_fixtureTypeId);
+
+    if (selected == null) {
+      return InkWell(
+        onTap: _pickFixtureType,
+        borderRadius: BorderRadius.circular(12),
+        child: InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'Fixture Type',
+            border: OutlineInputBorder(),
+          ),
+          child: const Text('Select Fixture Type'),
+        ),
+      );
+    }
+
+    final colourScheme = selected['colour_scheme'] as Map<String, dynamic>?;
+    final hasColours = colourScheme != null;
+
+    final bg = hasColours
+        ? colorFromHex(
+            colourScheme['background_hex']?.toString(),
+            fallback: Colors.grey.shade200,
+          )
+        : Colors.grey.shade100;
+
+    final fg = hasColours
+        ? colorFromHex(
+            colourScheme['foreground_hex']?.toString(),
+            fallback: Colors.black87,
+          )
+        : Colors.black87;
+
+    return InkWell(
+      onTap: _pickFixtureType,
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          labelText: 'Fixture Type',
+          border: OutlineInputBorder(),
+        ),
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 56),
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: fg.withOpacity(0.20),
+            ),
+          ),
+          child: Text(
+            selected['name']?.toString() ?? '',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+              height: 1.2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _fixtureTypeSelectedSwatch(Map<String, dynamic> ft) {
+    final colourScheme = ft['colour_scheme'] as Map<String, dynamic>?;
+    final hasColours = colourScheme != null;
+
+    final bg = hasColours
+        ? colorFromHex(
+            colourScheme['background_hex']?.toString(),
+            fallback: Colors.grey.shade200,
+          )
+        : Colors.transparent;
+
+    final fg = hasColours
+        ? colorFromHex(
+            colourScheme['foreground_hex']?.toString(),
+            fallback: Colors.black87,
+          )
+        : Colors.black87;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          width: double.infinity,
+          height: constraints.maxHeight,
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: hasColours ? bg : null,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: hasColours ? fg.withOpacity(0.25) : Colors.black12,
+            ),
+          ),
+          child: Text(
+            ft['name']?.toString() ?? '',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: fg,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+              height: 1.2,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickFixtureType() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.70,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Select Fixture Type',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: _fixtureTypes.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final ft = _fixtureTypes[i];
+                        final id = ft['id'].toString();
+
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => Navigator.pop(sheetContext, id),
+                          child: _fixtureTypeSwatch(ft),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selected == null) return;
+    _applyFixtureType(selected);
+  }
+
   @override
   Widget build(BuildContext context) {
     final startLabel = _startAtLocal == null
@@ -691,35 +1039,50 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                     const SizedBox(height: 12),
                   ],
 
+                  const Text('Fixture Type', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  _selectedFixtureTypeField(),
+                  const SizedBox(height: 12),
+
                   const Text('Location', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
 
-                  SegmentedButton<FixtureLocationType>(
-                    segments: const [
-                      ButtonSegment(
-                        value: FixtureLocationType.home,
-                        label: Text('Home'),
-                        icon: Icon(Icons.home),
+                  if (_fixtureTypeById(_fixtureTypeId)?['is_internal'] == true) ...[
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Location',
+                        border: OutlineInputBorder(),
                       ),
-                      ButtonSegment(
-                        value: FixtureLocationType.away,
-                        label: Text('Away'),
-                        icon: Icon(Icons.directions_bus),
-                      ),
-                    ],
-                    selected: {_fixtureLocation},
-                    onSelectionChanged: (newSelection) async {
-                      final v = newSelection.first;
-                      setState(() {
-                        _fixtureLocation = v;
-                        _isHome = v == FixtureLocationType.home;
-                        _greenAreas = [];
-                        _greenAreaId = null;
-                        _orientation = null;
-                      });
-                      await _loadGreenAreas();
-                    },
-                  ),
+                      child: const Text('Home'),
+                    ),
+                  ] else ...[
+                    SegmentedButton<FixtureLocationType>(
+                      segments: const [
+                        ButtonSegment(
+                          value: FixtureLocationType.home,
+                          label: Text('Home'),
+                          icon: Icon(Icons.home),
+                        ),
+                        ButtonSegment(
+                          value: FixtureLocationType.away,
+                          label: Text('Away'),
+                          icon: Icon(Icons.directions_bus),
+                        ),
+                      ],
+                      selected: {_fixtureLocation},
+                      onSelectionChanged: (newSelection) async {
+                        final v = newSelection.first;
+                        setState(() {
+                          _fixtureLocation = v;
+                          _isHome = v == FixtureLocationType.home;
+                          _greenAreas = [];
+                          _greenAreaId = null;
+                          _orientation = null;
+                        });
+                        await _loadGreenAreas();
+                      },
+                    ),
+                  ],
 
                   const SizedBox(height: 12),
                   Row(
@@ -755,65 +1118,68 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   ),
 
                   const SizedBox(height: 12),
-                  const Text('Fixture type', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('Fixture workflow', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
 
-                  SegmentedButton<FixtureWorkflowType>(
-                    segments: const [
-                      ButtonSegment(
-                        value: FixtureWorkflowType.rsvp,
-                        label: Text('RSVP'),
-                        icon: Icon(Icons.how_to_reg),
+                  if (_isPreselectFixture) ...[
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Pre-Selection mode',
+                        border: OutlineInputBorder(),
                       ),
-                      ButtonSegment(
-                        value: FixtureWorkflowType.team,
-                        label: Text('Team'),
-                        icon: Icon(Icons.groups),
-                      ),
-                    ],
-                    selected: {_workflowType},
-                    onSelectionChanged: (newSelection) {
-                      final v = newSelection.first;
-                      setState(() {
-                        _workflowType = v;
-                        _isTeamFixture = v == FixtureWorkflowType.team;
+                      child: const Text('Pre-Select'),
+                    ),
+                  ] else ...[
+                    SegmentedButton<FixtureWorkflowType>(
+                      segments: const [
+                        ButtonSegment(
+                          value: FixtureWorkflowType.rsvp,
+                          label: Text('RSVP'),
+                          icon: Icon(Icons.how_to_reg),
+                        ),
+                        ButtonSegment(
+                          value: FixtureWorkflowType.team,
+                          label: Text('Team'),
+                          icon: Icon(Icons.groups),
+                        ),
+                      ],
+                      selected: {_workflowType},
+                      onSelectionChanged: _workflowLockedByFixtureType
+                          ? null
+                          : (newSelection) {
+                              final v = newSelection.first;
+                              setState(() {
+                                _workflowType = v;
+                                _isTeamFixture = v == FixtureWorkflowType.team;
+                                _isPreselectFixture = false;
 
-                        if (_isTeamFixture) {
-                          _teamId ??= _teams.isNotEmpty ? _teams.first['id'].toString() : null;
-                        } else {
-                          _teamId = null;
-                        }
-                      });
-                    },
-                  ),
+                                if (_isTeamFixture) {
+                                  _teamId ??= _teams.isNotEmpty
+                                      ? _teams.first['id'].toString()
+                                      : null;
+                                } else {
+                                  _teamId = null;
+                                }
+                              });
+                            },
+                    ),
+                  ],
+
                   const SizedBox(height: 8),
 
                   if (!_isTeamFixture) ...[
                     TextField(
                       controller: _teamNameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Fixture label (optional)',
-                        hintText: 'e.g. Mid-week National Team Selection',
-                        border: OutlineInputBorder(),
+                      readOnly: _isPreselectFixture,
+                      decoration: InputDecoration(
+                        labelText: _isPreselectFixture
+                            ? 'Pre-Selected fixture label'
+                            : 'Fixture label (optional)',
+                        hintText: _isPreselectFixture
+                            ? 'Set from Fixture Type'
+                            : 'e.g. Mid-week National Team Selection',
+                        border: const OutlineInputBorder(),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  if (_isTeamFixture) ...[
-                    DropdownButtonFormField<String>(
-                      value: _teamId,
-                      decoration: const InputDecoration(
-                        labelText: 'Team',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _teams.map((t) {
-                        return DropdownMenuItem(
-                          value: t['id'].toString(),
-                          child: Text(t['name'].toString()),
-                        );
-                      }).toList(),
-                      onChanged: (v) => setState(() => _teamId = v),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -827,12 +1193,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                       );
 
                       if (selected != null) {
+                        debugPrint('HOME VENUE PICKED: $selected');
+
                         setState(() {
                           _homeVenueId = selected;
                           _greenAreas = [];
                           _greenAreaId = null;
                           _orientation = null;
                         });
+
                         await _loadGreenAreas();
                       }
                     },
@@ -855,54 +1224,69 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
                   const SizedBox(height: 12),
 
-                  InkWell(
-                    onTap: () async {
-                      final selected = await _pickVenue(
-                        getVenues: () => _opponentVenues,
-                        title: 'Select Opponent Club',
-                        isHomeVenue: false,
-                      );
-                      if (selected != null) {
-                        setState(() => _opponentVenueId = selected);
-                      }
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Opponent Club',
-                        border: OutlineInputBorder(),
-                      ),
-                      child: Text(
-                        _opponentVenues
-                                .firstWhere(
-                                  (v) => v['id'].toString() == _opponentVenueId,
-                                  orElse: () => {'name': 'Select Club'},
-                                )['name']
-                                ?.toString() ??
-                            'Select Club',
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  if (_isHome) ...[
-                    DropdownButtonFormField<String>(
-                      value: _greenAreaId,
-                      decoration: const InputDecoration(labelText: 'Green area'),
-                      items: _greenAreas.map((g) {
-                        return DropdownMenuItem(
-                          value: g['id'].toString(),
-                          child: Text(g['name'].toString()),
+                  if (_fixtureTypeById(_fixtureTypeId)?['is_internal'] != true) ...[
+                    InkWell(
+                      onTap: () async {
+                        final selected = await _pickVenue(
+                          getVenues: () => _opponentVenues,
+                          title: 'Select Opponent Club',
+                          isHomeVenue: false,
                         );
-                      }).toList(),
-                      onChanged: (v) {
-                        setState(() {
-                          _greenAreaId = v;
-                        });
-                        setState(() => _syncOrientationToSelectedGreen());
+                        if (selected != null) {
+                          setState(() => _opponentVenueId = selected);
+                        }
                       },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Opponent Club',
+                          border: OutlineInputBorder(),
+                        ),
+                        child: Text(
+                          _opponentVenues
+                                  .firstWhere(
+                                    (v) => v['id'].toString() == _opponentVenueId,
+                                    orElse: () => {'name': 'Select Club'},
+                                  )['name']
+                                  ?.toString() ??
+                              'Select Club',
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 12),
+                  ],
+
+                  if (_isHome) ...[
+                    if (_greenAreas.isEmpty) ...[
+                      const InputDecorator(
+                        decoration: InputDecoration(
+                          labelText: 'Green area',
+                          border: OutlineInputBorder(),
+                        ),
+                        child: Text('No greens available for this venue'),
+                      ),
+                      const SizedBox(height: 12),
+                    ] else ...[
+                      DropdownButtonFormField<String>(
+                        value: _greenAreaId,
+                        decoration: const InputDecoration(
+                          labelText: 'Green area',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _greenAreas.map((g) {
+                          return DropdownMenuItem(
+                            value: g['id'].toString(),
+                            child: Text(g['name'].toString()),
+                          );
+                        }).toList(),
+                        onChanged: (v) {
+                          setState(() {
+                            _greenAreaId = v;
+                            _syncOrientationToSelectedGreen();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
 
                     if (_isOutdoorSelectedGreen &&
                         _orientationEnabledForSelectedGreen &&

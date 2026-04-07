@@ -38,6 +38,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
   bool _isTeamFixture = false;
   bool _usesRsvpPool = false;
+  bool _isPreselectFixture = false;
+  bool _isInternalFixture = false;
 
   String? _selectionId;
   String _status = 'draft';
@@ -66,10 +68,54 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
  
   String? _currentMemberProfileId;
 
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _search = '';
+
+  final TextEditingController _clubMemberSearchController = TextEditingController();
+  String _clubMemberSearch = '';
+
+  List<Map<String, dynamic>> get _filteredClubMembers {
+    final q = _clubMemberSearch.trim().toLowerCase();
+
+    final selectedIds = _selected
+        .map((e) => e['member_profile_id']?.toString())
+        .whereType<String>()
+        .toSet();
+
+    return _clubMembers.where((m) {
+      final id = m['member_profile_id']?.toString() ?? m['id']?.toString();
+      if (id == null || id.isEmpty || selectedIds.contains(id)) return false;
+
+      if (q.isEmpty) return true;
+
+      final displayName = (m['display_name'] ?? '').toString().toLowerCase();
+      final firstName = (m['first_name'] ?? '').toString().toLowerCase();
+      final lastName = (m['last_name'] ?? '').toString().toLowerCase();
+      final email = (m['email_address'] ?? '').toString().toLowerCase();
+
+      return displayName.contains(q) ||
+          firstName.contains(q) ||
+          lastName.contains(q) ||
+          email.contains(q);
+    }).toList();
+  }
+
   @override
   void initState() {
     super.initState();
+      _clubMemberSearchController.addListener(() {
+        setState(() {
+          _clubMemberSearch = _clubMemberSearchController.text.trim().toLowerCase();
+        });
+      });
     _init();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _clubMemberSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -154,8 +200,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final requiresRsvp = widget.fixture['requires_rsvp'] == true;  
       final clubId = widget.fixture['club_id']?.toString();
 
-      _isTeamFixture = teamId != null;
-      _usesRsvpPool = !_isTeamFixture && requiresRsvp;
+      final competitionType =
+          widget.fixture['competition_type'] as Map<String, dynamic>?;
+      final selectionMode =
+          (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
+      final isInternalFixtureType = competitionType?['is_internal'] == true;
+
+      _isTeamFixture = teamId != null && selectionMode != 'preselect';
+      _isPreselectFixture = selectionMode == 'preselect';
+      _isInternalFixture = isInternalFixtureType;
+      _usesRsvpPool = !_isTeamFixture && !_isPreselectFixture && requiresRsvp;
 
       // get or create selection
       final existing = await client
@@ -187,17 +241,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       // 1) Load candidates (pool)
       List<Map<String, dynamic>> candidates = [];
 
-      if (teamId != null) {
-        // 1) Team fixture -> pick from team pool
+      if (_isTeamFixture) {
         final rows = await client
             .from('team_members')
             .select('member_profile_id, member_profiles(id, display_name, phone)')
-            .eq('team_id', teamId)
+            .eq('team_id', teamId!)  // 👈 THIS
             .eq('is_active', true);
 
         candidates = List<Map<String, dynamic>>.from(rows);
         debugPrint('MANAGE_TEAM branch: team_members');
-      } else if (requiresRsvp) {
+      } else if (_usesRsvpPool) {
         // 2) RSVP fixture -> only members who said yes/maybe
         final rows = await client
             .from('fixture_rsvps')
@@ -233,6 +286,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
         debugPrint('MANAGE_TEAM branch: fixture_rsvps yes/maybe');
         debugPrint('MANAGE_TEAM roleByMemberId=$roleByMemberId');
+      } else if (_isPreselectFixture) {
+        // Pre-select fixtures should not show the whole club as the main visible pool.
+        // Players are selected explicitly, and any extras should be added via Add Player(s).
+        candidates = [];
+        debugPrint('MANAGE_TEAM branch: preselect -> no default candidate pool');
       } else {
         // 3) Non-team, no-RSVP fixture -> all active club members
         final rows = await client
@@ -591,11 +649,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       return;
     }
 
-    // For now, no add-members flow for non-team, no-RSVP fixtures
-    if (!_isTeamFixture && !requiresRsvp) {
+    // Allow team fixtures, RSVP fixtures, and pre-select fixtures.
+    // Only block truly unsupported fixture modes.
+    if (!_isTeamFixture && !requiresRsvp && !_isPreselectFixture) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All active club members are already eligible for this fixture.')),
+          const SnackBar(
+            content: Text('Add players is not supported for this fixture type.'),
+          ),
         );
       }
       return;
@@ -615,11 +676,37 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         return;
       }
 
-      // Exclude members already in team_members for this team
       final existingRows = await _client
           .from('team_members')
           .select('member_profile_id')
           .eq('team_id', teamId);
+
+      existingIds.addAll(
+        List<Map<String, dynamic>>.from(existingRows)
+            .map((r) => r['member_profile_id']?.toString())
+            .whereType<String>(),
+      );
+
+      for (final m in _clubMembers) {
+        final mpId = m['member_profile_id']?.toString();
+        if (mpId == null || mpId.isEmpty) continue;
+        if (existingIds.contains(mpId)) continue;
+        eligibleMembers.add(m);
+      }
+    } else if (_isPreselectFixture) {
+      if (_selectionId == null || _selectionId!.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Team selection not loaded yet.')),
+          );
+        }
+        return;
+      }
+
+      final existingRows = await _client
+          .from('team_selection_members')
+          .select('member_profile_id')
+          .eq('team_selection_id', _selectionId!);
 
       existingIds.addAll(
         List<Map<String, dynamic>>.from(existingRows)
@@ -653,7 +740,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         eligibleMembers.add(m);
       }
     }
-
     // remove duplicates (safety)
     final seen = <String>{};
     eligibleMembers.removeWhere((m) {
@@ -681,40 +767,86 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     final selectedIds = <String>{};
 
+    String dialogSearch = '';
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
+            final filteredMembers = eligibleMembers.where((m) {
+              final q = dialogSearch.trim().toLowerCase();
+              if (q.isEmpty) return true;
+
+              final displayName = (m['display_name'] ?? '').toString().toLowerCase();
+              final firstName = (m['first_name'] ?? '').toString().toLowerCase();
+              final lastName = (m['last_name'] ?? '').toString().toLowerCase();
+              final email = (m['email_address'] ?? '').toString().toLowerCase();
+
+              return displayName.contains(q) ||
+                  firstName.contains(q) ||
+                  lastName.contains(q) ||
+                  email.contains(q);
+            }).toList();
+
             return AlertDialog(
               title: Text(
-                _isTeamFixture ? 'Add players to team pool' : 'Add players to RSVP pool',
+                _isTeamFixture
+                    ? 'Add players to team pool'
+                    : (_isPreselectFixture
+                        ? 'Add players to pre-select fixture'
+                        : 'Add players to RSVP pool'),
               ),
               content: SizedBox(
                 width: 420,
-                height: 420,
-                child: ListView(
-                  children: eligibleMembers.map((m) {
-                    final mpId = m['member_profile_id']?.toString() ?? '';
-                    final name = (m['display_name'] ?? '(no name)').toString();
-                    final checked = selectedIds.contains(mpId);
-
-                    return CheckboxListTile(
-                      value: checked,
-                      dense: true,
-                      title: Text(name),
-                      controlAffinity: ListTileControlAffinity.leading,
+                height: 460,
+                child: Column(
+                  children: [
+                    TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Search club members',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                      ),
                       onChanged: (v) {
                         setLocalState(() {
-                          if (v == true) {
-                            selectedIds.add(mpId);
-                          } else {
-                            selectedIds.remove(mpId);
-                          }
+                          dialogSearch = v;
                         });
                       },
-                    );
-                  }).toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: filteredMembers.isEmpty
+                          ? const Center(
+                              child: Text('No members match your search.'),
+                            )
+                          : ListView(
+                              children: filteredMembers.map((m) {
+                                final mpId = m['member_profile_id']?.toString() ?? '';
+                                final name =
+                                    (m['display_name'] ?? '(no name)').toString();
+                                final checked = selectedIds.contains(mpId);
+
+                                return CheckboxListTile(
+                                  value: checked,
+                                  dense: true,
+                                  title: Text(name),
+                                  controlAffinity:
+                                      ListTileControlAffinity.leading,
+                                  onChanged: (v) {
+                                    setLocalState(() {
+                                      if (v == true) {
+                                        selectedIds.add(mpId);
+                                      } else {
+                                        selectedIds.remove(mpId);
+                                      }
+                                    });
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                    ),
+                  ],
                 ),
               ),
               actions: [
@@ -766,14 +898,29 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             .toList();
 
         inserted = List<Map<String, dynamic>>.from(
-          await _client
-              .from('team_members')
-              .insert(payload)
-              .select(),
+          await _client.from('team_members').insert(payload).select(),
         );
 
         debugPrint('ADD_MEMBERS TEAM inserted=$inserted');
+      } else if (_isPreselectFixture) {
+        final payload = selectedIds
+            .map((id) => {
+                  'team_selection_id': _selectionId,
+                  'member_profile_id': id,
+                  'role': 'player',
+                  'acceptance': 'pending',
+                  'is_selected': true,
+                })
+            .toList();
 
+        inserted = List<Map<String, dynamic>>.from(
+          await _client
+              .from('team_selection_members')
+              .insert(payload)
+              .select('member_profile_id, role, acceptance, is_selected'),
+        );
+
+        debugPrint('ADD_MEMBERS PRESELECT inserted=$inserted');
       } else {
         final payload = selectedIds
             .map((id) => {
@@ -793,7 +940,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         );
 
         debugPrint('ADD_MEMBERS RSVP inserted=$inserted');
-
       }
 
       await _load();
@@ -870,6 +1016,22 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   Map<String, dynamic>? _selectedRowFor(String memberId) {
     final rows = _selected.where((r) => r['member_profile_id'] == memberId).toList();
     return rows.isEmpty ? null : rows.first;
+  }
+
+  List<Map<String, dynamic>> _filterPool(List<Map<String, dynamic>> pool) {
+    final q = _search.trim().toLowerCase();
+    if (q.isEmpty) return pool;
+
+    return pool.where((r) {
+      final mp = r['member_profiles'] as Map<String, dynamic>?;
+      final displayName = (mp?['display_name'] ?? '').toString().toLowerCase();
+      final phone = (mp?['phone'] ?? '').toString().toLowerCase();
+      final status = (r['rsvp_status'] ?? r['status'] ?? '').toString().toLowerCase();
+
+      return displayName.contains(q) ||
+          phone.contains(q) ||
+          status.contains(q);
+    }).toList();
   }
 
   Future<void> _togglePlayer(String memberId) async {
@@ -1078,10 +1240,23 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     }
 
     try {
-      await Supabase.instance.client
+      final fixtureId = widget.fixture['id']?.toString();
+      if (fixtureId == null || fixtureId.isEmpty) {
+        throw Exception('Fixture id missing.');
+      }
+
+      final client = Supabase.instance.client;
+
+      await client
           .from('team_selection_members')
           .update({'is_selected': false})
           .eq('team_selection_id', _selectionId!)
+          .eq('member_profile_id', memberProfileId);
+
+      await client
+          .from('fixture_rink_assignments')
+          .delete()
+          .eq('fixture_id', fixtureId)
           .eq('member_profile_id', memberProfileId);
 
       await _load();
@@ -1162,21 +1337,30 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     final isPublished = _status == 'published';
 
     final isHome = widget.fixture['is_home'] == true;
-    final isTeam = widget.fixture['team_id'] != null;
+
+    final competitionType =
+        widget.fixture['competition_type'] as Map<String, dynamic>?;
+    final selectionMode =
+        (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
+
+    final modeLabel = selectionMode == 'preselect'
+        ? 'Pre-Select'
+        : (widget.fixture['team_id'] != null ? 'Team' : 'RSVP');
 
     final pageTitle =
-        '${isHome ? 'Home' : 'Away'} '
-        '${isTeam ? 'Team' : 'RSVP'} Management';
+        '${isHome ? 'Home' : 'Away'} $modeLabel Management';
 
     final selectedIds = _selected
         .map((r) => r['member_profile_id']?.toString())
         .whereType<String>()
         .toSet();
 
-    final visiblePool = _pool.where((r) {
-      final id = r['member_profile_id']?.toString();
-      return id != null && !selectedIds.contains(id);
-    }).toList();
+    final visiblePool = _filterPool(
+      _pool.where((r) {
+        final id = r['member_profile_id']?.toString();
+        return id != null && !selectedIds.contains(id);
+      }).toList(),
+    );
 
     final rinksRequired =
         int.tryParse(widget.fixture['rinks_required']?.toString() ?? '') ?? 0;
@@ -1184,9 +1368,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         int.tryParse(widget.fixture['players_per_rink']?.toString() ?? '') ?? 0;
     final requiredPlayers = rinksRequired * playersPerRink;
 
-    final selectedCount = _selected.where((s) => (s['role'] ?? 'player') == 'player').length;
+    final playersCount =
+        _selected.where((s) => (s['role'] ?? 'player') == 'player').length;
+    final opponentsCount =
+        _selected.where((s) => (s['role'] ?? '') == 'opponent').length;
+    final markersCount =
+        _selected.where((s) => (s['role'] ?? '') == 'marker').length;
+    final reservesCount =
+        _selected.where((s) => (s['role'] ?? '') == 'reserve').length;
 
-    final reservesCount = _selected.where((s) => (s['role'] ?? 'player') == 'reserve').length;
+    final requiredPerSide = rinksRequired * playersPerRink;
+    final requiredMarkers = _isInternalFixture && _isPreselectFixture ? rinksRequired : 0;
     
     return Scaffold(
         appBar: AppBar(
@@ -1235,7 +1427,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(12),
@@ -1257,7 +1448,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                       );
                                     },
                               icon: const Icon(Icons.grid_view),
-                              label: const Text('Rinks Setup'),
+                              label: const Text('Teams Setup'),
                             ),
 
                             const SizedBox(height: 8),
@@ -1286,8 +1477,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                               icon: const Icon(Icons.groups),
                               label: Text(
                                 _canAssignRinks
-                                    ? 'Assign Rinks & Positions'
-                                    : 'View Rinks & Positions',
+                                    ? 'Assign Team Players & Positions'
+                                    : 'View Team Players & Positions',
                               ),    
                             ),
 
@@ -1336,13 +1527,29 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                     const SizedBox(height: 16),
                     Card(
-                      child: ListTile(
-                        title: Text(
-                          requiredPlayers > 0
-                              ? 'Players: $selectedCount / $requiredPlayers'
-                              : 'Players: $selectedCount',
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isInternalFixture && _isPreselectFixture
+                                  ? 'Players: $playersCount / $requiredPerSide'
+                                  : (requiredPlayers > 0
+                                      ? 'Players: $playersCount / $requiredPlayers'
+                                      : 'Players: $playersCount'),
+                            ),
+                            if (_isInternalFixture && _isPreselectFixture) ...[
+                              const SizedBox(height: 4),
+                              Text('Opponents: $opponentsCount / $requiredPerSide'),
+                              const SizedBox(height: 4),
+                              Text('Markers: $markersCount / $requiredMarkers'),
+                            ] else ...[
+                              const SizedBox(height: 4),
+                              Text('Reserves: $reservesCount'),
+                            ],
+                          ],
                         ),
-                        subtitle: Text('Reserves: $reservesCount'),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1395,8 +1602,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                if (role == 'reserve')
-                                  AppBadge(text: 'RESERVE')
+                                if (role == 'reserve') AppBadge(text: 'RESERVE'),
+                                if (role == 'opponent') AppBadge(text: 'OPPONENT'),
+                                if (role == 'marker') AppBadge(text: 'MARKER'),
                               ],
                             ),
                             subtitle: Column(
@@ -1425,8 +1633,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                           ? null
                           : PopupMenuButton<String>(
                               onSelected: (v) async {
-                                if (v == 'player' || v == 'reserve') {
-                                  if (_canEditSelection) {
+                                if (v == 'player' || v == 'reserve' || v == 'opponent' || v == 'marker') {                                  if (_canEditSelection) {
                                     await _setRole(memberId, v);
                                   }
                                 } else if (v == 'accept') {
@@ -1438,8 +1645,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                               itemBuilder: (_) => [
                                 if (_canEditSelection)
                                   const PopupMenuItem(value: 'player', child: Text('Make player')),
-                                if (_canEditSelection)
+
+                                if (_canEditSelection && _isInternalFixture && _isPreselectFixture)
+                                  const PopupMenuItem(value: 'opponent', child: Text('Make opponent')),
+
+                                if (_canEditSelection && _isInternalFixture && _isPreselectFixture)
+                                  const PopupMenuItem(value: 'marker', child: Text('Make marker')),
+
+                                if (_canEditSelection && !(_isInternalFixture && _isPreselectFixture))
                                   const PopupMenuItem(value: 'reserve', child: Text('Make reserve')),
+
                                 if (_canForceAccept)
                                   const PopupMenuItem(value: 'accept', child: Text('Accept')),
                               ],
@@ -1449,20 +1664,42 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                       }
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      _isTeamFixture
-                          ? 'Team pool'
-                          : (widget.fixture['requires_rsvp'] == true
-                              ? 'RSVP pool (Yes/Maybe)'
-                              : 'Club members'),
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    if (visiblePool.isEmpty)
-                      const Text('No eligible members found.')
-                    else
-                      ...visiblePool.map(_poolRow),
-                    ],
+
+                    if (_isPreselectFixture) ...[
+                      Text(
+                        'Additional players',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('Use Add Player(s) above to search the club list and add more players.'),
+                    ] else ...[
+                      Text(
+                        _isTeamFixture
+                            ? 'Team pool'
+                            : (_usesRsvpPool ? 'RSVP pool (Yes/Maybe)' : 'Club members'),
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _searchCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Search members',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (v) => setState(() => _search = v),
+                      ),
+                      const SizedBox(height: 12),
+                      if (visiblePool.isEmpty)
+                        Text(
+                          _search.trim().isEmpty
+                              ? 'No eligible members found.'
+                              : 'No members match your search.',
+                        )
+                      else
+                        ...visiblePool.map(_poolRow),
+                    ]
+                  ],
                 ),
     );
   }
