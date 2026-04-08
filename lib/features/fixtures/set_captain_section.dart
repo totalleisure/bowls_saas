@@ -8,12 +8,17 @@ import '../../core/utils/date_format.dart';
 
 class SetCaptainSection extends StatefulWidget {
   final Map<String, dynamic> fixture;
-  const SetCaptainSection({super.key, required this.fixture});
+  final bool readOnly;
+
+  const SetCaptainSection({
+    super.key,  
+    required this.fixture,
+    this.readOnly = false,
+  });
 
   @override
   State<SetCaptainSection> createState() => _SetCaptainSectionState();
 }
-
 
 class _SetCaptainSectionState extends State<SetCaptainSection> {
   bool _loading = true;

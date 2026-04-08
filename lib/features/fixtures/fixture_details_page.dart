@@ -40,10 +40,16 @@ class FixtureDetailsPage extends StatefulWidget {
 class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   int _loadCount = 0;
-  bool isAdmin = false;
-  bool isSuper = false;
-  bool isCaptain = false;
-  bool isVice = false;
+
+  bool _isAdmin = false;
+  bool _isSuper = false;
+
+  bool _canEditFixture = false;
+  bool _canDeleteFixture = false;
+  bool _canAssignCaptaincy = false;
+  bool _canManageTeam = false;
+  bool _canViewTeam = false;
+  
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _fixture;
@@ -66,8 +72,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _isTeamFixtureUi = false;
 
   final _client = Supabase.instance.client;
-  bool _canDelete = false;
-
+  
   String? _currentTeamSelectionId() {
     final ts = _fixture?['ts'];
 
@@ -198,17 +203,24 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           _fixture = Map<String, dynamic>.from(f);
           _teamNameCtrl.text = (_fixture?['team_name'] ?? '').toString();
           _selectedTeamId = _fixture?['team_id']?.toString();
-          _isTeamFixtureUi = _selectedTeamId != null;
+          
+          final loadedCompetitionType =
+              _fixture?['competition_type'] as Map<String, dynamic>?;
+          final loadedSelectionMode =
+              (loadedCompetitionType?['selection_mode'] ?? '').toString().trim();
+
+          _isTeamFixtureUi =
+              loadedSelectionMode == 'team' || _selectedTeamId != null;
           _loading = false;
         });
 
         // run post-load checks
         await _loadMyMemberProfileId();
-        await _loadCanDelete();
+        await _loadMyTeamSelection();
         await _loadTeamNameLocked();
         await _loadTeams();
         await _loadMyRsvp();
-        await _loadMyTeamSelection();
+        await _loadPermissions();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -359,38 +371,50 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
-  Future<void> _loadCanDelete() async {
-//    debugPrint('_loadCanDelete() called');
+  Future<void> _loadPermissions() async {
     try {
       final userId = _client.auth.currentUser?.id;
       if (userId == null) {
-        if (mounted) setState(() => _canDelete = false);
+        if (!mounted) return;
+        setState(() {
+          _isAdmin = false;
+          _isSuper = false;
+          _canEditFixture = false;
+          _canDeleteFixture = false;
+          _canAssignCaptaincy = false;
+          _canManageTeam = false;
+          _canViewTeam = false;
+        });
         return;
       }
 
-      // Get my member_profile_id
-      final mp = await _client
-          .from('member_profiles')
-          .select('id')
-          .eq('user_id', userId)
-          .maybeSingle();
+      String? myProfileId = _myMemberProfileId;
 
-      final myProfileId = mp?['id']?.toString();
       if (myProfileId == null) {
-        if (mounted) setState(() => _canDelete = false);
-        return;
-      }
-//      debugPrint('myProfileID <> null');
+        final mp = await _client
+            .from('member_profiles')
+            .select('id')
+            .eq('user_id', userId)
+            .maybeSingle();
 
-      // Get this fixture's club_id (already loaded in _fixture after _load())
+        myProfileId = mp?['id']?.toString();
+      }
+
       final clubId = _fixture?['club_id']?.toString();
-      if (clubId == null) {
-        if (mounted) setState(() => _canDelete = false);
+      if (clubId == null || myProfileId == null) {
+        if (!mounted) return;
+        setState(() {
+          _isAdmin = false;
+          _isSuper = false;
+          _canEditFixture = false;
+          _canDeleteFixture = false;
+          _canAssignCaptaincy = false;
+          _canManageTeam = false;
+          _canViewTeam = false;
+        });
         return;
       }
-//      debugPrint('clubId: $clubId');
 
-      // Club admin?
       final adminRow = await _client
           .from('club_memberships')
           .select('id')
@@ -399,46 +423,81 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           .eq('role', 'admin')
           .maybeSingle();
 
-      final adminFlag = adminRow != null;
+      final selectorRow = await _client
+          .from('club_memberships')
+          .select('id')
+          .eq('club_id', clubId)
+          .eq('member_profile_id', myProfileId)
+          .eq('role', 'selector')
+          .maybeSingle();
 
-      if (mounted) {
-        setState(() {
-          isAdmin = adminFlag;          // class field
-          _canDelete = adminFlag || isSuper;
-        });
-      }
-//      debugPrint('isAdmin value 1 : $isAdmin');
-
-// Superuser? (if you have this table)
-      
+      bool superFlag = false;
       try {
         final suRow = await _client
             .from('app_superusers')
-            .select('*')
+            .select('user_id')
             .eq('user_id', userId)
             .maybeSingle();
-        isSuper = suRow != null;
-        if (mounted) {
-          setState(() {
-            isAdmin = adminFlag;
-            _canDelete = adminFlag || isSuper;
-          });
-        }        
-      } catch (e) {
-      debugPrint('Looks like theres an error: $e');
+        superFlag = suRow != null;
+      } catch (_) {
+        superFlag = false;
       }
-//      debugPrint('isAdmin value 2 : $isAdmin');
-      if (mounted) setState(() => _canDelete = isAdmin || isSuper);
-    } catch (_) {
-      if (mounted) setState(() => _canDelete = false);
-    }
 
-    debugPrint('isAdmin value 2 : $isAdmin');
-    debugPrint('isSuper value 2 : $isSuper');
-    debugPrint('_canDelete      : $_canDelete');
-  }  
+      final fixtureCaptainId = _fixture?['captain_member_profile_id']?.toString();
+      final fixtureViceCaptainId =
+          _fixture?['vice_captain_member_profile_id']?.toString();
+
+      final isAdmin = adminRow != null;
+      final isSelector = selectorRow != null;
+      final isSuper = superFlag;
+      final isFixtureCaptain =
+          fixtureCaptainId != null && fixtureCaptainId == myProfileId;
+      final isFixtureVice =
+          fixtureViceCaptainId != null && fixtureViceCaptainId == myProfileId;
+
+      final canEditFixture = isSuper || isAdmin;
+      final canDeleteFixture = isSuper || isAdmin;
+      final canAssignCaptaincy = isSuper || isAdmin;
+      final canManageTeam =
+          isSuper || isAdmin || isSelector || isFixtureCaptain || isFixtureVice;
+
+      final myTeamSelection = _myTeamSelection != null;
+      final canViewTeam = canManageTeam || myTeamSelection;
+
+      if (!mounted) return;
+      setState(() {
+        _isAdmin = isAdmin;
+        _isSuper = isSuper;
+        _canEditFixture = canEditFixture;
+        _canDeleteFixture = canDeleteFixture;
+        _canAssignCaptaincy = canAssignCaptaincy;
+        _canManageTeam = canManageTeam;
+        _canViewTeam = canViewTeam;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isAdmin = false;
+        _isSuper = false;
+        _canEditFixture = false;
+        _canDeleteFixture = false;
+        _canAssignCaptaincy = false;
+        _canManageTeam = false;
+        _canViewTeam = false;
+      });
+    }
+    debugPrint('Fixture permissions: '
+        'admin=$_isAdmin '
+        'super=$_isSuper '
+        'edit=$_canEditFixture '
+        'delete=$_canDeleteFixture '
+        'assignCaptain=$_canAssignCaptaincy '
+        'manageTeam=$_canManageTeam '
+        'viewTeam=$_canViewTeam');    
+  }
   
   Future<void> _confirmAndDelete() async {
+    if (!_canDeleteFixture) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -692,7 +751,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         appBar: AppBar(
           title: const Text('Fixture details'),
           actions: [
-            if (_canDelete)
+            if (_canDeleteFixture)
               IconButton(
                 tooltip: 'Delete fixture',
                 icon: const Icon(Icons.delete_outline),
@@ -753,7 +812,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         competitionTypeName.isNotEmpty ? competitionTypeName : fixtureLabel;
 
     final teamRow = fixture['team'] as Map<String, dynamic>?;
-    final teamName = (teamRow?['name'] ?? '').toString().trim();
+    final teamName = (teamRow?['name'] ?? fixture['team_name'] ?? '').toString().trim();
 
     final startAt = fixture['start_at'] as String?;
     final when = startAt != null
@@ -770,48 +829,71 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final green = (fixture['green_areas']?['name'] as String?) ?? '';
     final section = (fixture['section'] as String?) ?? '';
 
-    String buildMatchHeader({
+    String buildFixtureHeader({
       required bool isHome,
       required bool isInternal,
-      required String venue,
-      required String green,
+      required bool isPreselectFixture,
+      required bool isTeamFixture,
       required String opponent,
       required String teamName,
       required String fixtureLabel,
     }) {
-      if (isInternal) {
-        final parts = <String>['Internal'];
-        if (venue.isNotEmpty) parts.add('at $venue');
-        if (green.isNotEmpty) parts.add('on $green');
-        if (fixtureLabel.isNotEmpty) parts.add('· $fixtureLabel');
-        return parts.join(' ');
+      final cleanOpponent = opponent.trim();
+      final cleanTeamName = teamName.trim();
+      final cleanFixtureLabel = fixtureLabel.trim();
+
+      if (isInternal || isPreselectFixture) {
+        if (cleanFixtureLabel.isNotEmpty) {
+          return 'Internal $cleanFixtureLabel';
+        }
+        return 'Internal Fixture';
       }
 
       if (isHome) {
-        final parts = <String>['Home'];
-        if (venue.isNotEmpty) parts.add('at $venue');
-        if (green.isNotEmpty) parts.add('on $green');
-        if (opponent.isNotEmpty) parts.add('v $opponent');
-        return parts.join(' ');
+        if (isTeamFixture) {
+          if (cleanTeamName.isNotEmpty && cleanOpponent.isNotEmpty) {
+            return 'Home $cleanTeamName v $cleanOpponent';
+          }
+          if (cleanTeamName.isNotEmpty) {
+            return 'Home $cleanTeamName';
+          }
+          if (cleanOpponent.isNotEmpty) {
+            return 'Home against $cleanOpponent';
+          }
+          return 'Home Fixture';
+        }
+
+        if (cleanOpponent.isNotEmpty) {
+          return 'Home against $cleanOpponent';
+        }
+        return 'Home Fixture';
       }
 
-      final ourSide = teamName.isNotEmpty
-          ? teamName
-          : (opponent.isNotEmpty ? opponent : 'Away club');
-
-      final parts = <String>['Away'];
-      if (venue.isNotEmpty) {
-        parts.add('at $venue');
+      // Away
+      if (isTeamFixture) {
+        if (cleanOpponent.isNotEmpty && cleanTeamName.isNotEmpty) {
+          return 'Away at $cleanOpponent v $cleanTeamName';
+        }
+        if (cleanOpponent.isNotEmpty) {
+          return 'Away at $cleanOpponent';
+        }
+        if (cleanTeamName.isNotEmpty) {
+          return 'Away v $cleanTeamName';
+        }
+        return 'Away Fixture';
       }
-      parts.add('v $ourSide');
-      return parts.join(' ');
+
+      if (cleanOpponent.isNotEmpty) {
+        return 'Away at $cleanOpponent';
+      }
+      return 'Away Fixture';
     }
 
-    final matchHeader = buildMatchHeader(
+    final matchHeader = buildFixtureHeader(
       isHome: isHome,
       isInternal: isInternalFixtureType,
-      venue: venue,
-      green: green,
+      isPreselectFixture: isPreselectFixture,
+      isTeamFixture: isTeamFixture,
       opponent: opponent,
       teamName: teamName,
       fixtureLabel: displayFixtureLabel,
@@ -823,10 +905,26 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             .trim();
 
     final lockedFixtureLabel = isPreselectFixture
-        ? 'Pre-Select Fixture${displayFixtureLabel.isNotEmpty ? ' for $displayFixtureLabel' : ''}'
+        ? 'Pre-Select Fixture'
         : isTeamFixture
-            ? 'Team Fixture${fixtureTeamName.isNotEmpty ? ' for $fixtureTeamName' : ''}'
+            ? 'Team Fixture'
             : 'RSVP Fixture';
+
+    final isWorkflowLocked = _teamNameLocked || isPreselectFixture;
+
+    final fixtureTypeLabel = isPreselectFixture
+        ? 'Pre-Select Fixture'
+        : isTeamFixture
+            ? 'Team Fixture'
+            : 'RSVP Fixture';
+
+    final fixtureTypeHelpText = isPreselectFixture
+        ? 'Players are pre-selected for this fixture. This workflow cannot be changed here.'
+        : isWorkflowLocked
+            ? 'This fixture workflow is locked because responses, selections, or assignments already exist.'
+            : isTeamFixture
+                ? 'This fixture uses a team-based workflow.'
+                : 'This fixture uses RSVP availability.';
 
     final rinks = (fixture['rinks_required'] as int?) ?? 0;
     final ppr = (fixture['players_per_rink'] as int?) ?? 4;
@@ -844,28 +942,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final captainName = (fixture['captain']?['display_name'] as String?) ?? '';
     final viceName = (fixture['vice']?['display_name'] as String?) ?? '';
 
-    final fixtureCaptainId = fixture['captain_member_profile_id']?.toString();
-    final fixtureViceCaptainId = fixture['vice_captain_member_profile_id']?.toString();
-
-    final canManageTeam =
-        _canDelete ||
-        isAdmin ||
-        isSuper ||
-        (fixtureCaptainId != null && fixtureCaptainId == _myMemberProfileId) ||
-        (fixtureViceCaptainId != null && fixtureViceCaptainId == _myMemberProfileId);
-
     final myTeamSelection = _myTeamSelection;
-
-//    final canRespondToTeamSelection =
-//        myTeamSelection != null &&
-//        (myTeamSelectionAcceptance.isEmpty ||
-//        myTeamSelectionAcceptance == 'pending');
-    
     final canRespondToTeamSelection = myTeamSelection != null;
-
-    final canViewTeam = canManageTeam || myTeamSelection != null;
-
-//    final showCaptainView = fixture['requires_rsvp'] == true;
+    final canManageTeam = _canManageTeam;
+    final canViewTeam = _canViewTeam;
 
     final ts = fixture['ts'];
     String? teamSelectionStatus;
@@ -886,7 +966,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ),
         title: Text(pageTitle),
         actions: [
-          if (_canDelete)
+          if (_canDeleteFixture)
             IconButton(
               tooltip: 'Delete fixture',
               icon: const Icon(Icons.delete_outline),
@@ -897,98 +977,100 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: fixtureTypeBg ?? Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: fixtureTypeFg?.withOpacity(0.25) ?? Colors.black12,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  lockedFixtureLabel,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: fixtureTypeFg,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${DateFormat('EEEE d MMMM yyyy').format(when)} · ${DateFormat('HH:mm').format(when)}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: fixtureTypeFg,
+                      ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
           Text(
             matchHeader,
-            style: Theme.of(context).textTheme.titleLarge,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
-          const SizedBox(height: 8),
+
+          const SizedBox(height: 10),
+
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               AppBadge(text: isHome ? 'HOME' : 'AWAY'),
 
-              if (isTeamFixture && teamName.isNotEmpty)
-                AppBadge(text: 'TEAM: $teamName')
-              else if (displayFixtureLabel.isNotEmpty)
+              if (displayFixtureLabel.isNotEmpty)
                 AppBadge(text: displayFixtureLabel.toUpperCase()),
 
-              if (captainName.isNotEmpty) AppBadge(text: 'CAPT: $captainName'),
+              if (isHome && green.isNotEmpty)
+                AppBadge(text: 'GREEN: $green'),
 
-              if (viceName.isNotEmpty) AppBadge(text: 'VICE: $viceName'),
+              if (showOrientation)
+                AppBadge(text: 'ORIENTATION: ${(orientation ?? 'NOT SET').toUpperCase()}'),
 
               AppBadge(text: section.toUpperCase()),
               AppBadge(text: _formatLabel(ppr).toUpperCase()),
-              AppBadge(text: '$rinks RINKS'),
+              AppBadge(text: '$rinks TEAMS'),
 
-              if (showOrientation)
-                AppBadge(text: ('ORIENT: ${orientation ?? 'NOT SET'}').toUpperCase()),
+              if (captainName.isNotEmpty) AppBadge(text: 'CAPT: $captainName'),
+              if (viceName.isNotEmpty) AppBadge(text: 'VICE: $viceName'),
             ],
           ),
           
           const SizedBox(height: 16),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_teamNameLocked || isPreselectFixture) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: fixtureTypeBg ?? Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: fixtureTypeFg?.withOpacity(0.25) ?? Colors.black12,
+                  Text(
+                    'Fixture workflow',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
-                      ),
-                      child: Text(
-                        lockedFixtureLabel,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: fixtureTypeFg,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                  ] else ...[
-                    const Text('Fixture workflow', style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    fixtureTypeHelpText,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
 
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(
-                          value: false,
-                          label: Text('RSVP'),
-                          icon: Icon(Icons.how_to_reg),
-                        ),
-                        ButtonSegment(
-                          value: true,
-                          label: Text('Team'),
-                          icon: Icon(Icons.groups),
-                        ),
-                      ],
-                      selected: {_isTeamFixtureUi},
-                      onSelectionChanged: _teamNameLocked
-                          ? null
-                          : (newSelection) {
-                              final v = newSelection.first;
-                              setState(() {
-                                _isTeamFixtureUi = v;
-                                if (v) {
-                                  _selectedTeamId ??=
-                                      _teams.isNotEmpty ? _teams.first['id'].toString() : null;
-                                  _teamNameCtrl.text = '';
-                                } else {
-                                  _selectedTeamId = null;
-                                }
-                              });
-                            },
-                    ),
-                    const SizedBox(height: 12),
+                  if (!isWorkflowLocked) ...[
+                    const SizedBox(height: 16),
 
                     if (isTeamFixture) ...[
+                      const Text(
+                        'Team',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
                         value: _selectedTeamId,
                         decoration: const InputDecoration(
@@ -1004,6 +1086,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         onChanged: (v) => setState(() => _selectedTeamId = v),
                       ),
                     ] else ...[
+                      const Text(
+                        'Fixture label',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: _teamNameCtrl,
                         decoration: const InputDecoration(
@@ -1013,7 +1100,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                       ),
                     ],
 
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Align(
                       alignment: Alignment.centerRight,
                       child: ElevatedButton(
@@ -1039,8 +1126,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                                         .from('fixtures')
                                         .update({
                                           'team_id': _selectedTeamId,
-                                          'team_name':
-                                              selectedTeamName.isEmpty ? null : selectedTeamName,
+                                          'team_name': selectedTeamName.isEmpty
+                                              ? null
+                                              : selectedTeamName,
                                         })
                                         .eq('id', widget.fixtureId);
                                   } else {
@@ -1054,6 +1142,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                                         .eq('id', widget.fixtureId);
                                   }
 
+                                  _didChangeFixture = true;
                                   await _load();
                                 } catch (e) {
                                   if (!mounted) return;
@@ -1094,10 +1183,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                             const Text('Start'),
                             const SizedBox(height: 6),
                             OutlinedButton(
-                              onPressed: (_canDelete || isAdmin || isSuper)
-                                  ? _editStartTime
-                                  : null,
-                              child: Text(_formatLocalDisplay(when)),
+                              onPressed: _canEditFixture ? _editStartTime : null,
+                              child: Text(_formatLocalDisplay(when)),   
                             ),
                           ],
                         ),
@@ -1110,9 +1197,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                             const Text('End'),
                             const SizedBox(height: 6),
                             OutlinedButton(
-                              onPressed: (_canDelete || isAdmin || isSuper)
-                                  ? _editEndTime
-                                  : null,
+                              onPressed: _canEditFixture ? _editStartTime : null,
                               child: Text(_formatLocalDisplay(endWhen)),
                             ),
                           ],
@@ -1125,7 +1210,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ),
           ),
 
-          SetCaptainSection(fixture: fixture),
+          SetCaptainSection(
+            fixture: fixture,
+            readOnly: !_canAssignCaptaincy,
+          ),
 
           if (canRespondToTeamSelection) ...[
             const SizedBox(height: 16),
