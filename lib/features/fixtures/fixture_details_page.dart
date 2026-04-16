@@ -738,6 +738,34 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     );
   }
 
+  String _teamSelectionStatusLabel(String? status) {
+    switch ((status ?? '').trim().toLowerCase()) {
+      case 'accepted':
+        return 'Accepted';
+      case 'declined':
+        return 'Declined';
+      case 'pending':
+        return 'Pending';
+      default:
+        return 'No response yet';
+    }
+  }
+
+  Widget _teamSelectionChoiceButton(String status, String label) {
+    final isSelected = (_myTeamSelectionStatus ?? '').trim().toLowerCase() == status;
+
+    return ElevatedButton(
+      style: isSelected
+          ? ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Colors.white,
+            )
+          : null,
+      onPressed: () => _respondToTeamSelection(status),
+      child: Text(label),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -919,9 +947,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             : 'RSVP Fixture';
 
     final fixtureTypeHelpText = isPreselectFixture
-        ? 'Players are pre-selected for this fixture. This workflow cannot be changed here.'
+        ? 'Players are pre-selected for this fixture.'
         : isWorkflowLocked
-            ? 'This fixture workflow is locked because responses, selections, or assignments already exist.'
+            ? 'This fixture workflow can no longer be changed.'
             : isTeamFixture
                 ? 'This fixture uses a team-based workflow.'
                 : 'This fixture uses RSVP availability.';
@@ -1018,7 +1046,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           ),
 
           const SizedBox(height: 10),
-
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1028,22 +1055,23 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               if (displayFixtureLabel.isNotEmpty)
                 AppBadge(text: displayFixtureLabel.toUpperCase()),
 
+              if (section.isNotEmpty) AppBadge(text: section.toUpperCase()),
+
+              AppBadge(text: _formatLabel(ppr).toUpperCase()),
+
+              AppBadge(text: '$rinks TEAMS'),
+
               if (isHome && green.isNotEmpty)
                 AppBadge(text: 'GREEN: $green'),
 
               if (showOrientation)
-                AppBadge(text: 'ORIENTATION: ${(orientation ?? 'NOT SET').toUpperCase()}'),
-
-              AppBadge(text: section.toUpperCase()),
-              AppBadge(text: _formatLabel(ppr).toUpperCase()),
-              AppBadge(text: '$rinks TEAMS'),
-
-              if (captainName.isNotEmpty) AppBadge(text: 'CAPT: $captainName'),
-              if (viceName.isNotEmpty) AppBadge(text: 'VICE: $viceName'),
+                AppBadge(
+                  text: 'ORIENTATION: ${(orientation ?? 'NOT SET').replaceAll('_', ' ').toUpperCase()}',
+                ),
             ],
           ),
           
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1173,18 +1201,32 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    'Fixture timing',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Start'),
+                            Text(
+                              'Start',
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
                             const SizedBox(height: 6),
-                            OutlinedButton(
-                              onPressed: _canEditFixture ? _editStartTime : null,
-                              child: Text(_formatLocalDisplay(when)),   
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                onPressed: _canEditFixture ? _editStartTime : null,
+                                child: Text(_formatLocalDisplay(when)),
+                              ),
                             ),
                           ],
                         ),
@@ -1194,11 +1236,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('End'),
+                            Text(
+                              'End',
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
                             const SizedBox(height: 6),
-                            OutlinedButton(
-                              onPressed: _canEditFixture ? _editStartTime : null,
-                              child: Text(_formatLocalDisplay(endWhen)),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                onPressed: _canEditFixture ? _editEndTime : null,
+                                child: Text(_formatLocalDisplay(endWhen)),
+                              ),
                             ),
                           ],
                         ),
@@ -1210,37 +1258,64 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ),
           ),
 
+          const SizedBox(height: 20),
+          Text(
+            'Captain & vice-captain',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 8),
           SetCaptainSection(
             fixture: fixture,
             readOnly: !_canAssignCaptaincy,
           ),
 
           if (canRespondToTeamSelection) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Text(
               'Team selection',
-              style: Theme.of(context).textTheme.titleMedium,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
             const SizedBox(height: 8),
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('You have been selected for this fixture.'),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        Text(
+                          'Current response: ',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        Text(_teamSelectionStatusLabel(_myTeamSelectionStatus)),
+                      ],
+                    ),
+
+                    if (_myTeamSelection?['responded_at'] != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Responded: ${_formatLocalDisplay(DateTime.parse(_myTeamSelection!['responded_at'].toString()).toLocal())}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+
+                    const SizedBox(height: 14),
                     Wrap(
                       spacing: 12,
+                      runSpacing: 12,
                       children: [
-                        ElevatedButton(
-                          onPressed: () => _respondToTeamSelection('accepted'),
-                          child: const Text('Accept'),
-                        ),
-                        OutlinedButton(
-                          onPressed: () => _respondToTeamSelection('declined'),
-                          child: const Text('Decline'),
-                        ),
+                        _teamSelectionChoiceButton('accepted', 'Accept'),
+                        _teamSelectionChoiceButton('declined', 'Decline'),
                       ],
                     ),
                   ],
@@ -1277,7 +1352,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ),
           ],
 
-          const SizedBox(height: 12),
+//          const SizedBox(height: 12),
           if (isRsvpFixture && !isPublished) ...[
             CaptainViewSection(fixture: fixture),
           ],

@@ -46,6 +46,8 @@ class _CompetitionTypeEditScreenState
 
   bool get _isEdit => widget.competitionTypeId != null;
 
+  final Set<String> _selectedTags = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +76,55 @@ class _CompetitionTypeEditScreenState
     return int.tryParse(text);
   }
 
+  Widget _buildTagsSection() {
+    Widget chip(String value, String label) {
+      final selected = _selectedTags.contains(value);
+
+      return FilterChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: widget.readOnly
+            ? null
+            : (_) {
+                setState(() {
+                  if (selected) {
+                    _selectedTags.remove(value);
+                  } else {
+                    _selectedTags.add(value);
+                  }
+                });
+              },
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Tags',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            chip('match', 'Matches'),
+            chip('league', 'Leagues'),
+            chip('competition', 'Competitions'),
+            chip('drive', 'Drives'),
+            chip('rollup', 'Roll-Ups'),
+            chip('event', 'Events'),
+            chip('friendly', 'Friendly'),
+            chip('cup', 'Cup'),
+            chip('social', 'Social'),
+            chip('training', 'Training'),
+          ],
+        ),
+      ],
+    );
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -90,6 +141,7 @@ class _CompetitionTypeEditScreenState
               name,
               is_internal,
               section,
+              tags,
               default_rinks_required,
               default_players_per_rink,
               default_duration_minutes,
@@ -119,6 +171,12 @@ class _CompetitionTypeEditScreenState
         _teamSelectionEnabled = row.teamSelectionEnabled;
         _selectionMode = row.selectionMode;
         _selectedColourScheme = row.colourScheme;
+        _selectedTags
+          ..clear()
+          ..addAll(
+            (res['tags'] as List<dynamic>? ?? const [])
+                .map((e) => e.toString().toLowerCase().trim()),
+          );        
       }
 
       setState(() {
@@ -185,6 +243,7 @@ class _CompetitionTypeEditScreenState
         'team_selection_enabled': _teamSelectionEnabled,
         'selection_mode': _teamSelectionEnabled ? _selectionMode : null,
         'colour_scheme_id': _selectedColourScheme?.id,
+        'tags': _selectedTags.toList()..sort(),
       };
 
       if (_isEdit) {
@@ -215,8 +274,7 @@ class _CompetitionTypeEditScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(_isEdit ? 'Edit Fixture Type' : 'Add New Fixture Type'),
-//        subtitle: text('(Matches, Competitions and Leagues)'),
-      ),
+      ),     
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -285,6 +343,8 @@ class _CompetitionTypeEditScreenState
                             },
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      _buildTagsSection(),                      
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
                         value: _section,

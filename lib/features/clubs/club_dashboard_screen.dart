@@ -11,6 +11,9 @@ import '../notifications/notifications_page.dart';
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
 
+import '../../models/dashboard_fixture_filter.dart';
+import '../dashboard/dashboard_filter_screen.dart';
+
 class ClubDashboardScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
@@ -56,6 +59,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   Map<String, String> _venueNameById = {};
   Map<String, String> _greenNameById = {};
   
+  DashboardFixtureFilter _filter = const DashboardFixtureFilter();
+
   Color? _fixtureTypeBackgroundColor(Map<String, dynamic> fixture) {
     final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
     final colourScheme = competitionType?['colour_scheme'] as Map<String, dynamic>?;
@@ -85,6 +90,181 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     return (competitionType?['name'] ?? '').toString().trim();
   }
 
+  bool _matchesFilter(Map<String, dynamic> f) {
+    if (_filter.sections.isNotEmpty) {
+      final section = (f['section'] ?? '').toString().toLowerCase().trim();
+      if (!_filter.sections.contains(section)) return false;
+    }
+
+    final startAt = DateTime.tryParse((f['start_at'] ?? '').toString());
+    if (startAt != null && !_matchesPeriod(startAt.toLocal())) {
+      return false;
+    }
+
+    if (_filter.categories.isNotEmpty) {
+      final competitionType = f['competition_type'] as Map<String, dynamic>?;
+      final tags = (competitionType?['tags'] as List<dynamic>? ?? const [])
+          .map((e) => e.toString().toLowerCase().trim())
+          .toSet();
+
+      final isInternal = competitionType?['is_internal'] == true;
+
+      bool matched = false;
+
+      for (final selected in _filter.categories) {
+        if (selected == 'internal') {
+          if (isInternal) {
+            matched = true;
+            break;
+          }
+        } else {
+          if (tags.contains(selected)) {
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (!matched) return false;
+    }
+
+    if (_filter.fixtureTypeIds.isNotEmpty) {
+      final typeId = (f['competition_type_id'] ?? '').toString();
+      if (!_filter.fixtureTypeIds.contains(typeId)) return false;
+    }
+
+    return true;
+  }
+
+  bool _matchesPeriod(DateTime date) {
+    final now = DateTime.now();
+
+    if (_filter.period == 'all') return true;
+
+    if (_filter.period == 'this_month') {
+      return date.month == now.month && date.year == now.year;
+    }
+
+    if (_filter.period == 'next_month') {
+      final next = DateTime(now.year, now.month + 1);
+      return date.month == next.month && date.year == next.year;
+    }
+
+    if (_filter.period == 'three_months') {
+      final end = DateTime(now.year, now.month + 3);
+      return date.isBefore(end);
+    }
+
+    return true;
+  }  
+
+  List<String> _activeFilterLabels() {
+    final labels = <String>[];
+
+    for (final s in _filter.sections) {
+      switch (s) {
+        case 'mens':
+          labels.add('Men');
+          break;
+        case 'ladies':
+          labels.add('Ladies');
+          break;
+        case 'mixed':
+          labels.add('Mixed');
+          break;
+      }
+    }
+
+    for (final c in _filter.categories) {
+      switch (c) {
+        case 'match':
+          labels.add('Matches');
+          break;
+        case 'league':
+          labels.add('Leagues');
+          break;
+        case 'competition':
+          labels.add('Competitions');
+          break;
+        case 'drive':
+          labels.add('Drives');
+          break;
+        case 'rollup':
+          labels.add('Roll-Ups');
+          break;
+        case 'event':
+          labels.add('Events');
+          break;
+        case 'friendly':
+          labels.add('Friendly');
+          break;
+        case 'cup':
+          labels.add('Cup');
+          break;
+        case 'social':
+          labels.add('Social');
+          break;
+        case 'training':
+          labels.add('Training');
+          break;
+        case 'internal':
+          labels.add('Internal');
+          break;
+      }
+    }
+
+    switch (_filter.period) {
+      case 'this_month':
+        labels.add('This month');
+        break;
+      case 'next_month':
+        labels.add('Next month');
+        break;
+      case 'three_months':
+        labels.add('Next 3 months');
+        break;
+    }
+
+    if (_filter.fixtureTypeIds.isNotEmpty) {
+      final count = _filter.fixtureTypeIds.length;
+      labels.add('$count fixture type${count == 1 ? '' : 's'}');
+    }
+
+    return labels;
+  }
+
+  Widget _buildActiveFilterSummary() {
+    if (_filter.isDefault) return const SizedBox.shrink();
+
+    final labels = _activeFilterLabels();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Active filters',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: labels
+                .map(
+                  (label) => Chip(
+                    label: Text(label),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -106,6 +286,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   Future<void> _initDashboard() async {
     try {
       await _loadUserPermissions();
+      await _loadSavedFilter();
       await _load();
       await _loadUnreadNotificationCount();
     } catch (e, st) {
@@ -119,6 +300,100 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           _error = e.toString();
         });
       }
+    }
+  }
+
+  Future<void> _openFilter() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DashboardFilterScreen(
+          initialFilter: _filter,
+          clubId: widget.clubId,
+        ),
+      ),
+    );
+
+    if (result is DashboardFixtureFilter && result != _filter) {
+      setState(() {
+        _filter = result;
+      });
+
+      await _saveFilterPreference();
+      await _load();
+    }
+  }
+
+  Future<void> _clearFilter() async {
+    final oldFilter = _filter;
+
+    setState(() {
+      _filter = DashboardFixtureFilter.empty;
+    });
+
+    await _saveFilterPreference();
+    await _load();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Filters cleared'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            setState(() {
+              _filter = oldFilter;
+            });
+            await _saveFilterPreference();
+            await _load();
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _loadSavedFilter() async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+
+    if (user == null) return;
+
+    try {
+      final row = await client
+          .from('user_club_dashboard_filters')
+          .select('filter_json')
+          .eq('user_id', user.id)
+          .eq('club_id', widget.clubId)
+          .maybeSingle();
+
+      if (row != null && row['filter_json'] is Map<String, dynamic>) {
+        _filter = DashboardFixtureFilter.fromJson(
+          Map<String, dynamic>.from(row['filter_json']),
+        );
+      } else {
+        _filter = DashboardFixtureFilter.empty;
+      }
+    } catch (e) {
+      debugPrint('Failed to load saved dashboard filter: $e');
+      _filter = DashboardFixtureFilter.empty;
+    }
+  }
+
+  Future<void> _saveFilterPreference() async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+
+    if (user == null) return;
+
+    try {
+      await client.from('user_club_dashboard_filters').upsert({
+        'user_id': user.id,
+        'club_id': widget.clubId,
+        'filter_json': _filter.toJson(),
+      });
+    } catch (e) {
+      debugPrint('Failed to save dashboard filter: $e');
     }
   }
 
@@ -266,7 +541,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             'ts:team_selections(status), '
             'competition_type_id, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
-              'id, name, is_internal, selection_mode, '
+              'id, name, is_internal, selection_mode, tags, '
               'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex))'
           )            
           .eq('club_id', widget.clubId)
@@ -294,7 +569,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       final toRsvp = allFixtures.where((f) {
         final requiresRsvp = f['requires_rsvp'] == true;
         if (!requiresRsvp) return false;
-        return !isPublished(f);
+        if (isPublished(f)) return false;
+        return _matchesFilter(f);
       }).toList();
 
       final canManagePreselect = _isSuperuser || _isClubAdmin || _isSelector;
@@ -309,18 +585,17 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         final selectionMode =
             (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
 
-        // Pre-select fixtures never appear in this dashboard section.
         if (selectionMode == 'preselect') return false;
 
         final teamId = f['team_id']?.toString();
 
-        // Team fixture: only show if I belong to that team
-        if (teamId != null && teamId.isNotEmpty) {
-          return myTeamIds.contains(teamId);
-        }
+        final visible = (teamId != null && teamId.isNotEmpty)
+            ? myTeamIds.contains(teamId)
+            : true;
 
-        // Other non-team, no-RSVP fixtures: keep visible
-        return true;
+        if (!visible) return false;
+
+        return _matchesFilter(f);
       }).toList();
 
       // Needs my acceptance (published team + pending) for this club only
@@ -332,10 +607,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           'requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
           'competition_type_id, '
           'competition_type:competition_types!fixtures_competition_type_id_fkey('
-          '  id, name, is_internal, selection_mode, '
-          '  colour_scheme:fixture_colour_schemes('
-          '    id, name, background_hex, foreground_hex)'
-          '  ),'           
+            'id, name, is_internal, selection_mode, tags, '
+            'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
           'venue:venues!fixtures_venue_id_fkey(name), '
           'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
           'team:teams(name), '
@@ -345,14 +618,18 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         .eq('member_profile_id', myId)
         .eq('is_selected', true)
         .eq('acceptance', 'pending');
-
+        
       final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
 
       final needsAcceptance = rawNeeds.where((r) {
         final ts = r['team_selections'] as Map<String, dynamic>?;
         if (ts?['status']?.toString() != 'published') return false;
+
         final fx = ts?['fixture'] as Map<String, dynamic>?;
-        return fx?['club_id']?.toString() == widget.clubId;
+        if (fx?['club_id']?.toString() != widget.clubId) return false;
+        if (fx == null) return false;
+
+        return _matchesFilter(fx);
       }).toList();
 
       // Accepted & upcoming (published + I'm selected + accepted)
@@ -391,9 +668,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         final fx = ts?['fixture'] as Map<String, dynamic>?;
         if (fx == null) continue;
 
-        // future only
         final startAt = fx['start_at']?.toString() ?? '';
         if (startAt.compareTo(nowUtcIso) < 0) continue;
+
+        if (!_matchesFilter(fx)) continue;
 
         upcomingAccepted.add(fx);
       }
@@ -789,6 +1067,15 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
 
     return Scaffold(
+      floatingActionButton: GestureDetector(
+        onLongPress: _filter.isDefault ? null : _clearFilter,
+        child: FloatingActionButton.extended(
+          backgroundColor: _filter.isDefault ? Colors.grey : Colors.red,
+          icon: const Icon(Icons.filter_alt),
+          label: Text(_filter.isDefault ? 'Filter' : 'Filtered'),
+          onPressed: _openFilter,
+        ),
+      ),   
       appBar: AppBar(
         title: Text(widget.clubName),
         actions: [
@@ -862,6 +1149,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
                   children: [
+                    _buildActiveFilterSummary(),
                     _buildSectionHeader('Fixture Needing your Acceptance:'),
                     const SizedBox(height: 6),
                     if (_needsAcceptance.isEmpty)

@@ -118,7 +118,8 @@ class _MembersScreenState extends State<MembersScreen> {
           .from('club_memberships')
           .select(
             'member_profile_id, role, is_active, '
-            'member_profiles(email_address, first_name, last_name, display_name, phone)',
+            'member_profiles(email_address, first_name, last_name, display_name, phone, '
+            'gender, gender_self_described, sex_at_birth)'
           )
           .eq('club_id', widget.clubId)
           .order('role', ascending: true);
