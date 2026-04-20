@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 
 import 'captain_view_section.dart';
 import 'set_captain_section.dart';
+import 'fixture_display.dart';
 import '../team/team_section.dart';
 import '../team/manage_team_screen.dart';
 import '../rinks/rinks_setup_screen.dart';
@@ -857,75 +858,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final green = (fixture['green_areas']?['name'] as String?) ?? '';
     final section = (fixture['section'] as String?) ?? '';
 
-    String buildFixtureHeader({
-      required bool isHome,
-      required bool isInternal,
-      required bool isPreselectFixture,
-      required bool isTeamFixture,
-      required String opponent,
-      required String teamName,
-      required String fixtureLabel,
-    }) {
-      final cleanOpponent = opponent.trim();
-      final cleanTeamName = teamName.trim();
-      final cleanFixtureLabel = fixtureLabel.trim();
+    final myClubName = opponent.trim();
 
-      if (isInternal || isPreselectFixture) {
-        if (cleanFixtureLabel.isNotEmpty) {
-          return 'Internal $cleanFixtureLabel';
-        }
-        return 'Internal Fixture';
-      }
-
-      if (isHome) {
-        if (isTeamFixture) {
-          if (cleanTeamName.isNotEmpty && cleanOpponent.isNotEmpty) {
-            return 'Home $cleanTeamName v $cleanOpponent';
-          }
-          if (cleanTeamName.isNotEmpty) {
-            return 'Home $cleanTeamName';
-          }
-          if (cleanOpponent.isNotEmpty) {
-            return 'Home against $cleanOpponent';
-          }
-          return 'Home Fixture';
-        }
-
-        if (cleanOpponent.isNotEmpty) {
-          return 'Home against $cleanOpponent';
-        }
-        return 'Home Fixture';
-      }
-
-      // Away
-      if (isTeamFixture) {
-        if (cleanOpponent.isNotEmpty && cleanTeamName.isNotEmpty) {
-          return 'Away at $cleanOpponent v $cleanTeamName';
-        }
-        if (cleanOpponent.isNotEmpty) {
-          return 'Away at $cleanOpponent';
-        }
-        if (cleanTeamName.isNotEmpty) {
-          return 'Away v $cleanTeamName';
-        }
-        return 'Away Fixture';
-      }
-
-      if (cleanOpponent.isNotEmpty) {
-        return 'Away at $cleanOpponent';
-      }
-      return 'Away Fixture';
-    }
-
-    final matchHeader = buildFixtureHeader(
-      isHome: isHome,
-      isInternal: isInternalFixtureType,
-      isPreselectFixture: isPreselectFixture,
-      isTeamFixture: isTeamFixture,
-      opponent: opponent,
-      teamName: teamName,
-      fixtureLabel: displayFixtureLabel,
-    );
+    final matchHeader = isPreselectFixture
+        ? (displayFixtureLabel.isNotEmpty
+            ? 'Internal $displayFixtureLabel'
+            : 'Internal Fixture')
+        : fixtureTitleUnified(
+            fixture,
+            myClubName: myClubName,
+          );
 
     final fixtureTeamName =
         (fixture['team']?['name'] ?? fixture['team_name'] ?? '')

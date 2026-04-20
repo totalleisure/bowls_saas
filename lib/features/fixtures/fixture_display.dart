@@ -34,27 +34,38 @@ String fixtureTitleUnified(
   final isHome = f['is_home'] == true;
 
   final joinedTeamName = _mapName(f['team']);
-  final teamName = joinedTeamName.isNotEmpty ? joinedTeamName : _s(f['team_name']);
+  final teamName =
+      joinedTeamName.isNotEmpty ? joinedTeamName : _s(f['team_name']);
   final hasTeam = _s(f['team_id']).isNotEmpty && teamName.isNotEmpty;
 
-  final greenName = _greenName(f['green_areas']);
-
-  // Your model:
-  // venue.name = location (host)
-  // opponent_venue.name = "other party" (opponent for home, MY club for away)
   final venueName = _mapName(f['venue']);
   final opponentVenueName = _mapName(f['opponent_venue']);
 
-  if (isHome) {
-    final g = greenName.isNotEmpty ? greenName : 'Home';
-    final opp = opponentVenueName.isNotEmpty ? opponentVenueName : 'Opponent';
+  final competitionType = f['competition_type'] as Map<String, dynamic>?;
+  final fixtureTypeName = _s(competitionType?['name']);
+  final isInternal = competitionType?['is_internal'] == true;
 
-    if (hasTeam) return 'HOME — $teamName on $g vs $opp';
-    return 'HOME — $g vs $opp';
+  if (isInternal) {
+    final internalLabel =
+        fixtureTypeName.isNotEmpty ? fixtureTypeName : 'Internal fixture';
+    return '${isHome ? 'Home' : 'Away'} - $internalLabel';
+  }
+
+  if (isHome) {
+    final opponent =
+        opponentVenueName.isNotEmpty ? opponentVenueName : 'Opponent';
+
+    if (hasTeam) {
+      return 'Home $teamName v $opponent';
+    }
+    return 'Home against $opponent';
   } else {
-    final where = venueName.isNotEmpty ? venueName : 'Opponent club';
-    final vs = hasTeam ? teamName : myClubName;
-    return 'AWAY — at $where vs $vs';
+    final opponent = venueName.isNotEmpty ? venueName : 'Opponent';
+
+    if (hasTeam) {
+      return 'Away at $opponent v $teamName';
+    }
+    return 'Away at $opponent';
   }
 }
 

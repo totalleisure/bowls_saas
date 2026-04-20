@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'dart:async';
 
 import 'club_home_screen.dart';
+import 'package:bowls_saas/features/diary/rinks_day_view.dart';
 import '../members/members_screen.dart';
 import '../fixtures/fixture_display.dart';
 import '../fixtures/fixture_details_page.dart';
@@ -368,9 +369,15 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .maybeSingle();
 
       if (row != null && row['filter_json'] is Map<String, dynamic>) {
-        _filter = DashboardFixtureFilter.fromJson(
+        final loaded = DashboardFixtureFilter.fromJson(
           Map<String, dynamic>.from(row['filter_json']),
         );
+
+        _filter = loaded.isDefault ? DashboardFixtureFilter.empty : loaded;
+
+        debugPrint('Loaded dashboard filter: $_filter');
+        debugPrint('Loaded dashboard filter isDefault: ${_filter.isDefault}');        
+
       } else {
         _filter = DashboardFixtureFilter.empty;
       }
@@ -387,11 +394,19 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     if (user == null) return;
 
     try {
-      await client.from('user_club_dashboard_filters').upsert({
-        'user_id': user.id,
-        'club_id': widget.clubId,
-        'filter_json': _filter.toJson(),
-      });
+      if (_filter.isDefault) {
+        await client
+            .from('user_club_dashboard_filters')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('club_id', widget.clubId);
+      } else {
+        await client.from('user_club_dashboard_filters').upsert({
+          'user_id': user.id,
+          'club_id': widget.clubId,
+          'filter_json': _filter.toJson(),
+        });
+      }
     } catch (e) {
       debugPrint('Failed to save dashboard filter: $e');
     }
@@ -1066,6 +1081,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     final canAccessAdmin =
         _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
 
+    debugPrint('Dashboard build filter: $_filter');
+    debugPrint('Dashboard build filter isDefault: ${_filter.isDefault}');
+
     return Scaffold(
       floatingActionButton: GestureDetector(
         onLongPress: _filter.isDefault ? null : _clearFilter,
@@ -1079,6 +1097,21 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       appBar: AppBar(
         title: Text(widget.clubName),
         actions: [
+          IconButton(
+            tooltip: 'Rinks View',
+            icon: const Icon(Icons.view_timeline),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => RinkDayViewScreen(
+                    clubId: widget.clubId,
+                    clubName: widget.clubName ?? 'Club Diary',
+                    date: DateTime.now(),
+                  ),
+                ),
+              );
+            },
+          ),
           if (canAccessAdmin)
             IconButton(
               tooltip: 'Admin',
@@ -1261,16 +1294,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                       final competitionType = f['competition_type'] as Map<String, dynamic>?;
                       final selectionMode =
                           (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
-
-//                      if (selectionMode == 'preselect') {
-//                        return _buildFixtureCard(
-//                          fixture: f,
-//                          title: title,
-//                          subtitle: subtitle,
-//                          actionHint: 'Tap to manage selection',
-//                          onTap: () => _openFixtureById(fixtureId),
-//                        );
-//                      }
 
                       final myStatus = _myAvailabilityByFixtureId[fixtureId];
 
