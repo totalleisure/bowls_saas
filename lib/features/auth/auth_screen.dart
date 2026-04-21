@@ -1,10 +1,9 @@
-import 'package:intl/intl.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:share_plus/share_plus.dart';
+
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../clubs/my_clubs_screen.dart';
 import '../../core/utils/date_format.dart';
@@ -16,9 +15,15 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
+
+  static const bool kShowDebugQuickLogins =
+      bool.fromEnvironment('QUICK_LOGINS', defaultValue: false);
+   
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _loading = false;
+  String _version = '';
+  String _buildNumber = '';
 
   List<Map<String, dynamic>> _debugUsers = [];
   bool _loadingDebugUsers = false;
@@ -28,15 +33,213 @@ class _AuthScreenState extends State<AuthScreen> {
 
   static const String _debugPassword = 'password';
 
+  String _backgroundImageForWidth(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final width = size.width;
+    final shortestSide = size.shortestSide;
+
+    final String path;
+
+    if (width >= 1000) {
+      path = 'assets/images/auth_bg_desktop_2.png';
+    } else if (shortestSide >= 600) {
+      path = 'assets/images/auth_bg_tablet_2.png';
+    } else {
+      path = 'assets/images/auth_bg_phone_2.png';
+    }
+
+    debugPrint(
+      'AUTH BG -> size=$size width=$width shortestSide=$shortestSide path=$path',
+    );
+
+    return path;
+  }
+
+  Widget _buildOverlayField({
+    required TextEditingController controller,
+    required String hintText,
+    bool obscureText = false,
+    TextInputType? keyboardType,
+    double height = 50,
+  }) {
+    return SizedBox(
+      height: height,
+      child: TextField(
+        controller: controller,
+        obscureText: obscureText,
+        keyboardType: keyboardType,
+        style: const TextStyle(
+          color: Color(0xFF0D47A1),
+          fontWeight: FontWeight.w600,
+        ),
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: TextStyle(
+            color: Colors.blue.shade800.withOpacity(0.75),
+            fontWeight: FontWeight.w600,
+          ),
+          filled: true,
+          fillColor: Colors.white.withOpacity(0.92),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(
+              color: Color(0xFFBFD8F7),
+              width: 2,
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(
+              color: Color(0xFFBFD8F7),
+              width: 2,
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(
+              color: Color(0xFF1565C0),
+              width: 2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverlayButton({
+    required String label,
+    required VoidCallback? onTap,
+    required Color backgroundColor,
+    required Color textColor,
+    required Color borderColor,
+    double height = 52,
+  }) {
+    return SizedBox(
+      height: height,
+      child: ElevatedButton(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          elevation: 6,
+          backgroundColor: backgroundColor,
+          foregroundColor: textColor,
+          disabledBackgroundColor: backgroundColor.withOpacity(0.65),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+            side: BorderSide(color: borderColor, width: 3),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+        child: Text(label),
+      ),
+    );
+  }
+
+  Widget _buildStyledField({
+    required TextEditingController controller,
+    required String hintText,
+    bool obscureText = false,
+    TextInputType? keyboardType,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            blurRadius: 10,
+            color: Colors.black26,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        obscureText: obscureText,
+        keyboardType: keyboardType,
+        decoration: InputDecoration(
+          hintText: hintText,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide.none,
+          ),
+          filled: true,
+          fillColor: Colors.transparent,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrimaryActionButton({
+    required String label,
+    required VoidCallback onTap,
+    required Color background,
+    required Color foreground,
+    required Color borderColor,
+  }) {
+    return SizedBox(
+      height: 64,
+      child: ElevatedButton(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          elevation: 6,
+          backgroundColor: background,
+          foregroundColor: foreground,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(32),
+            side: BorderSide(color: borderColor, width: 3),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+        child: Text(label),
+      ),
+    );
+  }
+
+  Widget _buildSecondaryActionButton({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      height: 64,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: Colors.white.withOpacity(0.92),
+          foregroundColor: const Color(0xFF0D47A1),
+          side: const BorderSide(color: Color(0xFF1565C0), width: 3),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(32),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+        child: Text(label),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    debugPrint('kDebugMode: $kDebugMode');
-    debugPrint('kProfileMode: $kProfileMode');
-    debugPrint('kReleaseMode: $kReleaseMode');    
-    if (kDebugMode) {
-      _loadDebugUsers();
-    }
+    _loadAppInfo();
+//    debugPrint('kDebugMode: $kDebugMode');
+//    debugPrint('kProfileMode: $kProfileMode');
+//    debugPrint('kReleaseMode: $kReleaseMode');    
+    if (!kShowDebugQuickLogins) return;
+    _loadDebugUsers();
   }
 
   @override
@@ -46,8 +249,16 @@ class _AuthScreenState extends State<AuthScreen> {
     super.dispose();
   }
 
+  Future<void> _loadAppInfo() async {
+    final info = await PackageInfo.fromPlatform();
+    setState(() {
+      _version = info.version;
+      _buildNumber = info.buildNumber;
+    });
+  }
+
   Future<void> _loadDebugUsers() async {
-    if (!kDebugMode) return;
+    if (!kShowDebugQuickLogins) return;
 
     setState(() {
       _loadingDebugUsers = true;
@@ -140,7 +351,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Widget _buildDebugQuickLoginList() {
-    if (!kDebugMode) return const SizedBox.shrink();
+    if (!kShowDebugQuickLogins) return const SizedBox.shrink();
 
     // 👇 filter locally
     final filtered = _debugSearch.trim().isEmpty
@@ -221,50 +432,160 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final width = size.width;
+    final height = size.height;
+  
+    final isDesktop = width >= 1000;
+    final isTablet = width >= 600 && width < 1000;
+
+    final imagePath = _backgroundImageForWidth(context);
+
+    final contentWidth = isDesktop
+        ? width * 0.34
+        : isTablet
+            ? width * 0.62
+            : width * 0.82;
+
+    final topOffset = isDesktop
+        ? height * 0.52
+        : isTablet
+            ? height * 0.49
+            : height * 0.50;
+
+    final fieldHeight = isDesktop ? 54.0 : 50.0;
+    final buttonHeight = isDesktop ? 56.0 : 52.0;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Sign in')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
-              keyboardType: TextInputType.emailAddress,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              imagePath,
+              fit: BoxFit.cover,
+              alignment: Alignment.topCenter,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _password,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-            ),
-            const SizedBox(height: 16),
-            if (_loading) const CircularProgressIndicator(),
-            if (!_loading) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _signIn,
-                      child: const Text('Sign in'),
-                    ),
+          ),
+
+          Positioned(
+            top: 12,
+            right: 12,
+            child: SafeArea(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.28),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  'v$_version ($_buildNumber)',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _signUp,
-                      child: const Text('Sign up'),
-                    ),
-                  ),
-                ],
+                ),
               ),
-              _buildDebugQuickLoginList(),
-            ],
-          ],
-        ),
+            ),
+          ),
+
+          SafeArea(
+            child: SingleChildScrollView(
+              child: SizedBox(
+                width: width,
+                height: height,
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: topOffset,
+                      left: (width - contentWidth) / 2,
+                      width: contentWidth,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildOverlayField(
+                            controller: _email,
+                            hintText: 'Username',
+                            keyboardType: TextInputType.emailAddress,
+                            height: fieldHeight,
+                          ),
+                          const SizedBox(height: 12),
+                          _buildOverlayField(
+                            controller: _password,
+                            hintText: 'Password',
+                            obscureText: true,
+                            height: fieldHeight,
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildOverlayButton(
+                                  label: 'Sign In',
+                                  onTap: _loading ? null : _signIn,
+                                  backgroundColor: const Color(0xFF0B56C4),
+                                  textColor: Colors.white,
+                                  borderColor: const Color(0xFF4D8BE6),
+                                  height: buttonHeight,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildOverlayButton(
+                                  label: 'Register',
+                                  onTap: _loading ? null : _signUp,
+                                  backgroundColor: const Color(0xFFF2B600),
+                                  textColor: Colors.white,
+                                  borderColor: const Color(0xFFFFD54A),
+                                  height: buttonHeight,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Center(
+                            child: TextButton(
+                              onPressed: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Help screen not wired up yet.'),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                'Need Help?',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  shadows: [
+                                    Shadow(
+                                      blurRadius: 4,
+                                      color: Colors.black38,
+                                      offset: Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (_loading) ...[
+                            const SizedBox(height: 12),
+                            const Center(child: CircularProgressIndicator()),
+                          ],
+                          if (kShowDebugQuickLogins) ...[
+                            const SizedBox(height: 16),
+                            _buildDebugQuickLoginList(),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
-
-
