@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../help/player_help_screen.dart';
+
 import '../clubs/my_clubs_screen.dart';
 import '../../core/utils/date_format.dart';
 
@@ -442,16 +444,20 @@ class _AuthScreenState extends State<AuthScreen> {
     final imagePath = _backgroundImageForWidth(context);
 
     final contentWidth = isDesktop
-        ? width * 0.34
+        ? width * 0.28
         : isTablet
             ? width * 0.62
             : width * 0.82;
 
     final topOffset = isDesktop
-        ? height * 0.52
+        ? height * 0.58
         : isTablet
             ? height * 0.49
-            : height * 0.50;
+            : height * 0.58;
+
+    final leftOffset = isDesktop
+        ? width * 0.60
+        : (width - contentWidth) / 2;
 
     final fieldHeight = isDesktop ? 54.0 : 50.0;
     final buttonHeight = isDesktop ? 56.0 : 52.0;
@@ -498,7 +504,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   children: [
                     Positioned(
                       top: topOffset,
-                      left: (width - contentWidth) / 2,
+                      left: leftOffset,
                       width: contentWidth,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -546,9 +552,9 @@ class _AuthScreenState extends State<AuthScreen> {
                           Center(
                             child: TextButton(
                               onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Help screen not wired up yet.'),
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const PlayerHelpScreen(),
                                   ),
                                 );
                               },

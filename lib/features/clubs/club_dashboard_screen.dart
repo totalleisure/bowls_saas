@@ -8,6 +8,7 @@ import 'package:bowls_saas/features/diary/rinks_day_view.dart';
 import '../members/members_screen.dart';
 import '../fixtures/fixture_display.dart';
 import '../fixtures/fixture_details_page.dart';
+import '../help/player_help_screen.dart';
 import '../notifications/notifications_page.dart';
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
@@ -1097,6 +1098,17 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       appBar: AppBar(
         title: Text(widget.clubName),
         actions: [
+          IconButton(
+            tooltip: 'Help',
+            icon: const Icon(Icons.help_outline),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const PlayerHelpScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Rinks View',
             icon: const Icon(Icons.view_timeline),
