@@ -20,6 +20,8 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
   String? _displayName;
   List<Map<String, dynamic>> _clubs = [];
 
+  bool _isSuperuser = false;
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +37,15 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser!;
+      
+      final superuserRow = await client
+          .from('app_superusers')
+          .select('user_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      _isSuperuser = superuserRow != null;
+
       final profile = await client
           .from('member_profiles')
           .select('id, display_name')
@@ -142,10 +153,12 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
           IconButton(onPressed: _signOut, icon: const Icon(Icons.logout)),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _createClub,
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: _isSuperuser
+        ? FloatingActionButton(
+            onPressed: _createClub,
+            child: const Icon(Icons.add),
+          )
+        : null,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null

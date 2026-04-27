@@ -34,9 +34,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   bool _isSelector = false;
   bool _isFixtureCreator = false;
 
-  bool get _canSeeAllFixtureTypes =>
-      _isSuperuser || _isClubAdmin || _isSelector;
-
   bool _loadingPermissions = true;
 
   bool _loading = false;
@@ -599,6 +596,10 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     final defaultPlayersPerRink = row['default_players_per_rink'] as int?;
     final linkedTeamId = row['team_id']?.toString();
 
+    final isMemberBookablePreselect =
+        row['bookable_by_members'] == true &&
+        selectionMode.toLowerCase() == 'preselect';
+        
     setState(() {
       _fixtureTypeId = fixtureTypeId;
       _workflowLockedByFixtureType = true;
@@ -646,9 +647,23 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
       if (defaultRinksRequired != null) {
         _rinksRequired = defaultRinksRequired;
       }
+      if (isMemberBookablePreselect) {
+        _fixtureLocation = FixtureLocationType.home;
+        _isHome = true;
+
+        _workflowType = FixtureWorkflowType.rsvp; // hidden anyway
+        _isTeamFixture = false;
+        _isPreselectFixture = true;
+
+        _teamId = null;
+        _opponentVenueId = null;
+
+        _teamNameCtrl.text = name;
+      }      
     });
 
     _loadGreenAreas();
+    _loadRinkAvailability();
   }
 
   String _memberLabel(Map<String, dynamic> m) {
@@ -763,6 +778,18 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     return vals;
   }
 
+  String _backgroundImageForWidth(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+
+    if (width >= 1000) {
+      return 'assets/images/auth_bg_desktop.png';
+    }
+    if (width >= 600) {
+      return 'assets/images/auth_bg_tablet.png';
+    }
+    return 'assets/images/auth_bg_phone.png';
+  }  
+
   bool get _isMemberBookablePreselectFixture {
     final ft = _fixtureTypeById(_fixtureTypeId);
     if (ft == null) return false;
@@ -770,6 +797,14 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     return ft['bookable_by_members'] == true &&
         (ft['selection_mode'] ?? '').toString() == 'preselect';
   }
+
+  // Fixture Type drives the simplified booking UI.
+  // Applies to admins and members once this type is selected.
+  bool get _simpleMemberBookingMode =>
+      _isMemberBookablePreselectFixture;
+      
+  bool get _canSeeAllFixtureTypes =>
+      _isSuperuser || _isClubAdmin || _isSelector;
 
   bool get _isOutdoorSelectedGreen {
     final g = _selectedGreenArea;
@@ -1086,11 +1121,12 @@ for (final m in _clubMembers) {
       }
 
       final captainMemberProfileId =
-          _canSeeAllFixtureTypes ? null : _currentMemberId;
+          _isMemberBookablePreselectFixture ? _currentMemberId : null;
 
 debugPrint('CREATE FIXTURE captainMemberProfileId=$captainMemberProfileId');
 debugPrint('CREATE FIXTURE currentMemberId=$_currentMemberId');
 debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
+
 
       final insertedRows = await _client.from('fixtures').insert({
         'club_id': widget.clubId,
@@ -1683,365 +1719,416 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
     final startLabel = _startAtLocal == null
         ? 'Select date & time'
         : formatWhenLocal(_startAtLocal!.toUtc().toIso8601String());
-    
+
     final endLabel = _endAtLocal == null
         ? 'Select end date & time'
         : formatWhenLocal(_endAtLocal!.toUtc().toIso8601String());
 
     final selectedGreen = _selectedGreenArea;
     final allowedOrients =
-        (selectedGreen == null) ? <String>[] : _allowedOrientationsFor(selectedGreen);
+        selectedGreen == null ? <String>[] : _allowedOrientationsFor(selectedGreen);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Create Fixture'),
-//        actions: [
-//          IconButton(
-//            icon: const Icon(Icons.delete),
-//            onPressed: _loading ? null : _confirmDelete,
-//          ),
-//        ],
+        title: Text(_simpleMemberBookingMode ? 'Book Fixture' : 'Create Fixture'),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_error != null) ...[
-                    Text(
-                      _error!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  const Text('Fixture Type', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  _selectedFixtureTypeField(),
-                  const SizedBox(height: 12),
-
-                  const Text('Location', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-
-                  if (_fixtureTypeById(_fixtureTypeId)?['is_internal'] == true) ...[
-                    InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Location',
-                        border: OutlineInputBorder(),
-                      ),
-                      child: const Text('Home'),
-                    ),
-                  ] else ...[
-                    SegmentedButton<FixtureLocationType>(
-                      segments: const [
-                        ButtonSegment(
-                          value: FixtureLocationType.home,
-                          label: Text('Home'),
-                          icon: Icon(Icons.home),
-                        ),
-                        ButtonSegment(
-                          value: FixtureLocationType.away,
-                          label: Text('Away'),
-                          icon: Icon(Icons.directions_bus),
-                        ),
-                      ],
-                      selected: {_fixtureLocation},
-                      onSelectionChanged: (newSelection) async {
-                        final v = newSelection.first;
-                        setState(() {
-                          _fixtureLocation = v;
-                          _isHome = v == FixtureLocationType.home;
-                          _greenAreas = [];
-                          _greenAreaId = null;
-                          _orientation = null;
-                        });
-                        await _loadGreenAreas();
-                      },
-                    ),
-                  ],
-
-                  const SizedBox(height: 12),
-                  Row(
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.16,
+              child: Image.asset(
+                _backgroundImageForWidth(context),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Start'),
-                            const SizedBox(height: 6),
-                            OutlinedButton(
-                              onPressed: _pickDateTime,
-                              child: Text(startLabel),
-                            ),
-                          ],
+                      if (_error != null) ...[
+                        Text(
+                          _error!,
+                          style: const TextStyle(color: Colors.red),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('End'),
-                            const SizedBox(height: 6),
-                            OutlinedButton(
-                              onPressed: _pickEndDateTime,
-                              child: Text(endLabel),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 12),
-                  const Text('Fixture workflow', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-
-                  if (_isPreselectFixture) ...[
-                    InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Pre-Selection mode',
-                        border: OutlineInputBorder(),
-                      ),
-                      child: const Text('Pre-Select'),
-                    ),
-                  ] else ...[
-                    SegmentedButton<FixtureWorkflowType>(
-                      segments: const [
-                        ButtonSegment(
-                          value: FixtureWorkflowType.rsvp,
-                          label: Text('RSVP'),
-                          icon: Icon(Icons.how_to_reg),
-                        ),
-                        ButtonSegment(
-                          value: FixtureWorkflowType.team,
-                          label: Text('Team'),
-                          icon: Icon(Icons.groups),
-                        ),
+                        const SizedBox(height: 12),
                       ],
-                      selected: {_workflowType},
-                      onSelectionChanged: _workflowLockedByFixtureType
-                          ? null
-                          : (newSelection) {
+
+                      const Text(
+                        'Fixture Type',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      _selectedFixtureTypeField(),
+                      const SizedBox(height: 12),
+
+                      if (!_simpleMemberBookingMode) ...[
+                        const Text(
+                          'Location',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+
+                        if (_fixtureTypeById(_fixtureTypeId)?['is_internal'] == true) ...[
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Location',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: const Text('Home'),
+                          ),
+                        ] else ...[
+                          SegmentedButton<FixtureLocationType>(
+                            segments: const [
+                              ButtonSegment(
+                                value: FixtureLocationType.home,
+                                label: Text('Home'),
+                                icon: Icon(Icons.home),
+                              ),
+                              ButtonSegment(
+                                value: FixtureLocationType.away,
+                                label: Text('Away'),
+                                icon: Icon(Icons.directions_bus),
+                              ),
+                            ],
+                            selected: {_fixtureLocation},
+                            onSelectionChanged: (newSelection) async {
                               final v = newSelection.first;
                               setState(() {
-                                _workflowType = v;
-                                _isTeamFixture = v == FixtureWorkflowType.team;
-                                _isPreselectFixture = false;
-
-                                if (_isTeamFixture) {
-                                  _teamId ??= _teams.isNotEmpty
-                                      ? _teams.first['id'].toString()
-                                      : null;
-                                } else {
-                                  _teamId = null;
-                                }
+                                _fixtureLocation = v;
+                                _isHome = v == FixtureLocationType.home;
+                                _greenAreas = [];
+                                _greenAreaId = null;
+                                _orientation = null;
                               });
+                              await _loadGreenAreas();
                             },
-                    ),
-                  ],
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                      ],
 
-                  const SizedBox(height: 8),
-
-                  if (!_isTeamFixture) ...[
-                    TextField(
-                      controller: _teamNameCtrl,
-                      readOnly: _isPreselectFixture,
-                      decoration: InputDecoration(
-                        labelText: _isPreselectFixture
-                            ? 'Pre-Selected fixture label'
-                            : 'Fixture label (optional)',
-                        hintText: _isPreselectFixture
-                            ? 'Set from Fixture Type'
-                            : 'e.g. Mid-week National Team Selection',
-                        border: const OutlineInputBorder(),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Start'),
+                                const SizedBox(height: 6),
+                                OutlinedButton(
+                                  onPressed: _pickDateTime,
+                                  child: Text(startLabel),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('End'),
+                                const SizedBox(height: 6),
+                                OutlinedButton(
+                                  onPressed: _pickEndDateTime,
+                                  child: Text(endLabel),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
 
-                  InkWell(
-                    onTap: () async {
-                      final selected = await _pickVenue(
-                        getVenues: () => _homeVenues,
-                        title: 'Select home venue',
-                        isHomeVenue: true,
-                      );
-
-                      if (selected != null) {
-                        debugPrint('HOME VENUE PICKED: $selected');
-
-                        setState(() {
-                          _homeVenueId = selected;
-                          _greenAreas = [];
-                          _greenAreaId = null;
-                          _orientation = null;
-                        });
-
-                        await _loadGreenAreas();
-                      }
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Home venue',
-                        border: OutlineInputBorder(),
-                      ),
-                      child: Text(
-                        _homeVenues
-                                .firstWhere(
-                                  (v) => v['id'].toString() == _homeVenueId,
-                                  orElse: () => {'name': 'Select venue'},
-                                )['name']
-                                ?.toString() ??
-                            'Select venue',
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  if (_fixtureTypeById(_fixtureTypeId)?['is_internal'] != true) ...[
-                    InkWell(
-                      onTap: () async {
-                        final selected = await _pickVenue(
-                          getVenues: () => _opponentVenues,
-                          title: 'Select Opponent Club',
-                          isHomeVenue: false,
-                        );
-                        if (selected != null) {
-                          setState(() => _opponentVenueId = selected);
-                        }
-                      },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Opponent Club',
-                          border: OutlineInputBorder(),
-                        ),
-                        child: Text(
-                          _opponentVenues
-                                  .firstWhere(
-                                    (v) => v['id'].toString() == _opponentVenueId,
-                                    orElse: () => {'name': 'Select Club'},
-                                  )['name']
-                                  ?.toString() ??
-                              'Select Club',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  if (_isHome) ...[
-                    if (_greenAreas.isEmpty) ...[
-                      const InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: 'Green area',
-                          border: OutlineInputBorder(),
-                        ),
-                        child: Text('No greens available for this venue'),
-                      ),
                       const SizedBox(height: 12),
-                    ] else ...[
-                      DropdownButtonFormField<String>(
-                        value: _greenAreaId,
-                        decoration: const InputDecoration(
-                          labelText: 'Green area',
-                          border: OutlineInputBorder(),
+
+                      if (!_simpleMemberBookingMode) ...[
+                        const Text(
+                          'Fixture workflow',
+                          style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        items: _greenAreas.map((g) {
+                        const SizedBox(height: 8),
+
+                        if (_isPreselectFixture) ...[
+                          InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Pre-Selection mode',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: const Text('Pre-Select'),
+                          ),
+                        ] else ...[
+                          SegmentedButton<FixtureWorkflowType>(
+                            segments: const [
+                              ButtonSegment(
+                                value: FixtureWorkflowType.rsvp,
+                                label: Text('RSVP'),
+                                icon: Icon(Icons.how_to_reg),
+                              ),
+                              ButtonSegment(
+                                value: FixtureWorkflowType.team,
+                                label: Text('Team'),
+                                icon: Icon(Icons.groups),
+                              ),
+                            ],
+                            selected: {_workflowType},
+                            onSelectionChanged: _workflowLockedByFixtureType
+                                ? null
+                                : (newSelection) {
+                                    final v = newSelection.first;
+                                    setState(() {
+                                      _workflowType = v;
+                                      _isTeamFixture =
+                                          v == FixtureWorkflowType.team;
+                                      _isPreselectFixture = false;
+
+                                      if (_isTeamFixture) {
+                                        _teamId ??= _teams.isNotEmpty
+                                            ? _teams.first['id'].toString()
+                                            : null;
+                                      } else {
+                                        _teamId = null;
+                                      }
+                                    });
+                                  },
+                          ),
+                        ],
+
+                        const SizedBox(height: 8),
+                      ],
+
+                      if (!_isTeamFixture && !_simpleMemberBookingMode) ...[
+                        TextField(
+                          controller: _teamNameCtrl,
+                          readOnly: _isPreselectFixture,
+                          decoration: InputDecoration(
+                            labelText: _isPreselectFixture
+                                ? 'Pre-Selected fixture label'
+                                : 'Fixture label (optional)',
+                            hintText: _isPreselectFixture
+                                ? 'Set from Fixture Type'
+                                : 'e.g. Mid-week National Team Selection',
+                            border: const OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (!_simpleMemberBookingMode || _homeVenues.length > 1) ...[
+                        InkWell(
+                          onTap: () async {
+                            final selected = await _pickVenue(
+                              getVenues: () => _homeVenues,
+                              title: 'Select home venue',
+                              isHomeVenue: true,
+                            );
+
+                            if (selected != null) {
+                              setState(() {
+                                _homeVenueId = selected;
+                                _greenAreas = [];
+                                _greenAreaId = null;
+                                _orientation = null;
+                              });
+
+                              await _loadGreenAreas();
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Home venue',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Text(
+                              _homeVenues
+                                      .firstWhere(
+                                        (v) => v['id'].toString() == _homeVenueId,
+                                        orElse: () => {'name': 'Select venue'},
+                                      )['name']
+                                      ?.toString() ??
+                                  'Select venue',
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+                      ],
+                      
+                      if (!_simpleMemberBookingMode &&
+                          _fixtureTypeById(_fixtureTypeId)?['is_internal'] != true) ...[
+                        InkWell(
+                          onTap: () async {
+                            final selected = await _pickVenue(
+                              getVenues: () => _opponentVenues,
+                              title: 'Select Opponent Club',
+                              isHomeVenue: false,
+                            );
+                            if (selected != null) {
+                              setState(() => _opponentVenueId = selected);
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Opponent Club',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Text(
+                              _opponentVenues
+                                      .firstWhere(
+                                        (v) =>
+                                            v['id'].toString() == _opponentVenueId,
+                                        orElse: () => {'name': 'Select Club'},
+                                      )['name']
+                                      ?.toString() ??
+                                  'Select Club',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (_isHome &&
+                          (!_simpleMemberBookingMode || _greenAreas.length > 1)) ...[
+                        if (_greenAreas.isEmpty) ...[
+                          const InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Green area',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Text('No greens available for this venue'),
+                          ),
+                          const SizedBox(height: 12),
+                        ] else ...[
+                          DropdownButtonFormField<String>(
+                            value: _greenAreaId,
+                            decoration: const InputDecoration(
+                              labelText: 'Green area',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _greenAreas.map((g) {
+                              return DropdownMenuItem(
+                                value: g['id'].toString(),
+                                child: Text(g['name'].toString()),
+                              );
+                            }).toList(),
+                            onChanged: (v) {
+                              setState(() {
+                                _greenAreaId = v;
+                                _syncOrientationToSelectedGreen();
+                              });
+                              _loadRinkAvailability();
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ],
+
+                      if (_isHome &&
+                          _isOutdoorSelectedGreen &&
+                          _orientationEnabledForSelectedGreen &&
+                          allowedOrients.isNotEmpty) ...[
+                        DropdownButtonFormField<String>(
+                          value: _orientation,
+                          decoration:
+                              const InputDecoration(labelText: 'Orientation'),
+                          items: allowedOrients.map((o) {
+                            return DropdownMenuItem(
+                              value: o,
+                              child: Text(_prettyOrientation(o)),
+                            );
+                          }).toList(),
+                          onChanged: (v) => setState(() => _orientation = v),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (!_simpleMemberBookingMode) ...[
+                        DropdownButtonFormField<String>(
+                          value: _section.isEmpty ? null : _section,
+                          decoration: const InputDecoration(
+                            labelText: 'Section',
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'open', child: Text('Open')),
+                            DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
+                            DropdownMenuItem(value: 'mens', child: Text("Men's")),
+                            DropdownMenuItem(
+                                value: 'ladies', child: Text("Ladies")),
+                          ],
+                          onChanged: _fixtureTypeId == null
+                              ? (value) {
+                                  setState(() {
+                                    _section = value ?? '';
+                                  });
+                                }
+                              : null,
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        DropdownButtonFormField<int>(
+                          value: _playersPerRink,
+                          decoration: const InputDecoration(labelText: 'Format'),
+                          items: const [4, 3, 2, 1].map((ppr) {
+                            return DropdownMenuItem(
+                              value: ppr,
+                              child: Text(
+                                ppr == 4
+                                    ? 'Fours (4)'
+                                    : ppr == 3
+                                        ? 'Triples (3)'
+                                        : ppr == 2
+                                            ? 'Pairs (2)'
+                                            : 'Singles (1)',
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (v) =>
+                              setState(() => _playersPerRink = v ?? 4),
+                        ),
+
+                        const SizedBox(height: 12),
+                      ],
+
+                      DropdownButtonFormField<int>(
+                        value: _rinksRequired,
+                        decoration:
+                            const InputDecoration(labelText: 'Rinks required'),
+                        items: List.generate(12, (i) => i + 1).map((n) {
                           return DropdownMenuItem(
-                            value: g['id'].toString(),
-                            child: Text(g['name'].toString()),
+                            value: n,
+                            child: Text(n.toString()),
                           );
                         }).toList(),
                         onChanged: (v) {
-                          setState(() {
-                            _greenAreaId = v;
-                            _syncOrientationToSelectedGreen();
-                          });
+                          setState(() => _rinksRequired = v ?? 1);
                           _loadRinkAvailability();
                         },
                       ),
-                      const SizedBox(height: 12),
-                    ],
 
-                    if (_isOutdoorSelectedGreen &&
-                        _orientationEnabledForSelectedGreen &&
-                        allowedOrients.isNotEmpty) ...[
-                      DropdownButtonFormField<String>(
-                        value: _orientation,
-                        decoration: const InputDecoration(labelText: 'Orientation'),
-                        items: allowedOrients.map((o) {
-                          return DropdownMenuItem(
-                            value: o,
-                            child: Text(_prettyOrientation(o)),
-                          );
-                        }).toList(),
-                        onChanged: (v) => setState(() => _orientation = v),
+                      const SizedBox(height: 20),
+
+                      if (_isMemberBookablePreselectFixture) ...[
+                        _buildMemberBookingInlineSection(),
+                      ],
+
+                      ElevatedButton(
+                        onPressed: _loading ? null : _save,
+                        child: Text(
+                          _simpleMemberBookingMode
+                              ? 'Book fixture'
+                              : 'Create fixture',
+                        ),
                       ),
-                      const SizedBox(height: 12),
                     ],
-                  ],
-
-                  DropdownButtonFormField<String>(
-                    value: _section.isEmpty ? null : _section,
-                    decoration: const InputDecoration(
-                      labelText: 'Section',
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
-                      DropdownMenuItem(value: 'mens', child: Text("Men's")),
-                      DropdownMenuItem(value: 'ladies', child: Text("Ladies")),
-                    ],
-                    onChanged: _fixtureTypeId == null
-                        ? (value) {
-                            setState(() {
-                              _section = value ?? '';
-                            });
-                          }
-                        : null,
                   ),
-
-                  const SizedBox(height: 12),
-
-                  DropdownButtonFormField<int>(
-                    value: _playersPerRink,
-                    decoration: const InputDecoration(labelText: 'Format'),
-                    items: const [4, 3, 2].map((ppr) {
-                      return DropdownMenuItem(
-                        value: ppr,
-                        child: Text(ppr == 4 ? 'Rinks (4)' : ppr == 3 ? 'Triples (3)' : 'Pairs (2)'),
-                      );
-                    }).toList(),
-                    onChanged: (v) => setState(() => _playersPerRink = v ?? 4),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  DropdownButtonFormField<int>(
-                    value: _rinksRequired,
-                    decoration: const InputDecoration(labelText: 'Rinks required'),
-                    items: List.generate(12, (i) => i + 1).map((n) {
-                      return DropdownMenuItem(value: n, child: Text(n.toString()));
-                    }).toList(),
-                    onChanged: (v) => setState(() => _rinksRequired = v ?? 6),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  if (_isMemberBookablePreselectFixture) ...[
-                    _buildMemberBookingInlineSection(),
-                  ],
-
-                  ElevatedButton(
-                    onPressed: _loading ? null : _save,
-                    child: const Text('Create fixture'),
-                  ),
-                ],
-              ),
-            ),
+                ),
+        ],
+      ),
     );
   }
 }
