@@ -17,11 +17,13 @@ import 'fixture_display.dart';
 class FixturesScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
+  final bool memberBookingsOnly;
 
   const FixturesScreen({
     super.key,
     required this.clubId,
     required this.clubName,
+    this.memberBookingsOnly = false,
   });
 
   @override
@@ -29,14 +31,28 @@ class FixturesScreen extends StatefulWidget {
 }
 
 class _FixturesScreenState extends State<FixturesScreen> {
+  
   bool _loading = true;
   bool _showPast = false;
   String? _error;
   String _myClubName = '';
 
+  final _client = Supabase.instance.client;
+
   Color _clubBlue = const Color(0xFF0D47A1);
   Color _clubYellow = const Color(0xFFFFEB3B);
 
+  String? _currentMemberId;
+
+  bool _isSuperuser = false;
+  bool _isClubAdmin = false;
+  bool _isSelector = false;
+  bool _isFixtureCreator = false;
+  bool _loadingPermissions = true;
+
+  bool get _canSeeAllMemberFixtures =>
+      _isSuperuser || _isClubAdmin || _isSelector;
+      
   List<Map<String, dynamic>> _fixtures = [];
 
   late final FixturesRepository _repo;
@@ -48,6 +64,71 @@ class _FixturesScreenState extends State<FixturesScreen> {
     _load();
   }
 
+  Future<void> _loadUserPermissions() async {
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No logged-in user');
+    }
+
+    final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
+
+    // 1) Global superuser
+    final superuserRow = await supabase
+        .from('app_superusers')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    _isSuperuser = superuserRow != null;
+
+    // 2) Club membership for this club, using member_profile_id
+    final membership = await supabase
+        .from('club_memberships')
+        .select('id, club_id, member_profile_id, role')
+        .eq('member_profile_id', myProfileId)
+        .eq('club_id', widget.clubId)
+        .maybeSingle();
+
+    debugPrint('AUTH user.id       = ${user.id}');
+    debugPrint('PROFILE myProfileId = $myProfileId');
+    debugPrint('MEMBERSHIP row      = $membership');
+
+    if (membership != null) {
+      _currentMemberId = myProfileId;
+
+      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
+
+      debugPrint('MEMBERSHIP role raw = ${membership['role']}');
+      debugPrint('MEMBERSHIP role norm= $role');
+
+      _isClubAdmin = role == 'admin';
+      _isSelector = role == 'selector';
+
+      _isFixtureCreator = _isSuperuser || _isClubAdmin || _isSelector;
+    } else {
+      _currentMemberId = myProfileId;
+      _isClubAdmin = false;
+      _isSelector = false;
+      _isFixtureCreator = _isSuperuser;
+    }
+
+    debugPrint(
+      'Dashboard perms: super=$_isSuperuser '
+      'admin=$_isClubAdmin '
+      'selector=$_isSelector '
+      'fixtureCreator=$_isFixtureCreator '
+      'memberId=$_currentMemberId',
+    );
+
+    if (mounted) {
+      setState(() {
+        _loadingPermissions = false;
+      });
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -55,6 +136,8 @@ class _FixturesScreenState extends State<FixturesScreen> {
     });
 
     try {
+      await _loadUserPermissions();
+
       final client = Supabase.instance.client;
       final nowIso = DateTime.now().toUtc().toIso8601String();
 
@@ -89,6 +172,12 @@ class _FixturesScreenState extends State<FixturesScreen> {
             'green_areas(name, discipline, orientation_mode)'
           )
           .eq('club_id', widget.clubId);
+
+      if (widget.memberBookingsOnly &&
+          !_canSeeAllMemberFixtures &&
+          _currentMemberId != null) {
+        q = q.eq('captain_member_profile_id', _currentMemberId!);
+      }
 
       if (!_showPast) {
         q = q.gte('start_at', nowIso);
@@ -143,7 +232,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fixtures'),
+        title: Text(widget.memberBookingsOnly ? 'Member Fixtures' : 'Fixtures'),
         actions: <Widget>[
           IconButton(
             icon: Icon(_showPast ? Icons.visibility_off : Icons.visibility),
@@ -336,7 +425,4 @@ class _FixturesScreenState extends State<FixturesScreen> {
       ),
     );
   }
-
 }
-
-

@@ -189,6 +189,9 @@ pw.Widget _fixtureTypeBand(
       ? PdfColor.fromInt(data.fixtureTypeFgColor!)
       : fallbackFg;
 
+  final dateTimeText =
+      '${_fmtDate(data.startAt)}  ${_fmtTime(data.startAt)}';
+
   return pw.Container(
     width: double.infinity,
     padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -197,23 +200,39 @@ pw.Widget _fixtureTypeBand(
       borderRadius: pw.BorderRadius.circular(6),
       border: pw.Border.all(color: fg, width: 0.8),
     ),
-    child: pw.Row(
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Expanded(
-          child: pw.Text(
-            displayName.toUpperCase(),
-            style: pw.TextStyle(
-              fontSize: 12,
-              fontWeight: pw.FontWeight.bold,
-              color: fg,
+        // Top row: Fixture Type + Date/Time
+        pw.Row(
+          children: [
+            pw.Expanded(
+              child: pw.Text(
+                displayName.toUpperCase(),
+                style: pw.TextStyle(
+                  fontSize: 12,
+                  fontWeight: pw.FontWeight.bold,
+                  color: fg,
+                ),
+              ),
             ),
-          ),
+            pw.Text(
+              dateTimeText,
+              style: pw.TextStyle(
+                fontSize: 12,
+                fontWeight: pw.FontWeight.bold,
+                color: fg,
+              ),
+            ),
+          ],
         ),
+
+        // 👇 NEW: Arrival message
+        pw.SizedBox(height: 4),
         pw.Text(
-          '${_fmtDate(data.startAt)}  ${_fmtTime(data.startAt)}',
+          'Please arrive at least 15 minutes before the start of the fixture',
           style: pw.TextStyle(
-            fontSize: 12,
-            fontWeight: pw.FontWeight.bold,
+            fontSize: 10,
             color: fg,
           ),
         ),

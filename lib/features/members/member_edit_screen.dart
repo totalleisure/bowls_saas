@@ -5,10 +5,19 @@ class MemberEditScreen extends StatefulWidget {
   final String memberProfileId;
   final Map<String, dynamic> initial;
 
+  final String clubId;
+  final String initialRole;
+  final bool initialActive;
+  final bool canManageMembers;
+
   const MemberEditScreen({
     super.key,
     required this.memberProfileId,
     required this.initial,
+    required this.clubId,
+    required this.initialRole,
+    required this.initialActive,
+    required this.canManageMembers,
   });
 
   @override
@@ -26,9 +35,13 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   late final TextEditingController _town;
   late final TextEditingController _county;
   late final TextEditingController _postcode;
+
   late final TextEditingController _genderSelfDescribed;
   String? _gender;
   String? _sexAtBirth;
+
+  late String _role;
+  late bool _active;
 
   bool _saving = false;
 
@@ -52,6 +65,8 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     _genderSelfDescribed = TextEditingController(
       text: (i['gender_self_described'] ?? '').toString(),
     );    
+    _role = widget.initialRole;
+    _active = widget.initialActive;  
   }
 
   @override
@@ -116,6 +131,17 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           .select('first_name, last_name, email_address, display_name')
           .eq('id', widget.memberProfileId)
           .maybeSingle();
+
+      if (widget.canManageMembers) {
+        await client
+            .from('club_memberships')
+            .update({
+              'role': _role,
+              'is_active': _active,
+            })
+            .eq('club_id', widget.clubId)
+            .eq('member_profile_id', widget.memberProfileId);
+      }
 
 //      debugPrint('Post-save row: $check');
 
@@ -249,6 +275,56 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           _field('Town / City', _town),
           _field('County', _county),
           _field('Postcode', _postcode),
+
+          if (widget.canManageMembers) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Admin details',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+
+            _dropdownField(
+              label: 'Role',
+              value: _role,
+              items: const [
+                DropdownMenuItem(
+                  value: 'member',
+                  child: Text('Member'),
+                ),
+                DropdownMenuItem(
+                  value: 'captain',
+                  child: Text('Captain'),
+                ),
+                DropdownMenuItem(
+                  value: 'selector',
+                  child: Text('Selector'),
+                ),
+                DropdownMenuItem(
+                  value: 'admin',
+                  child: Text('Admin'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _role = value;
+                });
+              },
+            ),
+
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Active member'),
+              value: _active,
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _active = value;
+                });
+              },
+            ),
+          ],
 
           const SizedBox(height: 12),
           ElevatedButton.icon(

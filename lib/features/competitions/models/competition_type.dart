@@ -3,20 +3,23 @@ class ColourScheme {
   final String name;
   final String backgroundHex;
   final String foregroundHex;
+  final int? sortOrder;
 
-  const ColourScheme({
+  ColourScheme({
     required this.id,
     required this.name,
     required this.backgroundHex,
     required this.foregroundHex,
+    this.sortOrder,
   });
 
   factory ColourScheme.fromMap(Map<String, dynamic> map) {
     return ColourScheme(
-      id: (map['id'] ?? '').toString(),
+      id: map['id'].toString(),
       name: (map['name'] ?? '').toString(),
-      backgroundHex: (map['background_hex'] ?? '#E5E7EB').toString(),
-      foregroundHex: (map['foreground_hex'] ?? '#111827').toString(),
+      backgroundHex: (map['background_hex'] ?? '#FFFFFF').toString(),
+      foregroundHex: (map['foreground_hex'] ?? '#000000').toString(),
+      sortOrder: map['sort_order'] as int?,
     );
   }
 }
@@ -24,7 +27,7 @@ class ColourScheme {
 class CompetitionType {
   final String id;
   final String clubId;
-  final String name;
+  final String name;  
   final bool isInternal;
   final String section;
   final int? defaultRinksRequired;
@@ -33,6 +36,8 @@ class CompetitionType {
   final String? dressCode;
   final bool teamSelectionEnabled;
   final String? selectionMode;
+  final bool usesRinks;
+  final bool bookableByMembers;
   final bool isActive;
   final ColourScheme? colourScheme;
 
@@ -48,6 +53,8 @@ class CompetitionType {
     required this.dressCode,
     required this.teamSelectionEnabled,
     required this.selectionMode,
+    required this.usesRinks,
+    required this.bookableByMembers,
     required this.isActive,
     required this.colourScheme,
   });
@@ -67,6 +74,8 @@ class CompetitionType {
       dressCode: map['dress_code']?.toString(),
       teamSelectionEnabled: map['team_selection_enabled'] == true,
       selectionMode: map['selection_mode']?.toString(),
+      usesRinks: map['uses_rinks'] != false,
+      bookableByMembers: map['bookable_by_members'] == true,      
       isActive: map['is_active'] == true,
       colourScheme: colour is Map<String, dynamic>
           ? ColourScheme.fromMap(colour)

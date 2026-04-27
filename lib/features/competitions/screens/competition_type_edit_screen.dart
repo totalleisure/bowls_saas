@@ -35,9 +35,13 @@ class _CompetitionTypeEditScreenState
 
   bool _loading = true;
   bool _saving = false;
+  
   String? _error;
 
   bool _isInternal = false;
+  bool _usesRinks = true;
+  bool _bookableByMembers = false;
+
   String _section = 'mens';
   String _dressCode = 'whites';
   bool _teamSelectionEnabled = false;
@@ -51,6 +55,7 @@ class _CompetitionTypeEditScreenState
   @override
   void initState() {
     super.initState();
+    _durationController.text = '180';
     _load();
   }
 
@@ -140,6 +145,8 @@ class _CompetitionTypeEditScreenState
               club_id,
               name,
               is_internal,
+              uses_rinks,
+              bookable_by_members,              
               section,
               tags,
               default_rinks_required,
@@ -161,11 +168,17 @@ class _CompetitionTypeEditScreenState
 
         final row = CompetitionType.fromMap(Map<String, dynamic>.from(res));
 
+
+
         _nameController.text = row.name;
         _rinksController.text = row.defaultRinksRequired?.toString() ?? '';
         _playersController.text = row.defaultPlayersPerRink?.toString() ?? '';
         _durationController.text = row.defaultDurationMinutes?.toString() ?? '';
         _isInternal = row.isInternal;
+        
+        _usesRinks = res['uses_rinks'] == true;
+        _bookableByMembers = res['bookable_by_members'] == true;
+        
         _section = row.section;
         _dressCode = row.dressCode ?? 'whites';
         _teamSelectionEnabled = row.teamSelectionEnabled;
@@ -225,6 +238,33 @@ class _CompetitionTypeEditScreenState
       return;
     }
 
+    if (!_usesRinks && _bookableByMembers) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only fixture types that use rinks can be bookable by members.'),
+        ),
+      );
+      return;
+    }
+
+    if (_bookableByMembers &&
+        (!_teamSelectionEnabled || _selectionMode != 'preselect')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Member-bookable fixture types must use Pre-Select mode.'),
+        ),
+      );
+      return;
+    }
+
+    if (!_usesRinks) {
+      _teamSelectionEnabled = false;
+      _selectionMode = null;
+      _bookableByMembers = false;
+      _section = 'open';
+      _dressCode = 'open';
+    }
+
     setState(() {
       _saving = true;
       _error = null;
@@ -235,13 +275,15 @@ class _CompetitionTypeEditScreenState
         'club_id': widget.clubId,
         'name': _nameController.text.trim(),
         'is_internal': _isInternal,
-        'section': _section,
+        'uses_rinks': _usesRinks,
         'default_rinks_required': rinks,
         'default_players_per_rink': players,
         'default_duration_minutes': duration,
         'dress_code': _dressCode,
         'team_selection_enabled': _teamSelectionEnabled,
         'selection_mode': _teamSelectionEnabled ? _selectionMode : null,
+        'bookable_by_members': _bookableByMembers,
+        'section': _section,
         'colour_scheme_id': _selectedColourScheme?.id,
         'tags': _selectedTags.toList()..sort(),
       };
@@ -343,53 +385,171 @@ class _CompetitionTypeEditScreenState
                             },
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      _buildTagsSection(),                      
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
+                      _buildTagsSection(),
+                      const SizedBox(height: 8),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Fixture behaviour',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 8),
+                              SwitchListTile(
+                                value: _usesRinks,
+                                onChanged: widget.readOnly
+                                    ? null
+                                    : (v) {
+                                        setState(() {
+                                          _usesRinks = v;
+
+                                          if (!_usesRinks) {
+                                            _teamSelectionEnabled = false;
+                                            _selectionMode = null;
+                                            _bookableByMembers = false;
+                                            _section = 'open';
+                                            _dressCode = 'open';
+
+                                            _rinksController.clear();
+                                            _playersController.clear();
+                                          } else {
+                                            _rinksController.text =
+                                                _rinksController.text.trim().isEmpty ? '1' : _rinksController.text;
+
+                                            _playersController.text =
+                                                _playersController.text.trim().isEmpty ? '4' : _playersController.text;
+                                          }
+                                        });
+                                      },
+                                title: const Text('Uses green / rinks'),
+                                subtitle: const Text(
+                                  'Turn this off for meetings, lunches, AGMs and other events that do not reserve rink space.',
+                                ),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              SwitchListTile(
+                                value: _bookableByMembers,
+                                onChanged: widget.readOnly || !_usesRinks
+                                    ? null
+                                    : (v) {
+                                        setState(() {
+                                          _bookableByMembers = v;
+                                          if (v) {
+                                            _teamSelectionEnabled = true;
+                                            _selectionMode = 'preselect';
+                                            _isInternal = true;
+                                          }
+                                        });
+                                      },
+                                title: const Text('Bookable by members'),
+                                subtitle: const Text(
+                                  'Allows members to use this fixture type themselves, usually for club competition bookings and other general member bookings.',
+                                ),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              if (!_usesRinks)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    'This will behave as an event/information fixture and will not require rinks.',
+                                    style: TextStyle(fontStyle: FontStyle.italic),
+                                  ),
+                                ),
+                              SwitchListTile(
+                                value: _isInternal,
+                                onChanged: widget.readOnly
+                                    ? null
+                                    : (v) => setState(() => _isInternal = v),
+                                title: const Text('Internal fixture type'),
+                                subtitle: const Text(
+                                  'Use this for club-internal fixtures with no opponent.',
+                                ),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              if (_usesRinks) ...[
+                                const SizedBox(height: 8),
+                                SwitchListTile(
+                                  value: _teamSelectionEnabled,
+                                  onChanged: widget.readOnly
+                                      ? null
+                                      : (v) {
+                                          setState(() {
+                                            _teamSelectionEnabled = v;
+                                            if (!v) {
+                                              _selectionMode = null;
+                                            } else {
+                                              _selectionMode ??= 'rsvp';
+                                            }
+                                          });
+                                        },
+                                  title: const Text('Team Selection'),
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+
+                                if (_teamSelectionEnabled) ...[
+                                  const SizedBox(height: 8),
+                                  DropdownButtonFormField<String>(
+                                    value: _selectionMode,
+                                    decoration: _dec('Selection mode'),
+                                    items: const [
+                                      DropdownMenuItem(value: 'team', child: Text('Team')),
+                                      DropdownMenuItem(value: 'rsvp', child: Text('RSVP')),
+                                      DropdownMenuItem(value: 'practice', child: Text('Practice')),
+                                      DropdownMenuItem(value: 'preselect', child: Text('Pre-Select')),
+                                    ],
+                                    onChanged: widget.readOnly
+                                        ? null
+                                        : (v) => setState(() => _selectionMode = v),
+                                  ),
+                                ],
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
                         value: _section,
                         decoration: _dec('Section'),
                         items: const [
-                          DropdownMenuItem(
-                            value: 'mens',
-                            child: Text("Men's"),
-                          ),
-                          DropdownMenuItem(
-                            value: 'ladies',
-                            child: Text('Ladies'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'mixed',
-                            child: Text('Mixed'),
-                          ),
+                          DropdownMenuItem(value: 'mens',child: Text("Men's")),                          
+                          DropdownMenuItem(value: 'ladies',child: Text('Ladies')),
+                          DropdownMenuItem(value: 'mixed',child: Text('Mixed')),
+                          DropdownMenuItem(value: 'open',child: Text("Open")),
                         ],
                         onChanged: widget.readOnly
                             ? null
                             : (v) => setState(() => _section = v ?? 'mens'),
                       ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _rinksController,
-                              readOnly: widget.readOnly,
-                              keyboardType: TextInputType.number,
-                              decoration: _dec('Default rinks required'),
+                      const SizedBox(height: 8),
+                      if (_usesRinks) ...[                      
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _rinksController,
+                                readOnly: widget.readOnly,
+                                keyboardType: TextInputType.number,
+                                decoration: _dec('Default rinks required'),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _playersController,
-                              readOnly: widget.readOnly,
-                              keyboardType: TextInputType.number,
-                              decoration: _dec('Default players per rink'),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: _playersController,
+                                readOnly: widget.readOnly,
+                                keyboardType: TextInputType.number,
+                                decoration: _dec('Default players per rink'),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       TextFormField(
                         controller: _durationController,
                         readOnly: widget.readOnly,
@@ -401,69 +561,21 @@ class _CompetitionTypeEditScreenState
                         value: _dressCode,
                         decoration: _dec('Dress code'),
                         items: const [
-                          DropdownMenuItem(
-                            value: 'whites',
-                            child: Text('Whites'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'greys',
-                            child: Text('Greys'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'blacks',
-                            child: Text('Blacks'),
-                          ),
+                          DropdownMenuItem(value: 'whites',child: Text('Whites')),
+                          DropdownMenuItem(value: 'greys',child: Text('Greys')),
+                          DropdownMenuItem(value: 'blacks',child: Text('Blacks')),
+                          DropdownMenuItem(value: 'open', child: Text('Open')),
                         ],
                         onChanged: widget.readOnly
                             ? null
                             : (v) => setState(() => _dressCode = v ?? 'whites'),
                       ),
                       const SizedBox(height: 16),
-                      SwitchListTile(
-                        value: _teamSelectionEnabled,
-                        onChanged: widget.readOnly
-                            ? null
-                            : (v) {
-                                setState(() {
-                                  _teamSelectionEnabled = v;
-                                  if (!v) _selectionMode = null;
-                                });
-                              },
-                        title: const Text('Team Selection'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      if (_teamSelectionEnabled) ...[
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          value: _selectionMode,
-                          decoration: _dec('Selection mode'),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'team',
-                              child: Text('Team'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'rsvp',
-                              child: Text('RSVP'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'practice',
-                              child: Text('Practice'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'preselect',
-                              child: Text('Pre-Select'),
-                            ),
-                          ],
-                          onChanged: widget.readOnly
-                              ? null
-                              : (v) => setState(() => _selectionMode = v),
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      const Text(
-                        'Colour scheme',
-                        style: TextStyle(fontWeight: FontWeight.w600),
+                      Text(
+                        _selectedColourScheme == null
+                            ? 'Colour scheme'
+                            : 'Colour scheme - ${_selectedColourScheme!.name}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 12),
                       Wrap(
@@ -484,23 +596,7 @@ class _CompetitionTypeEditScreenState
                             ),
                         ],
                       ),
-                      if (_selectedColourScheme != null) ...[
-                        const SizedBox(height: 8),
-                        Text('Selected: ${_selectedColourScheme!.name}'),
-                      ],
-                      const SizedBox(height: 24),
-                      SwitchListTile(
-                        value: _isInternal,
-                        onChanged: widget.readOnly
-                            ? null
-                            : (v) => setState(() => _isInternal = v),
-                        title: const Text('Internal fixture type'),
-                        subtitle: const Text(
-                          'Use this for club-internal fixtures with no opponent.',
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
                       if (_error != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),

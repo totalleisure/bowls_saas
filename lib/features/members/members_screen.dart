@@ -344,6 +344,8 @@ class _MembersScreenState extends State<MembersScreen> {
   Future<void> _openMemberEdit({
     required String memberProfileId,
     required Map<String, dynamic> memberProfile,
+    required String role,
+    required bool active,    
   }) async {
     _savedScrollOffset =
         _scrollController.hasClients ? _scrollController.offset : 0;
@@ -354,6 +356,10 @@ class _MembersScreenState extends State<MembersScreen> {
         builder: (_) => MemberEditScreen(
           memberProfileId: memberProfileId,
           initial: memberProfile,
+          clubId: widget.clubId,
+          initialRole: role,
+          initialActive: active,
+          canManageMembers: _canManageMembers,
         ),
       ),
     );
@@ -529,6 +535,8 @@ class _MembersScreenState extends State<MembersScreen> {
                                     onTap: () => _openMemberEdit(
                                       memberProfileId: memberProfileId,
                                       memberProfile: mp,
+                                      role: role,
+                                      active: active,
                                     ),
                                   ),
                                 );

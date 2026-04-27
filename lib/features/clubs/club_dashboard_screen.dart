@@ -10,11 +10,11 @@ import '../fixtures/fixture_display.dart';
 import '../fixtures/fixture_details_page.dart';
 import '../help/player_help_screen.dart';
 import '../notifications/notifications_page.dart';
+import '../dashboard/dashboard_filter_screen.dart';
+import '../fixtures/fixtures_screen.dart';
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
-
 import '../../models/dashboard_fixture_filter.dart';
-import '../dashboard/dashboard_filter_screen.dart';
 
 class ClubDashboardScreen extends StatefulWidget {
   final String clubId;
@@ -1122,6 +1122,25 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                   ),
                 ),
               );
+            },
+          ),
+          IconButton(
+            tooltip: 'My fixture bookings',
+            icon: const Icon(Icons.event_available),
+            onPressed: () async {
+              final changed = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) => FixturesScreen(
+                    clubId: widget.clubId,
+                    clubName: widget.clubName,
+                    memberBookingsOnly: true,
+                  ),
+                ),
+              );
+
+              if (changed == true) {
+                await _load();
+              }
             },
           ),
           if (canAccessAdmin)

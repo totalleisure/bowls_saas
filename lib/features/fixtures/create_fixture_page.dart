@@ -11,11 +11,13 @@ enum FixtureWorkflowType { rsvp, team }
 class CreateFixturePage extends StatefulWidget {
   final String clubId;
   final String clubName;
+  final bool memberBookingMode;
 
   const CreateFixturePage({
     super.key,
     required this.clubId,
     required this.clubName,
+    this.memberBookingMode = false,
   });
 
   @override
@@ -24,6 +26,18 @@ class CreateFixturePage extends StatefulWidget {
 
 class _CreateFixturePageState extends State<CreateFixturePage> {
   final _teamNameCtrl = TextEditingController();
+
+  String? _currentMemberId;
+
+  bool _isSuperuser = false;
+  bool _isClubAdmin = false;
+  bool _isSelector = false;
+  bool _isFixtureCreator = false;
+
+  bool get _canSeeAllFixtureTypes =>
+      _isSuperuser || _isClubAdmin || _isSelector;
+
+  bool _loadingPermissions = true;
 
   bool _loading = false;
   String? _error;
@@ -43,6 +57,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   List<Map<String, dynamic>> _opponentVenues = [];
   String? _homeVenueId;
   String? _opponentVenueId;
+
+  // Players, Opponents, Markers
+  List<Map<String, dynamic>> _clubMembers = [];
+  final Map<String, String?> _playerSelections = {};
+  final Map<String, String?> _opponentSelections = {};
+  final Map<String, String?> _markerSelections = {};
 
     // Teams (for team fixtures)
   List<Map<String, dynamic>> _teams = [];
@@ -67,6 +87,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   String? _fixtureTypeId;
   bool _workflowLockedByFixtureType = false;
 
+  bool _loadingRinkAvailability = false;
+  String? _rinkAvailabilityError;
+  List<Map<String, dynamic>> _rinkAvailability = [];
+
   SupabaseClient get _client => Supabase.instance.client;
 
   @override
@@ -89,10 +113,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     try {
       await _loadVenues();
+      await _loadUserPermissions();
       await _loadFixtureTypes();
       await _loadTeams();
       // Only load greens once we have a home venue selected
       await _loadGreenAreas();
+      await _loadClubMembers();
+
+      _defaultBookerIntoFirstPlayerSlot();
+
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString());
@@ -101,6 +130,127 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (mounted) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  Future<void> _loadRinkAvailability() async {
+
+debugPrint(
+  'RINK AVAILABILITY CHECK: '
+  'green=$_greenAreaId '
+  'start=$_startAtLocal '
+  'end=$_endAtLocal',
+);
+
+    if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
+      setState(() {
+        _rinkAvailability = [];
+        _rinkAvailabilityError = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _loadingRinkAvailability = true;
+      _rinkAvailabilityError = null;
+    });
+
+    try {
+      final rows = await _client.rpc(
+        'get_green_rink_availability',
+        params: {
+          'p_green_area_id': _greenAreaId,
+          'p_start_at': _startAtLocal!.toUtc().toIso8601String(),
+          'p_end_at': _endAtLocal!.toUtc().toIso8601String(),
+        },
+      );
+
+debugPrint('RINK AVAILABILITY RPC rows=$rows');
+debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
+
+      if (!mounted) return;
+
+      setState(() {
+        _rinkAvailability = List<Map<String, dynamic>>.from(rows);
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _rinkAvailabilityError = e.toString();
+        _rinkAvailability = [];
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingRinkAvailability = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadUserPermissions() async {
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No logged-in user');
+    }
+
+    final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
+
+    // 1) Global superuser
+    final superuserRow = await supabase
+        .from('app_superusers')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    _isSuperuser = superuserRow != null;
+
+    // 2) Club membership for this club, using member_profile_id
+    final membership = await supabase
+        .from('club_memberships')
+        .select('id, club_id, member_profile_id, role')
+        .eq('member_profile_id', myProfileId)
+        .eq('club_id', widget.clubId)
+        .maybeSingle();
+
+    debugPrint('AUTH user.id       = ${user.id}');
+    debugPrint('PROFILE myProfileId = $myProfileId');
+    debugPrint('MEMBERSHIP row      = $membership');
+
+    if (membership != null) {
+      _currentMemberId = myProfileId;
+
+      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
+
+      debugPrint('MEMBERSHIP role raw = ${membership['role']}');
+      debugPrint('MEMBERSHIP role norm= $role');
+
+      _isClubAdmin = role == 'admin';
+      _isSelector = role == 'selector';
+
+      _isFixtureCreator = _isSuperuser || _isClubAdmin || _isSelector;
+    } else {
+      _currentMemberId = myProfileId;
+      _isClubAdmin = false;
+      _isSelector = false;
+      _isFixtureCreator = _isSuperuser;
+    }
+
+    debugPrint(
+      'Dashboard perms: super=$_isSuperuser '
+      'admin=$_isClubAdmin '
+      'selector=$_isSelector '
+      'fixtureCreator=$_isFixtureCreator '
+      'memberId=$_currentMemberId',
+    );
+
+    if (mounted) {
+      setState(() {
+        _loadingPermissions = false;
+      });
     }
   }
 
@@ -116,6 +266,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           default_players_per_rink,
           team_selection_enabled,
           selection_mode,
+          uses_rinks,
+          bookable_by_members,
           team_id,
           is_active,
           colour_scheme:fixture_colour_schemes(
@@ -129,7 +281,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         .eq('is_active', true)
         .order('name');
 
-    _fixtureTypes = List<Map<String, dynamic>>.from(rows);
+    final loaded = List<Map<String, dynamic>>.from(rows);
+
+    _fixtureTypes = _canSeeAllFixtureTypes
+        ? loaded
+        : loaded.where((t) => t['bookable_by_members'] == true).toList();
   }
 
   Future<void> _loadVenues() async {
@@ -154,6 +310,93 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     _homeVenueId ??= _homeVenues.isNotEmpty ? _homeVenues.first['id'].toString() : null;
     _opponentVenueId ??=
         _opponentVenues.isNotEmpty ? _opponentVenues.first['id'].toString() : null;
+  }
+
+  Future<String?> _pickMember({
+    required String title,
+    String? currentMemberProfileId,
+  }) async {
+    var search = '';
+
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final filtered = _clubMembers.where((m) {
+              final q = search.toLowerCase().trim();
+              if (q.isEmpty) return true;
+
+              final label = _memberLabel(m).toLowerCase();
+              final first = (m['first_name'] ?? '').toString().toLowerCase();
+              final last = (m['last_name'] ?? '').toString().toLowerCase();
+              final display = (m['display_name'] ?? '').toString().toLowerCase();
+              final email = (m['email_address'] ?? '').toString().toLowerCase();
+
+              return label.contains(q) ||
+                  first.contains(q) ||
+                  last.contains(q) ||
+                  display.contains(q) ||
+                  email.contains(q);
+            }).toList();
+
+            return AlertDialog(
+              title: Text(title),
+              content: SizedBox(
+                width: 520,
+                height: 520,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: 'Search surname or first name',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) {
+                        setDialogState(() => search = v);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final member = filtered[index];
+                          final id = member['id'].toString();
+                          final selected = id == currentMemberProfileId;
+
+                          return ListTile(
+                            selected: selected,
+                            title: Text(_memberLabel(member)),
+                            subtitle: Text(
+                              (member['email_address'] ?? '').toString(),
+                            ),
+                            onTap: () => Navigator.of(context).pop(id),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                if (currentMemberProfileId != null)
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(''),
+                    child: const Text('Clear'),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<String?> _pickVenue({
@@ -408,12 +651,96 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     _loadGreenAreas();
   }
 
+  String _memberLabel(Map<String, dynamic> m) {
+    final first = (m['first_name'] ?? '').toString().trim();
+    final last = (m['last_name'] ?? '').toString().trim();
+    final display = (m['display_name'] ?? '').toString().trim();
+
+    if (last.isNotEmpty && first.isNotEmpty) return '$last, $first';
+    if (display.isNotEmpty) return display;
+    return 'Unnamed member';
+  }
+
+  String _selectedMemberLabel(String? memberProfileId) {
+    if (memberProfileId == null) return 'Select player';
+
+    final match = _clubMembers.where((m) => m['id'].toString() == memberProfileId);
+    if (match.isEmpty) return 'Select player';
+
+    return _memberLabel(match.first);
+  }
+
+  String? get _selectedGreenName {
+    if (_greenAreaId == null) return null;
+
+    for (final g in _greenAreas) {
+      if (g['id'].toString() == _greenAreaId) {
+        return g['name']?.toString();
+      }
+    }
+
+    return null;
+  }
+
+  Color get _selectedFixtureBgColor {
+    final ft = _fixtureTypeById(_fixtureTypeId);
+    final hex = ft?['colour_scheme']?['background_hex']?.toString();
+
+    if (hex == null || hex.isEmpty) {
+      return Colors.blue.shade50;
+    }
+
+    return _colourFromHex(hex);
+  }
+
+  Color get _selectedFixtureFgColor {
+    final ft = _fixtureTypeById(_fixtureTypeId);
+    final hex = ft?['colour_scheme']?['foreground_hex']?.toString();
+
+    if (hex == null || hex.isEmpty) {
+      return Colors.blue.shade900;
+    }
+
+    return _colourFromHex(hex);
+  }
+
   Map<String, dynamic>? get _selectedGreenArea {
     if (_greenAreaId == null) return null;
     for (final g in _greenAreas) {
       if (g['id'].toString() == _greenAreaId) return g;
     }
     return null;
+  }
+
+  final Map<int, String> _selectedHomeRinkByTeam = {};
+
+  int? _teamNoForSelectedRink(String rinkLabel) {
+    for (final entry in _selectedHomeRinkByTeam.entries) {
+      if (entry.value == rinkLabel) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  void _toggleHomeRinkSelection(String rinkLabel) {
+    final existingTeamNo = _teamNoForSelectedRink(rinkLabel);
+
+    setState(() {
+      // Click again = unbook/unselect
+      if (existingTeamNo != null) {
+        _selectedHomeRinkByTeam.remove(existingTeamNo);
+        return;
+      }
+
+      // Otherwise assign to first team without a rink
+      for (var teamNo = 1; teamNo <= _rinksRequired; teamNo++) {
+        if (!_selectedHomeRinkByTeam.containsKey(teamNo)) {
+          _selectedHomeRinkByTeam[teamNo] = rinkLabel;
+          return;
+        }
+      }
+    });
   }
 
   List<String> _allowedOrientationsFor(Map<String, dynamic> greenAreaRow) {
@@ -436,6 +763,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return vals;
   }
 
+  bool get _isMemberBookablePreselectFixture {
+    final ft = _fixtureTypeById(_fixtureTypeId);
+    if (ft == null) return false;
+
+    return ft['bookable_by_members'] == true &&
+        (ft['selection_mode'] ?? '').toString() == 'preselect';
+  }
+
   bool get _isOutdoorSelectedGreen {
     final g = _selectedGreenArea;
     if (g == null) return false;
@@ -448,6 +783,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (g == null) return false;
     final mode = (g['orientation_mode'] ?? '').toString().toLowerCase();
     return mode != 'off';
+  }
+
+  Color _colourFromHex(String hex) {
+    final clean = hex.replaceAll('#', '').trim();
+    if (clean.length != 6) return Colors.grey.shade100;
+    return Color(int.parse('FF$clean', radix: 16));
   }
 
   Future<String?> _createVenueFromFixture({required bool isHomeVenue}) async {
@@ -530,6 +871,53 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
   }
 
+  Future<void> _loadClubMembers() async {
+    final rows = await _client
+        .from('club_memberships')
+        .select('''
+          member_profile:member_profiles(
+            id,
+            first_name,
+            last_name,
+            display_name,
+            email_address
+          )
+        ''')
+        .eq('club_id', widget.clubId)
+        .eq('is_active', true);
+
+    final members = <Map<String, dynamic>>[];
+
+    for (final row in rows) {
+      final profile = row['member_profile'];
+      if (profile is Map<String, dynamic>) {
+        members.add(profile);
+      }
+    }
+
+    members.sort((a, b) => _memberLabel(a).compareTo(_memberLabel(b)));
+
+    _clubMembers = members;
+
+debugPrint('CLUB MEMBERS LOADED: ${_clubMembers.length}');
+for (final m in _clubMembers) {
+  debugPrint('MEMBER: ${m['id']} ${_memberLabel(m)}');
+}
+
+  }
+
+  void _defaultBookerIntoFirstPlayerSlot() {
+    if (_currentMemberId == null) return;
+
+    final key = _slotKey(1, 1);
+
+    if (_playerSelections[key] == null) {
+      setState(() {
+        _playerSelections[key] = _currentMemberId;
+      });
+    }
+  }
+
   Future<void> _pickEndDateTime() async {
     final now = DateTime.now();
     final initialDate =
@@ -554,6 +942,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     setState(() {
       _endAtLocal = DateTime(date.year, date.month, date.day, time.hour, time.minute);
     });
+    _loadRinkAvailability();
   }
 
   Future<void> _pickDateTime() async {
@@ -583,57 +972,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         _endAtLocal = _startAtLocal!.add(const Duration(hours: 2));
       }
     });
+    _loadRinkAvailability();
   }
 
-/*   Future<void> _confirmDelete() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete fixture?'),
-        content: const Text(
-          'This will permanently delete the fixture and all related data '
-          '(RSVPs, team selections, rinks, assignments).',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (ok == true) {
-      await _deleteFixture();
-    }
-  }
- */
-
-/*   Future<void> _deleteFixture() async {
-    setState(() => _loading = true);
-    try {
-      final res = await Supabase.instance.client.rpc(
-        'delete_fixture',
-        params: {'p_fixture_id': widget.fixtureId},
-      );
-
-      if (res == true && mounted) {
-        Navigator.pop(context, true); // tell previous screen to refresh
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
- */
   String _formatForDisplay(int ppr) {
     switch (ppr) {
       case 2:
@@ -664,13 +1005,51 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return t[0].toUpperCase() + t.substring(1);
   }
 
+  String _friendlySaveError(PostgrestException e) {
+    if (e.message.contains('Not enough rinks available')) {
+      return 'Not enough rinks are available at that time. Please choose another time, date, or green.';
+    }
+
+    return e.message;
+  }
+
+  String _slotKey(int teamNo, int slotNo) => '$teamNo:$slotNo';
+
+  Future<void> _showSaveErrorDialog(String message) async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Booking could not be saved'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _save() async {
+    if (_loading) {
+      debugPrint('SAVE: ignored because already loading');
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
 
     try {
+      if (_fixtureTypeId == null || _fixtureTypeId!.trim().isEmpty) {
+        throw Exception('Please choose a Fixture Type.');
+      }
+      if (_section.trim().isEmpty) {
+        throw Exception('Section is missing for the selected Fixture Type.');
+      }      
       if (_startAtLocal == null) {
         throw Exception('Please select a start date/time.');
       }
@@ -706,6 +1085,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         throw Exception('Please select a team.');
       }
 
+      final captainMemberProfileId =
+          _canSeeAllFixtureTypes ? null : _currentMemberId;
+
+debugPrint('CREATE FIXTURE captainMemberProfileId=$captainMemberProfileId');
+debugPrint('CREATE FIXTURE currentMemberId=$_currentMemberId');
+debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
+
       final insertedRows = await _client.from('fixtures').insert({
         'club_id': widget.clubId,
         'start_at': _startAtLocal!.toUtc().toIso8601String(),
@@ -731,6 +1117,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'orientation': (_isHome && _isOutdoorSelectedGreen && _orientationEnabledForSelectedGreen)
             ? _orientation
             : null,
+        'captain_member_profile_id': captainMemberProfileId,            
       }).select('id');
 
       debugPrint('SAVE: read fixture id');
@@ -742,9 +1129,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       for (var i = 1; i <= _rinksRequired; i++) {
         rinkRows.add({
           'fixture_id': fixtureId,
-          'fixture_rink_no': i, // you renamed rink_order -> fixture_rink_no
+          'fixture_rink_no': i,
           'format': formatCode,
           'players_per_rink': _playersPerRink,
+          'home_rink_label': _selectedHomeRinkByTeam[i],
         });
       }
       if (rinkRows.isNotEmpty) {
@@ -753,7 +1141,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       debugPrint('SAVE: pop');
       
       if (!mounted) return;
-
+      
       debugPrint('create_fixture_page: created fixtureId=$fixtureId, opening details...');
 
       final changed = await Navigator.of(context).push<bool>(
@@ -769,15 +1157,30 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       // return to fixtures_screen
       Navigator.pop(context, true);
 
+    } on PostgrestException catch (e) {
+      final message = e.message.contains('Not enough rinks available')
+          ? 'Not enough rinks are available at that time. Please choose another time, date, or green.'
+          : (e.message.isNotEmpty ? e.message : 'Database error');
+
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+      }
+
+      await _showSaveErrorDialog(message);      
     } catch (e) {
-      debugPrint('SAVE ERROR: $e');
+      final message = e.toString();
+
       if (mounted) {
-        setState(() => _error = e.toString());
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
       }
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
+
+      await _showSaveErrorDialog(message);
     }
   }
 
@@ -788,6 +1191,281 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (ft['id'].toString() == id) return ft;
     }
     return null;
+  }
+
+  Widget _buildMemberBookingInlineSection() {
+    final playersPerSide = _playersPerRink;
+
+    return Card(
+      margin: const EdgeInsets.only(top: 8, bottom: 20),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Players, opponents and rinks',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 18,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            for (var teamNo = 1; teamNo <= _rinksRequired; teamNo++) ...[
+              Text(
+                'Team $teamNo',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+
+              for (var playerNo = 1; playerNo <= playersPerSide; playerNo++) ...[
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 80,
+                      child: Text('Player $playerNo'),
+                    ),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final key = _slotKey(teamNo, playerNo);
+                          final selected = await _pickMember(
+                            title: 'Select Player $playerNo',
+                            currentMemberProfileId: _playerSelections[key],
+                          );
+
+                          if (selected != null && mounted) {
+                            setState(() {
+                              _playerSelections[key] = selected.isEmpty ? null : selected;
+                            });
+                          }
+                        },
+                        child: Text(
+                          _selectedMemberLabel(_playerSelections[_slotKey(teamNo, playerNo)]),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    SizedBox(
+                      width: 90,
+                      child: Text('Opponent $playerNo'),
+                    ),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          final key = _slotKey(teamNo, playerNo);
+                          final selected = await _pickMember(
+                            title: 'Select Opponent $playerNo',
+                            currentMemberProfileId: _opponentSelections[key],
+                          );
+
+                          if (selected != null && mounted) {
+                            setState(() {
+                              _opponentSelections[key] = selected.isEmpty ? null : selected;
+                            });
+                          }
+                        },
+                        child: Text(
+                          _selectedMemberLabel(_opponentSelections[_slotKey(teamNo, playerNo)]),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 80,
+                    child: Text('Marker'),
+                  ),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        final key = _slotKey(teamNo, 1);
+                        final selected = await _pickMember(
+                          title: 'Select Marker',
+                          currentMemberProfileId: _markerSelections[key],
+                        );
+
+                        if (selected != null && mounted) {
+                          setState(() {
+                            _markerSelections[key] = selected.isEmpty ? null : selected;
+                          });
+                        }
+                      },
+                      child: Text(
+                        _selectedMemberLabel(_markerSelections[_slotKey(teamNo, 1)]),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 28),
+            ],
+
+            Text(
+              _selectedGreenName?.isNotEmpty == true
+                  ? 'Rinks — $_selectedGreenName'
+                  : 'Rinks',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildRinkAvailabilitySection(),            
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRinkAvailabilitySection() {
+    if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
+      return const Text(
+        'Choose green, start time and end time to see rink availability.',
+        textAlign: TextAlign.center,
+      );
+    }
+
+    if (_loadingRinkAvailability) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_rinkAvailabilityError != null) {
+      return Text(
+        'Could not load rink availability: $_rinkAvailabilityError',
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: Colors.red),
+      );
+    }
+
+    if (_rinkAvailability.isEmpty) {
+      return const Text(
+        'No physical rinks found for this green.',
+        textAlign: TextAlign.center,
+      );
+    }
+
+    int asInt(dynamic v, int fallback) {
+      if (v is int) return v;
+      return int.tryParse((v ?? '').toString()) ?? fallback;
+    }
+
+    final first = _rinkAvailability.first;
+
+    final totalRinks = asInt(first['total_rinks'], _rinkAvailability.length);
+    final freeRinks = asInt(first['free_capacity_rinks'], totalRinks);
+    final enoughRinks = freeRinks >= _rinksRequired;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: enoughRinks ? Colors.green.shade50 : Colors.red.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: enoughRinks ? Colors.green.shade300 : Colors.red.shade300,
+            ),
+          ),
+          child: Text(
+            '$freeRinks of $totalRinks rinks free',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: enoughRinks ? Colors.green.shade900 : Colors.red.shade900,
+            ),
+          ),
+        ),
+
+        Column(
+          children: _rinkAvailability.map((r) {
+            final rinkLabel =
+                (r['rink_label'] ?? r['label'] ?? r['name'] ?? '').toString();
+            final isBooked = r['is_booked'] == true;
+            final bookedText = (r['booked_text'] ?? '').toString();
+
+            final selectedTeamNo = _teamNoForSelectedRink(rinkLabel);
+            final isSelected = selectedTeamNo != null;            
+
+            final bgHex = (r['background_hex'] ?? '#FEE2E2').toString();
+            final fgHex = (r['foreground_hex'] ?? '#991B1B').toString();
+
+            final bookedBgColor = _colourFromHex(bgHex);
+            final bookedFgColor = _colourFromHex(fgHex);
+
+            return InkWell(
+              onTap: isBooked ? null : () => _toggleHomeRinkSelection(rinkLabel),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isBooked
+                      ? bookedBgColor
+                      : isSelected
+                          ? _selectedFixtureBgColor
+                          : Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    width: isSelected ? 2 : 1,
+                    color: isBooked
+                        ? bookedFgColor.withOpacity(0.35)
+                        : isSelected
+                            ? _selectedFixtureBgColor
+                            : Colors.green.shade300,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rinkLabel.isEmpty ? 'Rink' : rinkLabel,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: isBooked
+                            ? bookedFgColor
+                            : isSelected
+                                ? _selectedFixtureFgColor
+                                : Colors.green.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isBooked
+                          ? bookedText
+                          : isSelected
+                              ? 'Selected for Team $selectedTeamNo'
+                              : 'Free',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isBooked
+                            ? bookedFgColor
+                            : isSelected
+                                ? _selectedFixtureFgColor
+                                : Colors.green.shade900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
   }
 
   Widget _fixtureTypeSwatch(Map<String, dynamic> ft) {
@@ -1283,6 +1961,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             _greenAreaId = v;
                             _syncOrientationToSelectedGreen();
                           });
+                          _loadRinkAvailability();
                         },
                       ),
                       const SizedBox(height: 12),
@@ -1307,14 +1986,22 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   ],
 
                   DropdownButtonFormField<String>(
-                    value: _section,
-                    decoration: const InputDecoration(labelText: 'Section'),
+                    value: _section.isEmpty ? null : _section,
+                    decoration: const InputDecoration(
+                      labelText: 'Section',
+                    ),
                     items: const [
                       DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
-                      DropdownMenuItem(value: 'mens', child: Text('Mens')),
-                      DropdownMenuItem(value: 'ladies', child: Text('Ladies')),
+                      DropdownMenuItem(value: 'mens', child: Text("Men's")),
+                      DropdownMenuItem(value: 'ladies', child: Text("Ladies")),
                     ],
-                    onChanged: (v) => setState(() => _section = v ?? 'mixed'),
+                    onChanged: _fixtureTypeId == null
+                        ? (value) {
+                            setState(() {
+                              _section = value ?? '';
+                            });
+                          }
+                        : null,
                   ),
 
                   const SizedBox(height: 12),
@@ -1343,6 +2030,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   ),
 
                   const SizedBox(height: 20),
+
+                  if (_isMemberBookablePreselectFixture) ...[
+                    _buildMemberBookingInlineSection(),
+                  ],
 
                   ElevatedButton(
                     onPressed: _loading ? null : _save,
