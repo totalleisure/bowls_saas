@@ -48,6 +48,8 @@ class _CompetitionTypeEditScreenState
   String? _selectionMode;
   ColourScheme? _selectedColourScheme;
 
+  String? _defaultFormat;
+
   bool get _isEdit => widget.competitionTypeId != null;
 
   final Set<String> _selectedTags = <String>{};
@@ -164,11 +166,20 @@ class _CompetitionTypeEditScreenState
               )
             ''')
             .eq('id', widget.competitionTypeId!)
-            .single();
+            .single()
+            .order('name');
 
         final row = CompetitionType.fromMap(Map<String, dynamic>.from(res));
 
+        final ppr = row.defaultPlayersPerRink;
 
+        _defaultFormat = switch (ppr) {
+          1 => 'singles',
+          2 => 'pairs', // or aussie_pairs if you want to detect it later
+          3 => 'triples',
+          4 => 'rinks',
+          _ => null,
+        };
 
         _nameController.text = row.name;
         _rinksController.text = row.defaultRinksRequired?.toString() ?? '';
@@ -498,8 +509,8 @@ class _CompetitionTypeEditScreenState
                                     items: const [
                                       DropdownMenuItem(value: 'team', child: Text('Team')),
                                       DropdownMenuItem(value: 'rsvp', child: Text('RSVP')),
-                                      DropdownMenuItem(value: 'practice', child: Text('Practice')),
                                       DropdownMenuItem(value: 'preselect', child: Text('Pre-Select')),
+                                      DropdownMenuItem(value: 'open', child: Text('Open Session')),
                                     ],
                                     onChanged: widget.readOnly
                                         ? null
@@ -539,11 +550,31 @@ class _CompetitionTypeEditScreenState
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: TextFormField(
-                                controller: _playersController,
-                                readOnly: widget.readOnly,
-                                keyboardType: TextInputType.number,
-                                decoration: _dec('Default players per rink'),
+                              child: DropdownButtonFormField<String>(
+                                value: _defaultFormat,
+                                decoration: _dec('Format'),
+                                items: const [
+                                  DropdownMenuItem(value: 'singles', child: Text('Singles')),
+                                  DropdownMenuItem(value: 'pairs', child: Text('Pairs')),
+                                  DropdownMenuItem(value: 'triples', child: Text('Triples')),
+                                  DropdownMenuItem(value: 'rinks', child: Text('Rinks')),
+                                ],
+                                onChanged: widget.readOnly
+                                    ? null
+                                    : (value) {
+                                        setState(() {
+                                          _defaultFormat = value;
+
+                                          // 🔑 enforce players per rink automatically
+                                          _playersController.text = switch (value) {
+                                            'singles' => '1',
+                                            'pairs' => '2',
+                                            'triples' => '3',
+                                            'rinks' => '4',
+                                            _ => '',
+                                          };
+                                        });
+                                      },
                               ),
                             ),
                           ],

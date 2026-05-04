@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/utils/date_format.dart';
+import '../../core/widgets/club_member_picker_page.dart';
 
 class SetCaptainSection extends StatefulWidget {
   final Map<String, dynamic> fixture;
@@ -257,6 +258,43 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
     }
   }
 
+  Future<String?> _pickCaptaincyMember({
+    required String title,
+    String? currentId,
+  }) async {
+    final fixtureId = widget.fixture['id']?.toString();
+    final clubId = widget.fixture['club_id']?.toString();
+
+    if (fixtureId == null || fixtureId.isEmpty || clubId == null || clubId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fixture or club id is missing')),
+      );
+      return null;
+    }
+
+    final result = await Navigator.of(context).push<List<String>?>(
+      MaterialPageRoute(
+        builder: (_) => ClubMemberPickerPage(
+          clubId: clubId,
+          title: title,
+          fixtureId: fixtureId,
+
+          // captain/vice can be anyone
+          useFixtureSection: false,
+          initialSectionFilter: MemberPickerSectionFilter.open,
+
+          allowMultiple: false,
+          initialSelectedIds: {
+            if (currentId != null && currentId.isNotEmpty) currentId,
+          },
+        ),
+      ),
+    );
+
+    if (result == null || result.isEmpty) return null;
+    return result.first;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -359,23 +397,50 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
               Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<String?>(
-                      value: _selectedCaptainId,
-                      decoration: const InputDecoration(labelText: 'Captain'),
-                      items: _dropdownItems(),
-                      onChanged: (v) =>
-                          setState(() => _selectedCaptainId = v),
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.person),
+                      label: Text(
+                        _nameForMemberId(_selectedCaptainId) ?? 'Select Captain',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onPressed: () async {
+                        final selected = await _pickCaptaincyMember(
+                          title: 'Select Captain',
+                          currentId: _selectedCaptainId,
+                        );
+
+                        if (!mounted) return;
+
+                        if (selected != null) {
+                          setState(() {
+                            _selectedCaptainId = selected;
+                          });
+                        }
+                      },
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: DropdownButtonFormField<String?>(
-                      value: _selectedViceCaptainId,
-                      decoration:
-                          const InputDecoration(labelText: 'Vice-captain'),
-                      items: _dropdownItems(),
-                      onChanged: (v) =>
-                          setState(() => _selectedViceCaptainId = v),
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.person_outline),
+                      label: Text(
+                        _nameForMemberId(_selectedViceCaptainId) ?? 'Select Vice-captain',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onPressed: () async {
+                        final selected = await _pickCaptaincyMember(
+                          title: 'Select Vice-captain',
+                          currentId: _selectedViceCaptainId,
+                        );
+
+                        if (!mounted) return;
+
+                        if (selected != null) {
+                          setState(() {
+                            _selectedViceCaptainId = selected;
+                          });
+                        }
+                      },
                     ),
                   ),
                 ],

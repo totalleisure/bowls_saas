@@ -371,27 +371,112 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
 
                 _buildSection(
                   key: _internalFixturesKey,
-                  title: '7. Internal Match Fixtures',
+                  title: '7. Booking Internal Match Fixtures',
                   children: [
+
                     _p(
-                      'Some internal fixtures may be arranged directly by members. These are simplified fixtures intended for smaller member-organised matches and competitions.',
+                      'Some internal fixtures can be arranged directly by members using a simplified booking process designed for friendly games, practice matches and club competitions.',
                     ),
-                    _subHeading('How they work'),
-                    _bullet('A member creates the internal fixture.'),
-                    _bullet('The creator automatically becomes the captain and takes responsibility for the fixture.'),
-                    _bullet('The key task is usually agreeing a date and time and booking the rink or rinks needed.'),
-                    _bullet('The players involved, and where needed a marker or umpire, are then added.'),
-                    _subHeading('Why this matters'),
+
                     _p(
-                      'These fixtures are often arranged directly between the players, so changes to time or date are more likely than in normal club-managed fixtures.',
+                      'These fixtures differ from normal club-managed fixtures because players create and organise the match themselves.',
                     ),
-                    _subHeading('Expected notifications'),
-                    _bullet('All involved players should be informed when the fixture is created'),
-                    _bullet('All involved players should be told if the date or time changes'),
-                    _bullet('All involved players should be told if rink bookings or player details change'),
+
+                    _subHeading('What is an Internal Match Fixture?'),
+
+                    _bullet('Arrange a match directly between members'),
+                    _bullet('Book the rink or rinks needed'),
+                    _bullet('Add the players involved'),
+                    _bullet('Manage the fixture through to play'),
+
+                    _subHeading('Who Creates the Fixture?'),
+
                     _p(
-                      'This area of the app is still being mapped out in more detail, but players should expect a simple, practical process focused on arranging the game and securing the rink booking.',
+                      'One player starts the booking and is automatically assigned as the Captain of that fixture.',
                     ),
+
+                    _p(
+                      'The captain becomes responsible for creating and maintaining the fixture, monitoring responses and making changes where needed.',
+                    ),
+
+                    _subHeading('Step 1 — Create the Fixture'),
+
+                    _bullet('Select an Internal Match fixture type'),
+                    _bullet('Choose the date and start time'),
+                    _bullet('Enter duration if applicable'),
+
+                    _p(
+                      'Because these fixtures are often arranged between players directly, date and time are usually agreed before booking.',
+                    ),
+
+                    _subHeading('Step 2 — Book the Rink(s)'),
+
+                    _bullet('Select the green if required'),
+                    _bullet('Assign the rink or rinks needed'),
+                    _bullet('Check the correct time slot'),
+
+                    _p(
+                      'Booking the rink is one of the most important parts of the process.',
+                    ),
+
+                    _subHeading('Step 3 — Add Players'),
+
+                    _bullet('Add opponent or opponents'),
+                    _bullet('Add teammates if required'),
+                    _bullet('Add a marker if needed'),
+                    _bullet('Add an umpire if required'),
+
+                    _p(
+                      'The player creating the fixture is included automatically as captain.',
+                    ),
+
+                    _subHeading('Step 4 — Confirm the Fixture'),
+
+                    _bullet('Players receive notification of the fixture'),
+                    _bullet('Players can confirm participation'),
+                    _bullet('The captain can monitor responses'),
+
+                    _subHeading('Notifications You May Receive'),
+
+                    _bullet('Notification when you are added to a fixture'),
+                    _bullet('Notification if date or time changes'),
+                    _bullet('Notification if rink bookings change'),
+                    _bullet('Notification if player assignments change'),
+
+                    _subHeading('Making Changes'),
+
+                    _p(
+                      'Because internal matches are often arranged informally, changes may happen. The fixture captain can maintain:',
+                    ),
+
+                    _bullet('Date or time'),
+                    _bullet('Rink booking'),
+                    _bullet('Players involved'),
+                    _bullet('Markers or officials'),
+
+                    _subHeading('Captain Responsibilities'),
+
+                    _bullet('Keep fixture details accurate'),
+                    _bullet('Ensure rink bookings are correct'),
+                    _bullet('Manage player changes'),
+                    _bullet('Communicate when arrangements change'),
+
+                    _subHeading('Typical Lifecycle'),
+
+                    _bullet('1. Agree the match'),
+                    _bullet('2. Create the fixture'),
+                    _bullet('3. Book the rink'),
+                    _bullet('4. Add players'),
+                    _bullet('5. Players confirm'),
+                    _bullet('6. Captain manages changes'),
+                    _bullet('7. Play the fixture'),
+
+                    _subHeading('Quick Tip'),
+
+                    _p(
+                      'For the smoothest experience: agree the date first, book the rink second and add players third.',
+                    ),
+
                   ],
                 ),
 

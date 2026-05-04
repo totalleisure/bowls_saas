@@ -388,6 +388,43 @@ class _VenuesScreenState extends State<VenuesScreen> {
     }
 
     try {
+
+      if (isHome) {
+        final existing =
+            _allVenues.where((v) => v['is_home_venue'] == true).toList();
+
+        if (existing.isNotEmpty) {
+          final replace = await showDialog<bool>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Replace Home Venue?'),
+              content: Text(
+                '${existing.first['name']} is already Home.\n'
+                'Replace it with this one?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: ()=>Navigator.pop(context,false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: ()=>Navigator.pop(context,true),
+                  child: const Text('Replace'),
+                ),
+              ],
+            ),
+          );
+
+          if (replace != true) return;
+
+          await Supabase.instance.client
+              .from('venues')
+              .update({'is_home_venue': false})
+              .eq('club_id', widget.clubId)
+              .eq('is_home_venue', true);
+        }
+      }
+
       await Supabase.instance.client.rpc(
         'create_club_venue',
         params: {
@@ -533,22 +570,61 @@ class _VenuesScreenState extends State<VenuesScreen> {
     if (venueName.isEmpty) return;
 
     try {
-      await Supabase.instance.client.rpc(
-        'update_club_venue',
-        params: {
-          'p_venue_id': id,
-          'p_name': venueName,
-          'p_is_home_venue': isHome,
-          'p_contact_name': contactName.text.trim(),
-          'p_contact_phone': contactPhone.text.trim(),
-          'p_contact_email': contactEmail.text.trim(),
-          'p_address_line1': address1.text.trim(),
-          'p_address_line2': address2.text.trim(),
-          'p_town_city': town.text.trim(),
-          'p_postcode': postcode.text.trim(),
-          'p_directions_url': directionsUrl.text.trim(),
-        },
-      );
+
+      if (isHome) {
+        final existing = _allVenues.where(
+          (v) =>
+            v['is_home_venue'] == true &&
+            v['id'].toString() != id,
+        ).toList();
+
+        if (existing.isNotEmpty) {
+          final replace = await showDialog<bool>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Replace Home Venue?'),
+              content: Text(
+                '${existing.first['name']} is already marked Home.\n'
+                'Make this the new Home venue instead?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: ()=>Navigator.pop(context,false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: ()=>Navigator.pop(context,true),
+                  child: const Text('Replace'),
+                ),
+              ],
+            ),
+          );
+
+          if (replace != true) return;
+
+          await Supabase.instance.client
+              .from('venues')
+              .update({'is_home_venue': false})
+              .eq('club_id', widget.clubId)
+              .eq('is_home_venue', true);
+        }
+      }
+
+      await Supabase.instance.client
+          .from('venues')
+          .update({
+            'name': venueName,
+            'is_home_venue': isHome,
+            'contact_name': contactName.text.trim(),
+            'contact_phone': contactPhone.text.trim(),
+            'contact_email': contactEmail.text.trim(),
+            'address_line1': address1.text.trim(),
+            'address_line2': address2.text.trim(),
+            'town_city': town.text.trim(),
+            'postcode': postcode.text.trim(),
+            'directions_url': directionsUrl.text.trim(),
+          })
+          .eq('id', id);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
