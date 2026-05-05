@@ -49,11 +49,12 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   String _myClubName = '';
   
   Map<String, String> _myAvailabilityByFixtureId = {};
-
+    
   List<Map<String, dynamic>> _toRsvp = [];
   List<Map<String, dynamic>> _awaitingSelection = [];
   List<Map<String, dynamic>> _needsAcceptance = [];
   List<Map<String, dynamic>> _upcomingAccepted = [];
+  List<Map<String, dynamic>> _openSessions = [];
 
   // Lookup maps (id -> display data)
   // Map<String, Map<String, String>> _greenById = {};
@@ -90,6 +91,18 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   String _fixtureTypeName(Map<String, dynamic> fixture) {
     final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
     return (competitionType?['name'] ?? '').toString().trim();
+  }
+
+  String _selectionMode(Map<String, dynamic> fixture) {
+    final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
+    return (competitionType?['selection_mode'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+  }
+
+  bool _isOpenSessionFixture(Map<String, dynamic> fixture) {
+    return _selectionMode(fixture) == 'open';
   }
 
   bool _matchesFilter(Map<String, dynamic> f) {
@@ -583,25 +596,29 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       }
 
       final toRsvp = allFixtures.where((f) {
+        if (_isOpenSessionFixture(f)) return false;
+
         final requiresRsvp = f['requires_rsvp'] == true;
         if (!requiresRsvp) return false;
+
         if (isPublished(f)) return false;
+
         return _matchesFilter(f);
       }).toList();
 
       final canManagePreselect = _isSuperuser || _isClubAdmin || _isSelector;
 
       final awaitingSelection = allFixtures.where((f) {
+
         final requiresRsvp = f['requires_rsvp'] == true;
         if (requiresRsvp) return false;
 
         if (isPublished(f)) return false;
 
-        final competitionType = f['competition_type'] as Map<String, dynamic>?;
-        final selectionMode =
-            (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
+        final selectionMode = _selectionMode(f);
 
         if (selectionMode == 'preselect') return false;
+        if (selectionMode == 'open') return false;
 
         final teamId = f['team_id']?.toString();
 
@@ -613,6 +630,15 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         return _matchesFilter(f);
       }).toList();
+
+      final showOpenSessions = _filter.fixtureTypeIds.isNotEmpty;
+
+      final openSessions = showOpenSessions
+          ? allFixtures.where((f) {
+              if (!_isOpenSessionFixture(f)) return false;
+              return _matchesFilter(f);
+            }).toList()
+          : <Map<String, dynamic>>[];
 
       // Needs my acceptance (published team + pending) for this club only
       final needsRows = await client
@@ -702,7 +728,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         'needs=${needsAcceptance.length}, '
         'rsvp=${toRsvp.length}, '
         'awaiting=${awaitingSelection.length}, '
-        'accepted=${upcomingAccepted.length}',
+        'accepted=${upcomingAccepted.length}, '
+        'open=${openSessions.length}',
       );
 
       if (!mounted) return;
@@ -718,8 +745,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         _needsAcceptance = needsAcceptance;
         _upcomingAccepted = upcomingAccepted;
 
-        _myAvailabilityByFixtureId = myAvailabilityByFixtureId;
+        _openSessions = openSessions;
 
+        _myAvailabilityByFixtureId = myAvailabilityByFixtureId;
+        
         _loading = false;
       });
     } catch (e) {
@@ -1379,6 +1408,27 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                           onTap: () => _openFixtureById(f['id']?.toString() ?? ''),
                         );
                       }),
+
+                      if (_openSessions.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _buildSectionHeader('Open sessions'),
+                        const SizedBox(height: 6),
+
+                        ..._openSessions.map((f) {
+                          final title = fixtureTitleUnified(f, myClubName: _myClubName);
+                          final subtitle = fixtureSubtitleUnified(f);
+                          final fixtureId = f['id']?.toString() ?? '';
+
+                          return _buildFixtureCard(
+                            fixture: f,
+                            title: title,
+                            subtitle: subtitle,
+                            actionHint: 'Tap to view details',
+                            trailing: null,
+                            onTap: () => _openFixtureById(fixtureId),
+                          );
+                        }),
+                      ],
                   ],
                 ),
     );

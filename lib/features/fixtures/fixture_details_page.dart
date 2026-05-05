@@ -2019,55 +2019,77 @@ debugPrint(
                                 : Colors.green.shade300,
                   ),
                 ),
-                child: Column(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
+                    Expanded(
+                      child: Text(
+                        isBooked
+                            ? isSelectedBooked
+                                ? 'Selected booking — tap a free rink to move it, or another booked rink to swap'
+                                : bookedText
+                            : isSelected
+                                ? 'Selected for Team $selectedTeamNo'
+                                : _selectedBookedRink != null
+                                    ? 'Free — tap to move selected booking here'
+                                    : 'Free',
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isSelectedBooked
+                              ? Colors.orange.shade900
+                              : isBooked
+                                  ? bookedFgColor
+                                  : isSelected
+                                      ? _selectedFixtureFgColor
+                                      : Colors.green.shade900,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 8),
+
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isSelectedBooked
+                            ? Colors.orange.shade100
+                            : isBooked
+                                ? Colors.white.withOpacity(0.28)
+                                : Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: isSelectedBooked
+                              ? Colors.orange.shade700
+                              : isBooked
+                                  ? bookedFgColor.withOpacity(0.55)
+                                  : Colors.green.shade400,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isSelectedBooked) ...[
+                            Icon(
+                              Icons.swap_horiz,
+                              size: 14,
+                              color: Colors.orange.shade900,
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          Text(
                             rinkLabel.isEmpty ? 'Rink' : rinkLabel,
                             style: TextStyle(
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
                               color: isSelectedBooked
                                   ? Colors.orange.shade900
                                   : isBooked
                                       ? bookedFgColor
-                                      : isSelected
-                                          ? _selectedFixtureFgColor
-                                          : Colors.green.shade900,
+                                      : Colors.green.shade900,
                             ),
                           ),
-                        ),
-                        if (isSelectedBooked)
-                          Icon(
-                            Icons.swap_horiz,
-                            size: 18,
-                            color: Colors.orange.shade900,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isBooked
-                          ? isSelectedBooked
-                              ? 'Selected booking — tap a free rink to move it, or another booked rink to swap'
-                              : bookedText
-                          : isSelected
-                              ? 'Selected for Team $selectedTeamNo'
-                              : _selectedBookedRink != null
-                                  ? 'Free — tap to move selected booking here'
-                                  : 'Free',
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                      color: isSelectedBooked
-                          ? Colors.orange.shade900
-                          : isBooked
-                              ? bookedFgColor
-                              : isSelected
-                                  ? _selectedFixtureFgColor
-                                  : Colors.green.shade900,
+                        ],
                       ),
                     ),
                   ],
@@ -2170,18 +2192,31 @@ debugPrint(
     final isInternalFixtureType =
         competitionType?['is_internal'] == true;
 
-    final isPreselectFixture = competitionSelectionMode == 'preselect';
-    final isTeamFixture =
-        (_isTeamFixtureUi || competitionSelectionMode == 'team') &&
-        !isPreselectFixture;
+    final selectionMode = competitionSelectionMode
+        .toLowerCase()
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_');
+
+    final isPreselectFixture = selectionMode == 'preselect';
+    final isTeamFixture = selectionMode == 'team';
+    final isOpenSessionFixture = selectionMode == 'open';
+
     final isRsvpFixture =
-        (fixture['requires_rsvp'] == true) && !isPreselectFixture;    
+        selectionMode == 'rsvp' ||
+        (fixture['requires_rsvp'] == true &&
+            !isPreselectFixture &&
+            !isTeamFixture &&
+            !isOpenSessionFixture);   
 
     final isHome = (fixture['is_home'] as bool?) ?? true;
 
     final modeLabel = isPreselectFixture
         ? 'Pre-Select'
-        : (isTeamFixture ? 'Team' : 'RSVP');
+        : isTeamFixture
+            ? 'Team'
+            : isOpenSessionFixture
+                ? 'Open Session'
+                : 'RSVP';
 
     final pageTitle =
         '${isHome ? 'Home' : 'Away'} $modeLabel Fixture Details';
@@ -2228,7 +2263,9 @@ debugPrint(
         ? 'Pre-Select Fixture'
         : isTeamFixture
             ? 'Team Fixture'
-            : 'RSVP Fixture';
+            : isOpenSessionFixture
+                ? 'Open Session'
+                : 'RSVP Fixture';
 
     final isWorkflowLocked = _teamNameLocked || isPreselectFixture;
 
@@ -2236,15 +2273,19 @@ debugPrint(
         ? 'Pre-Select Fixture'
         : isTeamFixture
             ? 'Team Fixture'
-            : 'RSVP Fixture';
+            : isOpenSessionFixture
+                ? 'Open Session'
+                : 'RSVP Fixture';
 
     final fixtureTypeHelpText = isPreselectFixture
         ? 'Players are pre-selected for this fixture.'
-        : isWorkflowLocked
-            ? 'This fixture workflow can no longer be changed.'
-            : isTeamFixture
-                ? 'This fixture uses a team-based workflow.'
-                : 'This fixture uses RSVP availability.';
+        : isOpenSessionFixture
+            ? 'This fixture is an open session. Members do not need to RSVP or accept team selection.'
+            : isWorkflowLocked
+                ? 'This fixture workflow can no longer be changed.'
+                : isTeamFixture
+                    ? 'This fixture uses a team-based workflow.'
+                    : 'This fixture uses RSVP availability.';
 
     final rinks = (fixture['rinks_required'] as int?) ?? 0;
     final ppr = (fixture['players_per_rink'] as int?) ?? 4;
@@ -2579,7 +2620,7 @@ debugPrint(
             readOnly: !_canAssignCaptaincy,
           ),
 
-          if (canRespondToTeamSelection) ...[
+          if (!isOpenSessionFixture && canRespondToTeamSelection) ...[
             const SizedBox(height: 20),
             Text(
               'Team selection',
@@ -2683,7 +2724,9 @@ debugPrint(
             _buildMemberPreselectEditorPlaceholder(),
           ],
 
-          if (!_usesSimpleBookingWorkflow && canViewTeam) ...[
+          if (!_usesSimpleBookingWorkflow &&
+              !isOpenSessionFixture &&
+              canViewTeam) ...[
             const SizedBox(height: 12),
             TeamSection(
               key: ValueKey(

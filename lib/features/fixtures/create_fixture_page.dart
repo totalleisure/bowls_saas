@@ -336,40 +336,48 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Future<void> _openRepeatPlanner() async {
     if (_startAtLocal == null) return;
 
-    final selectionMode = _selectedFixtureSelectionMode.trim().toLowerCase();
+    while (mounted) {
+      final selectionMode = _selectedFixtureSelectionMode.trim().toLowerCase();
 
-    final requiresOpponent = selectionMode != 'preselect' &&
-        selectionMode != 'open' &&
-        selectionMode != 'opensession' &&
-        selectionMode != 'open_session' &&
-        selectionMode != 'open-session';
+      final requiresOpponent = selectionMode != 'preselect' &&
+          selectionMode != 'open' &&
+          selectionMode != 'opensession' &&
+          selectionMode != 'open_session' &&
+          selectionMode != 'open-session';
 
-    final result = await Navigator.of(context).push<List<RepeatFixtureDate>>(
-      MaterialPageRoute(
-        builder: (_) => RepeatFixturePlannerPage(
-          startDateTime: _startAtLocal!,
-          requiresOpponent: requiresOpponent,
-          opponentVenues: requiresOpponent ? _opponentVenues : const [],
+      final result = await Navigator.of(context).push<List<RepeatFixtureDate>>(
+        MaterialPageRoute(
+          builder: (_) => RepeatFixturePlannerPage(
+            startDateTime: _startAtLocal!,
+            requiresOpponent: requiresOpponent,
+            opponentVenues: requiresOpponent ? _opponentVenues : const [],
+          ),
         ),
-      ),
-    );
+      );
 
-    if (result == null) return;
+      if (result == null) return;
 
-    final selectedDates = result.where((d) => d.enabled).toList();
+      final selectedDates = result.where((d) => d.enabled).toList();
 
-    if (selectedDates.isEmpty) {
-      await _showSaveErrorDialog('No repeat dates were selected.');
+      if (selectedDates.isEmpty) {
+        await _showSaveErrorDialog('No repeat dates were selected.');
+        continue;
+      }
+
+      final confirmed = await _confirmCreateRepeatFixtures(selectedDates);
+
+      if (!confirmed) {
+        continue; // returns to Repeat Fixture Planner
+      }
+
+      await _createRepeatFixtures(
+        selectedDates,
+        preferredRinkLabels: _selectedRepeatRinkLabels(),
+      );
+
+      debugPrint('Repeat count: ${selectedDates.length}');
       return;
     }
-
-    final confirmed = await _confirmCreateRepeatFixtures(selectedDates);
-
-    if (!confirmed) return;
-
-    await _createRepeatFixtures(selectedDates);    
-
-    debugPrint('Repeat count: ${result.where((d) => d.enabled).length}');
   }
 
   Future<void> _loadFixtureTypes() async {
@@ -422,7 +430,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     );
   }
 
-  Future<String> _createSingleRepeatFixture(RepeatFixtureDate repeatDate) async {
+  Future<RepeatFixtureCreateOutcome> _createSingleRepeatFixture(
+    RepeatFixtureDate repeatDate, {
+    required List<String> preferredRinkLabels,
+  }) async {
     if (_fixtureTypeId == null || _fixtureTypeId!.trim().isEmpty) {
       throw Exception('Please choose a Fixture Type.');
     }
@@ -481,8 +492,32 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       },
     );
 
+    final availablePreferredLabels = <String>[];
+    final unavailablePreferredLabels = <String>[];
+    
     if (isHome) {
       final availability = List<Map<String, dynamic>>.from(availabilityRows);
+
+      if (preferredRinkLabels.isNotEmpty) {
+        for (final label in preferredRinkLabels) {
+          final matching = availability.firstWhere(
+            (r) {
+              final rinkLabel =
+                  (r['rink_label'] ?? r['label'] ?? r['name'] ?? '').toString();
+              return rinkLabel == label;
+            },
+            orElse: () => <String, dynamic>{},
+          );
+
+          final isBooked = matching['is_booked'] == true;
+
+          if (matching.isNotEmpty && !isBooked) {
+            availablePreferredLabels.add(label);
+          } else {
+            unavailablePreferredLabels.add(label);
+          }
+        }
+      }
 
       int asInt(dynamic v, int fallback) {
         if (v is int) return v;
@@ -532,11 +567,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final formatCode = _formatCodeForRinks(_playersPerRink);
 
     for (var i = 1; i <= _rinksRequired; i++) {
+      final preferredLabelIndex = i - 1;
+      final homeRinkLabel = preferredLabelIndex < availablePreferredLabels.length
+          ? availablePreferredLabels[preferredLabelIndex]
+          : null;
+
       rinkRows.add({
         'fixture_id': fixtureId,
         'fixture_rink_no': i,
         'format': formatCode,
         'players_per_rink': _playersPerRink,
+        'home_rink_label': homeRinkLabel,
       });
     }
 
@@ -544,10 +585,27 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       await _client.from('fixture_rinks').insert(rinkRows);
     }
 
-    return fixtureId;
+    final assignedCount = availablePreferredLabels.length.clamp(0, _rinksRequired);
+    final missingCount = unavailablePreferredLabels.length;
+
+    final message = preferredRinkLabels.isEmpty
+        ? 'Created successfully'
+        : missingCount == 0
+            ? 'Created successfully. Preferred rinks assigned.'
+            : 'Created successfully. $assignedCount preferred rink${assignedCount == 1 ? '' : 's'} assigned; '
+                '$missingCount preferred rink${missingCount == 1 ? '' : 's'} unavailable, remaining rink booking left unassigned.';
+
+    return RepeatFixtureCreateOutcome(
+      fixtureId: fixtureId,
+      message: message,
+    );
+
   }  
 
-  Future<void> _createRepeatFixtures(List<RepeatFixtureDate> dates) async {
+  Future<void> _createRepeatFixtures(
+    List<RepeatFixtureDate> dates, {
+    required List<String> preferredRinkLabels,
+  }) async {
     final results = <RepeatFixtureCreationResult>[];
 
     setState(() => _loading = true);
@@ -557,14 +615,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         try {
           // Temporary first pass.
           // Next step: replace this with the real fixture insert.
-          final fixtureId = await _createSingleRepeatFixture(d);
+          final outcome = await _createSingleRepeatFixture(
+            d,
+            preferredRinkLabels: preferredRinkLabels,
+          );
 
           results.add(
             RepeatFixtureCreationResult(
               date: d.date,
               success: true,
-              message: 'Created successfully',
-              fixtureId: fixtureId,
+              message: outcome.message,
+              fixtureId: outcome.fixtureId,
             ),
           );
         } catch (e) {
@@ -584,6 +645,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
 
     await _showRepeatCreationResults(results);
+
+    if (!mounted) return;
+
+    Navigator.pop(context, true);
   }
 
   Future<void> _showInsufficientRinksDialog() async {
@@ -1154,6 +1219,23 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         }
       }
     });
+  }
+
+  List<String> _selectedRepeatRinkLabels() {
+    final labels = <String>[];
+
+    for (final rink in _rinkAvailability) {
+      final rinkLabel =
+          (rink['rink_label'] ?? rink['label'] ?? rink['name'] ?? '').toString();
+
+      if (rinkLabel.isEmpty) continue;
+
+      if (_teamNoForSelectedRink(rinkLabel) != null) {
+        labels.add(rinkLabel);
+      }
+    }
+
+    return labels;
   }
 
   List<String> _allowedOrientationsFor(Map<String, dynamic> greenAreaRow) {
@@ -2811,4 +2893,14 @@ class RepeatFixtureCreationResult {
   final bool success;
   final String message;
   final String? fixtureId;
+}
+
+class RepeatFixtureCreateOutcome {
+  RepeatFixtureCreateOutcome({
+    required this.fixtureId,
+    required this.message,
+  });
+
+  final String fixtureId;
+  final String message;
 }
