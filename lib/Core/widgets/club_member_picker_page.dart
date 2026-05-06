@@ -28,7 +28,7 @@ class ClubMemberPickerMember {
   factory ClubMemberPickerMember.fromMap(Map<String, dynamic> map) {
     return ClubMemberPickerMember(
       memberProfileId: map['member_profile_id'].toString(),
-      displayName: (map['display_name'] ?? 'Unnamed member').toString(),
+      displayName: (map['picker_name'] ?? map['display_name'] ?? 'Unnamed member').toString(),
       emailAddress: map['email_address']?.toString(),
       phone: map['phone']?.toString(),
       sexAtBirth: map['sex_at_birth']?.toString(),

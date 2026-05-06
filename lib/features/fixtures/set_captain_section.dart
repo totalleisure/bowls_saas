@@ -173,7 +173,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
     final displayName = (mp?['display_name'] ?? '').toString().trim();
     final firstName = (mp?['first_name'] ?? '').toString().trim();
     final lastName = (mp?['last_name'] ?? '').toString().trim();
-    final email = (mp?['email'] ?? '').toString().trim();
+    final email = (mp?['email_address'] ?? mp?['email'] ?? '').toString().trim();
 
     if (displayName.isNotEmpty) return displayName;
 

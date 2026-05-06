@@ -161,7 +161,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
             'requires_rsvp, team_id, team_name, competition_type_id, '
             'captain_member_profile_id, vice_captain_member_profile_id, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
-              'id, name, is_internal, selection_mode, '
+              'id, name, is_internal, selection_mode, uses_rinks, '
               'colour_scheme:fixture_colour_schemes('
                 'id, name, background_hex, foreground_hex'
               ')'

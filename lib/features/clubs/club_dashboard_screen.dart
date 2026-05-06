@@ -5,6 +5,8 @@ import 'dart:async';
 
 import 'club_home_screen.dart';
 import 'package:bowls_saas/features/diary/rinks_day_view.dart';
+import 'package:bowls_saas/features/diary/month_overview_screen.dart';
+
 import '../members/members_screen.dart';
 import '../fixtures/fixture_display.dart';
 import '../fixtures/fixture_details_page.dart';
@@ -54,7 +56,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   List<Map<String, dynamic>> _awaitingSelection = [];
   List<Map<String, dynamic>> _needsAcceptance = [];
   List<Map<String, dynamic>> _upcomingAccepted = [];
-  List<Map<String, dynamic>> _openSessions = [];
+  List<Map<String, dynamic>> _openSessionsAndEvents = [];
 
   // Lookup maps (id -> display data)
   // Map<String, Map<String, String>> _greenById = {};
@@ -103,6 +105,52 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
   bool _isOpenSessionFixture(Map<String, dynamic> fixture) {
     return _selectionMode(fixture) == 'open';
+  }
+
+  bool _usesRinks(Map<String, dynamic> fixture) {
+    final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
+    final raw = competitionType?['uses_rinks'];
+
+    if (raw == null) return true;
+    return raw == true;
+  }
+
+  bool _isEventStyleFixture(Map<String, dynamic> fixture) {
+    return !_usesRinks(fixture);
+  }
+
+  bool _isOpenSessionOrEvent(Map<String, dynamic> fixture) {
+    return _isOpenSessionFixture(fixture) || _isEventStyleFixture(fixture);
+  }
+
+  String _dashboardCardTitle(Map<String, dynamic> fixture) {
+    final fixtureLabel = (fixture['team_name'] ?? '').toString().trim();
+    final typeName = _fixtureTypeName(fixture);
+
+    if (_isEventStyleFixture(fixture)) {
+      if (fixtureLabel.isNotEmpty) return fixtureLabel;
+      if (typeName.isNotEmpty) return typeName;
+      return 'Event';
+    }
+
+    if (_isOpenSessionFixture(fixture)) {
+      if (fixtureLabel.isNotEmpty) return fixtureLabel;
+      if (typeName.isNotEmpty) return typeName;
+      return 'Open Session';
+    }
+
+    return fixtureTitleUnified(fixture, myClubName: _myClubName);
+  }
+
+  String _dashboardCardSubtitle(Map<String, dynamic> fixture) {
+    final subtitle = fixtureSubtitleUnified(fixture);
+
+    if (_isEventStyleFixture(fixture)) {
+      final typeName = _fixtureTypeName(fixture);
+      return typeName.isEmpty ? subtitle : '$subtitle • $typeName';
+    }
+
+    return subtitle;
   }
 
   bool _matchesFilter(Map<String, dynamic> f) {
@@ -570,7 +618,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             'ts:team_selections(status), '
             'competition_type_id, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
-              'id, name, is_internal, selection_mode, tags, '
+              'id, name, is_internal, selection_mode, uses_rinks, tags, '
               'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex))'
           )            
           .eq('club_id', widget.clubId)
@@ -596,7 +644,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       }
 
       final toRsvp = allFixtures.where((f) {
-        if (_isOpenSessionFixture(f)) return false;
+        if (_isOpenSessionOrEvent(f)) return false;
 
         final requiresRsvp = f['requires_rsvp'] == true;
         if (!requiresRsvp) return false;
@@ -617,6 +665,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         final selectionMode = _selectionMode(f);
 
+        if (_isOpenSessionOrEvent(f)) return false;
+
         if (selectionMode == 'preselect') return false;
         if (selectionMode == 'open') return false;
 
@@ -631,11 +681,11 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         return _matchesFilter(f);
       }).toList();
 
-      final showOpenSessions = _filter.fixtureTypeIds.isNotEmpty;
+      final showOpenSessionsAndEvents = _filter.fixtureTypeIds.isNotEmpty;
 
-      final openSessions = showOpenSessions
+      final openSessionsAndEvents = showOpenSessionsAndEvents
           ? allFixtures.where((f) {
-              if (!_isOpenSessionFixture(f)) return false;
+              if (!_isOpenSessionOrEvent(f)) return false;
               return _matchesFilter(f);
             }).toList()
           : <Map<String, dynamic>>[];
@@ -649,7 +699,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           'requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
           'competition_type_id, '
           'competition_type:competition_types!fixtures_competition_type_id_fkey('
-            'id, name, is_internal, selection_mode, tags, '
+            'id, name, is_internal, selection_mode, uses_rinks, tags, '
             'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
           'venue:venues!fixtures_venue_id_fkey(name), '
           'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
@@ -729,7 +779,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         'rsvp=${toRsvp.length}, '
         'awaiting=${awaitingSelection.length}, '
         'accepted=${upcomingAccepted.length}, '
-        'open=${openSessions.length}',
+        'open/events=${openSessionsAndEvents.length}',
       );
 
       if (!mounted) return;
@@ -745,7 +795,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         _needsAcceptance = needsAcceptance;
         _upcomingAccepted = upcomingAccepted;
 
-        _openSessions = openSessions;
+        _openSessionsAndEvents = openSessionsAndEvents;
 
         _myAvailabilityByFixtureId = myAvailabilityByFixtureId;
         
@@ -1139,15 +1189,15 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             },
           ),
           IconButton(
-            tooltip: 'Rinks View',
-            icon: const Icon(Icons.view_timeline),
+            tooltip: 'Month Overview',
+            icon: const Icon(Icons.calendar_month),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => RinkDayViewScreen(
+                  builder: (_) => MonthOverviewScreen(
                     clubId: widget.clubId,
                     clubName: widget.clubName ?? 'Club Diary',
-                    date: DateTime.now(),
+                    initialDate: DateTime.now(),
                   ),
                 ),
               );
@@ -1409,12 +1459,12 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                         );
                       }),
 
-                      if (_openSessions.isNotEmpty) ...[
+                      if (_openSessionsAndEvents.isNotEmpty) ...[
                         const SizedBox(height: 12),
-                        _buildSectionHeader('Open sessions'),
+                        _buildSectionHeader('Open Sessions and Events'),
                         const SizedBox(height: 6),
 
-                        ..._openSessions.map((f) {
+                        ..._openSessionsAndEvents.map((f) {
                           final title = fixtureTitleUnified(f, myClubName: _myClubName);
                           final subtitle = fixtureSubtitleUnified(f);
                           final fixtureId = f['id']?.toString() ?? '';

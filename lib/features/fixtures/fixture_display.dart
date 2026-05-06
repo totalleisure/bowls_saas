@@ -33,22 +33,46 @@ String fixtureTitleUnified(
 }) {
   final isHome = f['is_home'] == true;
 
+  final competitionType = f['competition_type'] as Map<String, dynamic>?;
+  final fixtureTypeName = _s(competitionType?['name']);
+  final isInternal = competitionType?['is_internal'] == true;
+
+  final rawUsesRinks = competitionType?['uses_rinks'];
+  final usesRinks = rawUsesRinks == null ? true : rawUsesRinks == true;
+
+  final selectionMode = _s(competitionType?['selection_mode'])
+      .toLowerCase()
+      .replaceAll('-', '_')
+      .replaceAll(' ', '_');
+
   final joinedTeamName = _mapName(f['team']);
-  final teamName =
-      joinedTeamName.isNotEmpty ? joinedTeamName : _s(f['team_name']);
+  final fixtureLabel = _s(f['team_name']);
+  final teamName = joinedTeamName.isNotEmpty ? joinedTeamName : fixtureLabel;
   final hasTeam = _s(f['team_id']).isNotEmpty && teamName.isNotEmpty;
 
   final venueName = _mapName(f['venue']);
   final opponentVenueName = _mapName(f['opponent_venue']);
 
-  final competitionType = f['competition_type'] as Map<String, dynamic>?;
-  final fixtureTypeName = _s(competitionType?['name']);
-  final isInternal = competitionType?['is_internal'] == true;
+  // Events / meetings / parties: no green or rink interaction.
+  // Prefer the user-facing label, then the fixture type.
+  if (!usesRinks) {
+    if (fixtureLabel.isNotEmpty) return fixtureLabel;
+    if (fixtureTypeName.isNotEmpty) return fixtureTypeName;
+    return 'Event';
+  }
+
+  // Open sessions / roll-ups / rink-only items.
+  // Prefer label, then fixture type. No "Home against Opponent".
+  if (selectionMode == 'open' || selectionMode == 'no_players') {
+    if (fixtureLabel.isNotEmpty) return fixtureLabel;
+    if (fixtureTypeName.isNotEmpty) return fixtureTypeName;
+    return 'Open Session';
+  }
 
   if (isInternal) {
-    final internalLabel =
-        fixtureTypeName.isNotEmpty ? fixtureTypeName : 'Internal fixture';
-    return '${isHome ? 'Home' : 'Away'} - $internalLabel';
+    if (fixtureLabel.isNotEmpty) return fixtureLabel;
+    if (fixtureTypeName.isNotEmpty) return fixtureTypeName;
+    return 'Internal Fixture';
   }
 
   if (isHome) {
@@ -81,12 +105,36 @@ String fixtureSubtitleUnified(Map<String, dynamic> f) {
   final whenText =
       startAt.isEmpty ? 'Date/time not set' : formatFixtureWhenLong12h(startAt);
 
-  final section = (f['section'] ?? '').toString().trim();
+  final competitionType = f['competition_type'] as Map<String, dynamic>?;
+  final fixtureTypeName = _s(competitionType?['name']);
 
-  final parts = <String>[
-    whenText,
-    if (section.isNotEmpty) section.toUpperCase(),
-  ];
+  final rawUsesRinks = competitionType?['uses_rinks'];
+  final usesRinks = rawUsesRinks == null ? true : rawUsesRinks == true;
+
+  final selectionMode = _s(competitionType?['selection_mode'])
+      .toLowerCase()
+      .replaceAll('-', '_')
+      .replaceAll(' ', '_');
+
+  final section = _s(f['section']);
+
+  final parts = <String>[whenText];
+
+  if (!usesRinks) {
+    if (fixtureTypeName.isNotEmpty) parts.add(fixtureTypeName);
+    return parts.join(' • ');
+  }
+
+  if (selectionMode == 'open' || selectionMode == 'no_players') {
+    if (fixtureTypeName.isNotEmpty) {
+      parts.add(fixtureTypeName);
+    } else if (section.isNotEmpty) {
+      parts.add(section.toUpperCase());
+    }
+    return parts.join(' • ');
+  }
+
+  if (section.isNotEmpty) parts.add(section.toUpperCase());
 
   return parts.join(' • ');
 }

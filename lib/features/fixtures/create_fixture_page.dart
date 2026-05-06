@@ -28,8 +28,6 @@ class CreateFixturePage extends StatefulWidget {
 }
 
 class _CreateFixturePageState extends State<CreateFixturePage> {
-  final _teamNameCtrl = TextEditingController();
-
   String? _currentMemberId;
 
   bool _isSuperuser = false;
@@ -48,6 +46,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   bool _isTeamFixture = false;
   bool _isPreselectFixture = false;
 
+  final _teamNameCtrl = TextEditingController();
+
+  final _notesCtrl = TextEditingController();
+
+
   DateTime? _startAtLocal;
   DateTime? _endAtLocal;
 
@@ -59,6 +62,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   List<Map<String, dynamic>> _opponentVenues = [];
   String? _homeVenueId;
   String? _opponentVenueId;
+
+  String? _eventVenueId;
 
   // Players, Opponents, Markers
   List<Map<String, dynamic>> _clubMembers = [];
@@ -122,6 +127,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   @override
   void dispose() {
     _teamNameCtrl.dispose();
+    _notesCtrl.dispose();
     super.dispose();
   }
 
@@ -160,6 +166,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       'start=$_startAtLocal '
       'end=$_endAtLocal',
     );
+
+    if (!_selectedFixtureUsesRinks) {
+      setState(() {
+        _loadingRinkAvailability = false;
+        _rinkAvailabilityError = null;
+        _rinkAvailability = [];
+      });
+      return;
+    }
 
     if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
       setState(() {
@@ -696,6 +711,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     _homeVenueId ??= _homeVenues.isNotEmpty ? _homeVenues.first['id'].toString() : null;
     _opponentVenueId ??=
         _opponentVenues.isNotEmpty ? _opponentVenues.first['id'].toString() : null;
+
+    _eventVenueId ??= _homeVenueId ?? _opponentVenueId;
   }
 
   Future<String?> _pickVenue({
@@ -1050,6 +1067,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final defaultRinksRequired = row['default_rinks_required'] as int?;
     final defaultPlayersPerRink = row['default_players_per_rink'] as int?;
     final linkedTeamId = row['team_id']?.toString();
+    final usesRinks = row['uses_rinks'] == true;
 
     final selectionModeLower = selectionMode.toLowerCase();
 
@@ -1059,6 +1077,25 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     setState(() {
       _fixtureTypeId = fixtureTypeId;
       _workflowLockedByFixtureType = true;
+
+      if (!usesRinks) {
+        _isHome = true;
+        _fixtureLocation = FixtureLocationType.home;
+        _workflowType = FixtureWorkflowType.rsvp;
+
+        _isTeamFixture = false;
+        _isPreselectFixture = false;
+        _teamId = null;
+        _opponentVenueId = null;
+        _greenAreaId = null;
+        _greenAreas = [];
+        _orientation = null;
+        _rinksRequired = 0;
+        _playersPerRink = 1;
+
+        _teamNameCtrl.text = name;
+        _eventVenueId ??= _homeVenueId ?? _opponentVenueId;
+      }
 
       if (isInternal) {
         _isHome = true;
@@ -1104,11 +1141,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (section.isNotEmpty) {
         _section = section;
       }
-      if (defaultPlayersPerRink != null) {
-        _playersPerRink = defaultPlayersPerRink;
-      }
-      if (defaultRinksRequired != null) {
-        _rinksRequired = defaultRinksRequired;
+      if (usesRinks) {
+        if (defaultPlayersPerRink != null) {
+          _playersPerRink = defaultPlayersPerRink;
+        }
+        if (defaultRinksRequired != null) {
+          _rinksRequired = defaultRinksRequired;
+        }
       }
       if (usesSimpleBookingWorkflow) {
         _fixtureLocation = FixtureLocationType.home;
@@ -1125,8 +1164,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       }      
     });
 
-    _loadGreenAreas();
-    _loadRinkAvailability();
+    if (usesRinks) {
+      _loadGreenAreas();
+      _loadRinkAvailability();
+    }
   }
 
   String _memberLabel(Map<String, dynamic> m) {
@@ -1303,7 +1344,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       _selectedFixtureSelectionMode == 'preselect';
 
   bool get _shouldShowRinksSection {
-    return _isHome &&
+    return _selectedFixtureUsesRinks &&
+        _isHome &&
         _greenAreaId != null &&
         (_rinksRequired > 0);
   }
@@ -1312,6 +1354,34 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       _selectedFixtureSelectionMode == 'opensession' ||
       _selectedFixtureSelectionMode == 'open_session' ||
       _selectedFixtureSelectionMode == 'open-session';  
+
+  bool get _selectedFixtureUsesRinks {
+    final raw = _selectedFixtureType?['uses_rinks'];
+    if (raw == null) return true; // safer default for existing fixture types
+    return raw == true;
+  }
+
+  bool get _isEventStyleFixture =>
+      _selectedFixtureType != null && !_selectedFixtureUsesRinks;
+
+  List<Map<String, dynamic>> get _allVenues {
+    final byId = <String, Map<String, dynamic>>{};
+
+    for (final v in [..._homeVenues, ..._opponentVenues]) {
+      final id = v['id']?.toString();
+      if (id == null || id.isEmpty) continue;
+      byId[id] = v;
+    }
+
+    final venues = byId.values.toList();
+    venues.sort((a, b) {
+      final nameA = (a['name'] ?? '').toString().toLowerCase();
+      final nameB = (b['name'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
+
+    return venues;
+  }      
 
   /// ACCESS:
   /// Controls whether the logged-in user may create/use this fixture type.
@@ -1656,19 +1726,27 @@ for (final m in _clubMembers) {
       if (_startAtLocal == null) {
         throw Exception('Please select a start date/time.');
       }
-      if (_homeVenueId == null) {
-        throw Exception('Please select a home venue.');
-      }
+
       final selectedFixtureType = _fixtureTypeById(_fixtureTypeId);
       final isInternalFixtureType = selectedFixtureType?['is_internal'] == true;
+      final usesRinks = selectedFixtureType?['uses_rinks'] == true;
 
-      if (!isInternalFixtureType && _opponentVenueId == null) {
-        throw Exception('Please select an opponent venue.');
-      }
+      if (!usesRinks) {
+        if (_eventVenueId == null || _eventVenueId!.trim().isEmpty) {
+          throw Exception('Please select a venue.');
+        }
+      } else {
+        if (_homeVenueId == null) {
+          throw Exception('Please select a home venue.');
+        }
 
-      // For HOME fixtures, you must choose a green area (because DB enforces green belongs to venue)
-      if (_isHome && _greenAreaId == null) {
-        throw Exception('Please select a green area.');
+        if (!isInternalFixtureType && _opponentVenueId == null) {
+          throw Exception('Please select an opponent venue.');
+        }
+
+        if (_isHome && _greenAreaId == null) {
+          throw Exception('Please select a green area.');
+        }
       }
 
       // Decide what goes into fixtures.venue_id and fixtures.opponent_venue_id.
@@ -1677,10 +1755,13 @@ for (final m in _clubMembers) {
       // - For HOME fixtures, venue_id must be the HOME venue (so green_area.venue_id matches fixtures.venue_id).
       // - For AWAY fixtures, venue_id should be the OPPONENT venue (the venue you travel to).
       //
-      final String venueId = _isHome ? _homeVenueId! : _opponentVenueId!;
-      final String? opponentVenueId = isInternalFixtureType
+      final String venueId = !usesRinks
+          ? _eventVenueId!
+          : (_isHome ? _homeVenueId! : _opponentVenueId!);
+
+      final String? opponentVenueId = !usesRinks
           ? null
-          : (_isHome ? _opponentVenueId! : _homeVenueId!);
+          : (isInternalFixtureType ? null : (_isHome ? _opponentVenueId! : _homeVenueId!));
 
       final fixtureLabel = _teamNameCtrl.text.trim();
 
@@ -1695,15 +1776,14 @@ debugPrint('CREATE FIXTURE captainMemberProfileId=$captainMemberProfileId');
 debugPrint('CREATE FIXTURE currentMemberId=$_currentMemberId');
 debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
-
       final insertedRows = await _client.from('fixtures').insert({
         'club_id': widget.clubId,
         'start_at': _startAtLocal!.toUtc().toIso8601String(),
         'end_at': _endAtLocal!.toUtc().toIso8601String(),
         'is_home': _isHome,
-        'section': _section,
-        'rinks_required': _rinksRequired,
-        'players_per_rink': _playersPerRink,
+        'section': _section.isEmpty ? 'open' : _section,
+        'rinks_required': usesRinks ? _rinksRequired : 0,
+        'players_per_rink': usesRinks ? _playersPerRink : 1,
         'competition_type_id': _fixtureTypeId,
         'team_id': _isTeamFixture ? _teamId : null,
         'team_name': fixtureLabel.isEmpty ? null : fixtureLabel,
@@ -1711,37 +1791,44 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
         // ✅ IMPORTANT: override DB default TRUE
         // RSVP => true
         // Team / Preselect => false
-        'requires_rsvp': (!_isTeamFixture && !_isPreselectFixture), // team fixture => false, friendly/internal => true
+        'requires_rsvp': usesRinks && (!_isTeamFixture && !_isPreselectFixture),
 
         'venue_id': venueId,
         'opponent_venue_id': opponentVenueId,
 
         // Greens/orientation only relevant for HOME fixtures
-        'green_area_id': _isHome ? _greenAreaId : null,
-        'orientation': (_isHome && _isOutdoorSelectedGreen && _orientationEnabledForSelectedGreen)
+        'green_area_id': usesRinks && _isHome ? _greenAreaId : null,
+        'orientation': (usesRinks && _isHome && _isOutdoorSelectedGreen && _orientationEnabledForSelectedGreen)
             ? _orientation
             : null,
-        'captain_member_profile_id': captainMemberProfileId,            
+        'captain_member_profile_id': captainMemberProfileId,  
+        'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),          
       }).select('id');
 
       debugPrint('SAVE: read fixture id');
       final fixtureId = (insertedRows as List).first['id'].toString();
-      debugPrint('SAVE: insert rinks');
-      // Create default rink placeholders (can be edited/deleted later)
-      final rinkRows = <Map<String, dynamic>>[];
-      final formatCode = _formatCodeForRinks(_playersPerRink);
-      for (var i = 1; i <= _rinksRequired; i++) {
-        rinkRows.add({
-          'fixture_id': fixtureId,
-          'fixture_rink_no': i,
-          'format': formatCode,
-          'players_per_rink': _playersPerRink,
-          'home_rink_label': _selectedHomeRinkByTeam[i],
-        });
+            
+      if (usesRinks) {
+        debugPrint('SAVE: insert rinks');
+
+        final rinkRows = <Map<String, dynamic>>[];
+        final formatCode = _formatCodeForRinks(_playersPerRink);
+
+        for (var i = 1; i <= _rinksRequired; i++) {
+          rinkRows.add({
+            'fixture_id': fixtureId,
+            'fixture_rink_no': i,
+            'format': formatCode,
+            'players_per_rink': _playersPerRink,
+            'home_rink_label': _selectedHomeRinkByTeam[i],
+          });
+        }
+
+        if (rinkRows.isNotEmpty) {
+          await _client.from('fixture_rinks').insert(rinkRows);
+        }
       }
-      if (rinkRows.isNotEmpty) {
-        await _client.from('fixture_rinks').insert(rinkRows);
-      }
+
       debugPrint('SAVE: pop');
       
       if (!mounted) return;
@@ -2465,7 +2552,11 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_simpleBookingMode ? 'Book Fixture' : 'Create Fixture'),
+        title: Text(
+          _isEventStyleFixture
+              ? 'Create Event'
+              : (_simpleBookingMode ? 'Book Fixture' : 'Create Fixture'),
+        ),
       ),
       body: Stack(
         children: [
@@ -2501,7 +2592,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                       _selectedFixtureTypeField(),
                       const SizedBox(height: 12),
 
-                      if (!_simpleBookingMode) ...[
+                      if (!_simpleBookingMode && !_isEventStyleFixture) ...[
                         const Text(
                           'Location',
                           style: TextStyle(fontWeight: FontWeight.bold),
@@ -2547,6 +2638,17 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         const SizedBox(height: 12),
                       ],
 
+                      if (_isEventStyleFixture) ...[
+                        TextField(
+                          controller: _teamNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Fixture Label',
+                            hintText: 'e.g. AGM Meeting, Summer Barbecue, Quiz Night',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+
                       Row(
                         children: [
                           Expanded(
@@ -2581,11 +2683,52 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
                       const SizedBox(height: 12),
 
-                      if (!_simpleBookingMode) ...[
-                        const Text(
-                          'Fixture workflow',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                      if (_isEventStyleFixture) ...[
+                        InkWell(
+                          onTap: () async {
+                            final selected = await _pickVenue(
+                              getVenues: () => _allVenues,
+                              title: 'Select Venue',
+                              isHomeVenue: true,
+                            );
+
+                            if (selected != null) {
+                              setState(() => _eventVenueId = selected);
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Venue',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Text(
+                              _allVenues
+                                      .firstWhere(
+                                        (v) => v['id'].toString() == _eventVenueId,
+                                        orElse: () => {'name': 'Select venue'},
+                                      )['name']
+                                      ?.toString() ??
+                                  'Select venue',
+                            ),
+                          ),
                         ),
+                        const SizedBox(height: 12),
+
+                        TextFormField(
+                          controller: _notesCtrl,
+                          minLines: 3,
+                          maxLines: 8,
+                          decoration: const InputDecoration(
+                            labelText: 'Information',
+                            alignLabelWithHint: true,
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (!_simpleBookingMode && !_isEventStyleFixture) ...[
+
                         const SizedBox(height: 8),
 
                         if (_isPreselectFixture) ...[
@@ -2636,7 +2779,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         const SizedBox(height: 8),
                       ],
 
-                      if (!_isTeamFixture && !_simpleBookingMode) ...[
+                      if (!_isTeamFixture && !_simpleBookingMode && !_isEventStyleFixture) ...[
                         TextField(
                           controller: _teamNameCtrl,
                           readOnly: _isPreselectFixture,
@@ -2653,7 +2796,8 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         const SizedBox(height: 12),
                       ],
 
-                      if (!_simpleBookingMode || _homeVenues.length > 1) ...[
+                      if (!_isEventStyleFixture &&
+                          (!_simpleBookingMode || _homeVenues.length > 1)) ...[
                         InkWell(
                           onTap: () async {
                             final selected = await _pickVenue(
@@ -2694,6 +2838,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                       ],
                       
                       if (!_simpleBookingMode &&
+                          !_isEventStyleFixture &&
                           _fixtureTypeById(_fixtureTypeId)?['is_internal'] != true) ...[
                         InkWell(
                           onTap: () async {
@@ -2726,7 +2871,8 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         const SizedBox(height: 12),
                       ],
 
-                      if (_isHome &&
+                      if (!_isEventStyleFixture &&
+                          _isHome &&
                           (!_simpleBookingMode || _greenAreas.length > 1)) ...[
                         if (_greenAreas.isEmpty) ...[
                           const InputDecorator(
@@ -2762,7 +2908,8 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         ],
                       ],
 
-                      if (_isHome &&
+                      if (!_isEventStyleFixture &&
+                          _isHome &&
                           _isOutdoorSelectedGreen &&
                           _orientationEnabledForSelectedGreen &&
                           allowedOrients.isNotEmpty) ...[
@@ -2781,7 +2928,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         const SizedBox(height: 12),
                       ],
 
-                      if (!_simpleBookingMode) ...[
+                      if (!_simpleBookingMode && !_isEventStyleFixture) ...[
                         DropdownButtonFormField<String>(
                           value: _section.isEmpty ? null : _section,
                           decoration: const InputDecoration(
@@ -2805,51 +2952,53 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
                         const SizedBox(height: 12),
 
-                        DropdownButtonFormField<int>(
-                          value: _playersPerRink,
-                          decoration: const InputDecoration(labelText: 'Format'),
-                          items: const [4, 3, 2, 1].map((ppr) {
-                            return DropdownMenuItem(
-                              value: ppr,
-                              child: Text(
-                                ppr == 4
-                                    ? 'Fours (4)'
-                                    : ppr == 3
-                                        ? 'Triples (3)'
-                                        : ppr == 2
-                                            ? 'Pairs (2)'
-                                            : 'Singles (1)',
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (v) =>
-                              setState(() => _playersPerRink = v ?? 4),
-                        ),
+                        if (!_isEventStyleFixture) ...[
+                          DropdownButtonFormField<int>(
+                            value: _playersPerRink,
+                            decoration: const InputDecoration(labelText: 'Format'),
+                            items: const [4, 3, 2, 1].map((ppr) {
+                              return DropdownMenuItem(
+                                value: ppr,
+                                child: Text(
+                                  ppr == 4
+                                      ? 'Fours (4)'
+                                      : ppr == 3
+                                          ? 'Triples (3)'
+                                          : ppr == 2
+                                              ? 'Pairs (2)'
+                                              : 'Singles (1)',
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) =>
+                                setState(() => _playersPerRink = v ?? 4),
+                          ),
 
-                        const SizedBox(height: 12),
+                          const SizedBox(height: 12),
+                        ]
                       ],
 
-                      DropdownButtonFormField<int>(
-                        value: _rinksRequired,
-                        decoration:
-                            const InputDecoration(labelText: 'Rinks required'),
-                        items: List.generate(12, (i) => i + 1).map((n) {
-                          return DropdownMenuItem(
-                            value: n,
-                            child: Text(n.toString()),
-                          );
-                        }).toList(),
-                        onChanged: (v) {
-                          setState(() => _rinksRequired = v ?? 1);
-                          _loadRinkAvailability();
-                        },
-                      ),
+                      if (!_isEventStyleFixture) ...[
+                        DropdownButtonFormField<int>(
+                          value: _rinksRequired,
+                          decoration: const InputDecoration(labelText: 'Rinks required'),
+                          items: List.generate(12, (i) => i + 1).map((n) {
+                            return DropdownMenuItem(
+                              value: n,
+                              child: Text(n.toString()),
+                            );
+                          }).toList(),
+                          onChanged: (v) {
+                            setState(() => _rinksRequired = v ?? 1);
+                            _loadRinkAvailability();
+                          },
+                        ),
+                        const SizedBox(height: 20),
+                      ],
 
-                      const SizedBox(height: 20),
-
-                      if (_simpleBookingMode) ...[
+                      if (!_isEventStyleFixture && _simpleBookingMode) ...[
                         _buildMemberBookingInlineSection(),
-                      ] else if (_shouldShowRinksSection) ...[
+                      ] else if (!_isEventStyleFixture && _shouldShowRinksSection) ...[
                         _buildGreenAndRinkAvailabilityBlock(),
                       ],
 

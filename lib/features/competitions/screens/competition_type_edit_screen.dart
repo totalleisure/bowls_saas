@@ -530,7 +530,7 @@ class _CompetitionTypeEditScreenState
                           DropdownMenuItem(value: 'mens',child: Text("Men's")),                          
                           DropdownMenuItem(value: 'ladies',child: Text('Ladies')),
                           DropdownMenuItem(value: 'mixed',child: Text('Mixed')),
-                          DropdownMenuItem(value: 'open',child: Text("Open")),
+                          DropdownMenuItem(value: 'open',child: Text('Open')),
                         ],
                         onChanged: widget.readOnly
                             ? null

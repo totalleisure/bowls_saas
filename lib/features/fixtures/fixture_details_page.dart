@@ -848,6 +848,7 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
           .select(
             'id, club_id, venue_id, opponent_venue_id, green_area_id, '
             'start_at, end_at, is_home, section, rinks_required, players_per_rink, orientation, '
+            'team_name, notes, '
             'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
               'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, '
@@ -1623,6 +1624,158 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     await _reloadRinksPreservingScroll();
   }
 
+  Future<void> _clearMemberPreselectSlot({
+    required String fixtureRinkId,
+    required int position,
+  }) async {
+    final oldMemberProfileId = _assignmentFor(
+      fixtureRinkId: fixtureRinkId,
+      position: position,
+    )?['member_profile_id']?.toString();
+
+    if (oldMemberProfileId == null || oldMemberProfileId.isEmpty) return;
+
+    await Supabase.instance.client
+        .from('fixture_rink_assignments')
+        .delete()
+        .eq('fixture_id', widget.fixtureId)
+        .eq('fixture_rink_id', fixtureRinkId)
+        .eq('position', position);
+
+    await _markTeamSelectionMemberUnselected(oldMemberProfileId);
+
+    await _load();
+  }
+
+  Future<String?> _teamSelectionIdForFixture() async {
+    final row = await Supabase.instance.client
+        .from('team_selections')
+        .select('id')
+        .eq('fixture_id', widget.fixtureId)
+        .maybeSingle();
+
+    return row?['id']?.toString();
+  }
+
+  Future<void> _markTeamSelectionMemberSelected(String memberProfileId) async {
+    final client = Supabase.instance.client;
+    final teamSelectionId = await _teamSelectionIdForFixture();
+
+    if (teamSelectionId == null || teamSelectionId.isEmpty) {
+      debugPrint('No team_selection row found for fixture ${widget.fixtureId}');
+      return;
+    }
+
+    final existing = await client
+        .from('team_selection_members')
+        .select('id, acceptance')
+        .eq('team_selection_id', teamSelectionId)
+        .eq('member_profile_id', memberProfileId)
+        .maybeSingle();
+
+    if (existing == null) {
+      await client.from('team_selection_members').insert({
+        'team_selection_id': teamSelectionId,
+        'member_profile_id': memberProfileId,
+        'role': 'player',
+        'acceptance': 'pending',
+        'is_selected': true,
+      });
+    } else {
+      await client
+          .from('team_selection_members')
+          .update({
+            'is_selected': true,
+          })
+          .eq('id', existing['id']);
+    }
+  }
+
+  Future<void> _markTeamSelectionMemberUnselected(String memberProfileId) async {
+    final client = Supabase.instance.client;
+    final teamSelectionId = await _teamSelectionIdForFixture();
+
+    if (teamSelectionId == null || teamSelectionId.isEmpty) {
+      debugPrint('No team_selection row found for fixture ${widget.fixtureId}');
+      return;
+    }
+
+    await client
+        .from('team_selection_members')
+        .update({
+          'is_selected': false,
+        })
+        .eq('team_selection_id', teamSelectionId)
+        .eq('member_profile_id', memberProfileId);
+  }
+
+  Future<void> _selectMemberPreselectSlot({
+    required BuildContext context,
+    required String fixtureRinkId,
+    required int position,
+    required String pickerTitle,
+    required bool useFixtureSection,
+    MemberPickerSectionFilter? initialSectionFilter,
+  }) async {
+    final oldMemberProfileId = _assignmentFor(
+      fixtureRinkId: fixtureRinkId,
+      position: position,
+    )?['member_profile_id']?.toString();
+
+    final selected = await Navigator.of(context).push<List<String>?>(
+      MaterialPageRoute(
+        builder: (_) {
+          if (initialSectionFilter != null) {
+            return ClubMemberPickerPage(
+              clubId: _fixture?['club_id'],
+              title: pickerTitle,
+              fixtureId: widget.fixtureId,
+              useFixtureSection: useFixtureSection,
+              initialSectionFilter: initialSectionFilter!,
+              allowMultiple: false,
+              initialSelectedIds: {
+                if (oldMemberProfileId != null && oldMemberProfileId.isNotEmpty)
+                  oldMemberProfileId,
+              },
+            );
+          }
+
+          return ClubMemberPickerPage(
+            clubId: _fixture?['club_id'],
+            title: pickerTitle,
+            fixtureId: widget.fixtureId,
+            useFixtureSection: useFixtureSection,
+            allowMultiple: false,
+            initialSelectedIds: {
+              if (oldMemberProfileId != null && oldMemberProfileId.isNotEmpty)
+                oldMemberProfileId,
+            },
+          );
+        },
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (selected == null || selected.isEmpty) return;
+
+    final newMemberProfileId = selected.first;
+
+    if (oldMemberProfileId != null &&
+        oldMemberProfileId.isNotEmpty &&
+        oldMemberProfileId != newMemberProfileId) {
+      await _markTeamSelectionMemberUnselected(oldMemberProfileId);
+    }
+
+    await _saveFixtureRinkAssignment(
+      fixtureRinkId: fixtureRinkId,
+      position: position,
+      memberProfileId: newMemberProfileId,
+    );
+
+    await _markTeamSelectionMemberSelected(newMemberProfileId);
+  }
+
   Widget _buildMemberPreselectEditorPlaceholder() {
 
 debugPrint(
@@ -1687,39 +1840,15 @@ debugPrint(
                               ),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: _canMaintainMemberPreselectFixture
-                                      ? () async {
-                                          final current = _assignmentFor(
-                                            fixtureRinkId: rinkId,
-                                            position: playerNo,
-                                          )?['member_profile_id']?.toString();
-
-                                          final selected = await Navigator.of(context).push<List<String>?>(
-                                            MaterialPageRoute(
-                                              builder: (_) => ClubMemberPickerPage(
-                                                clubId: _fixture?['club_id'],
-                                                title: 'Select Player $playerNo',
-                                                fixtureId: widget.fixtureId,
-                                                useFixtureSection: true,
-                                                allowMultiple: false,
-                                                initialSelectedIds: {
-                                                  if (current != null && current.isNotEmpty) current,
-                                                },
-                                              ),
-                                            ),
-                                          );
-
-                                          if (!mounted) return;
-
-                                          if (selected != null && selected.isNotEmpty) {
-                                            await _saveFixtureRinkAssignment(
-                                              fixtureRinkId: rinkId,
-                                              position: playerNo,
-                                              memberProfileId: selected.first,
-                                            );
-                                          }
-                                        }
-                                      : null,
+                                onPressed: _canMaintainMemberPreselectFixture
+                                    ? () => _selectMemberPreselectSlot(
+                                          context: context,
+                                          fixtureRinkId: rinkId,
+                                          position: playerNo,
+                                          pickerTitle: 'Select Player $playerNo',
+                                          useFixtureSection: true,
+                                        )
+                                    : null,
                                   child: Text(
                                     _memberLabelFromAssignment(
                                       _assignmentFor(
@@ -1738,37 +1867,13 @@ debugPrint(
                               Expanded(
                                 child: OutlinedButton(
                                   onPressed: _canMaintainMemberPreselectFixture
-                                      ? () async {
-                                          final position = 100 + playerNo;
-
-                                          final current = _assignmentFor(
+                                      ? () => _selectMemberPreselectSlot(
+                                            context: context,
                                             fixtureRinkId: rinkId,
-                                            position: position,
-                                          )?['member_profile_id']?.toString();
-
-                                          final selected = await Navigator.of(context).push<List<String>?>(
-                                            MaterialPageRoute(
-                                              builder: (_) => ClubMemberPickerPage(
-                                                clubId: _fixture?['club_id'], 
-                                                title: 'Select Opponent $playerNo',
-                                                fixtureId: widget.fixtureId,
-                                                useFixtureSection: true,
-                                                allowMultiple: false,
-                                                initialSelectedIds: {
-                                                  if (current != null && current.isNotEmpty) current,
-                                                },
-                                              ),
-                                            ),
-                                          );
-                                          if (!mounted) return;
-                                          if (selected != null && selected.isNotEmpty) {
-                                            await _saveFixtureRinkAssignment(
-                                              fixtureRinkId: rinkId,
-                                              position: position,
-                                              memberProfileId: selected.first,
-                                            );
-                                          }
-                                        }
+                                            position: 100 + playerNo,
+                                            pickerTitle: 'Select Opponent $playerNo',
+                                            useFixtureSection: true,
+                                          )
                                       : null,
                                   child: Text(
                                     _memberLabelFromAssignment(
@@ -1794,40 +1899,14 @@ debugPrint(
                             Expanded(
                               child: OutlinedButton(
                                 onPressed: _canMaintainMemberPreselectFixture
-                                    ? () async {
-                                        const position = 201;
-
-                                        final current = _assignmentFor(
+                                    ? () => _selectMemberPreselectSlot(
+                                          context: context,
                                           fixtureRinkId: rinkId,
-                                          position: position,
-                                        )?['member_profile_id']?.toString();
-
-                                        final selected = await Navigator.of(context).push<List<String>?>(
-                                          MaterialPageRoute(
-                                            builder: (_) => ClubMemberPickerPage(
-                                              clubId: _fixture?['club_id'], // use your actual club id variable
-                                              title: 'Select Marker',
-                                              fixtureId: widget.fixtureId,
-                                              // IMPORTANT:
-                                              // marker should NOT be restricted by a men's/ladies fixture
-                                              useFixtureSection: false,
-                                              initialSectionFilter: MemberPickerSectionFilter.open,
-                                              allowMultiple: false,
-                                              initialSelectedIds: {
-                                                if (current != null && current.isNotEmpty) current,
-                                              },
-                                            ),
-                                          ),
-                                        );
-
-                                        if (selected != null && selected.isNotEmpty) {
-                                          await _saveFixtureRinkAssignment(
-                                            fixtureRinkId: rinkId,
-                                            position: position,
-                                            memberProfileId: selected.first,
-                                          );
-                                        }
-                                      }
+                                          position: 201,
+                                          pickerTitle: 'Select Marker',
+                                          useFixtureSection: false,
+                                          initialSectionFilter: MemberPickerSectionFilter.open,
+                                        )
                                     : null,
                                 child: Text(
                                   _memberLabelFromAssignment(
@@ -2197,6 +2276,9 @@ debugPrint(
         .replaceAll('-', '_')
         .replaceAll(' ', '_');
 
+    final usesRinks = competitionType?['uses_rinks'] == true;
+    final isEventStyleFixture = !usesRinks;
+
     final isPreselectFixture = selectionMode == 'preselect';
     final isTeamFixture = selectionMode == 'team';
     final isOpenSessionFixture = selectionMode == 'open';
@@ -2218,12 +2300,15 @@ debugPrint(
                 ? 'Open Session'
                 : 'RSVP';
 
-    final pageTitle =
-        '${isHome ? 'Home' : 'Away'} $modeLabel Fixture Details';
+    final pageTitle = isEventStyleFixture
+        ? 'Event Details'
+        : '${isHome ? 'Home' : 'Away'} $modeLabel Fixture Details';
 
     final fixtureLabel = (fixture['team_name'] ?? '').toString().trim();
-    final displayFixtureLabel =
-        competitionTypeName.isNotEmpty ? competitionTypeName : fixtureLabel;
+
+    final displayFixtureLabel = isEventStyleFixture
+        ? (fixtureLabel.isNotEmpty ? fixtureLabel : competitionTypeName)
+        : (competitionTypeName.isNotEmpty ? competitionTypeName : fixtureLabel);
 
     final teamRow = fixture['team'] as Map<String, dynamic>?;
     final teamName = (teamRow?['name'] ?? fixture['team_name'] ?? '').toString().trim();
@@ -2245,27 +2330,31 @@ debugPrint(
 
     final myClubName = opponent.trim();
 
-    final matchHeader = isPreselectFixture
-        ? (displayFixtureLabel.isNotEmpty
-            ? 'Internal $displayFixtureLabel'
-            : 'Internal Fixture')
-        : fixtureTitleUnified(
-            fixture,
-            myClubName: myClubName,
-          );
+    final matchHeader = isEventStyleFixture
+        ? (displayFixtureLabel.isNotEmpty ? displayFixtureLabel : 'Event')
+        : isPreselectFixture
+            ? (displayFixtureLabel.isNotEmpty
+                ? 'Internal $displayFixtureLabel'
+                : 'Internal Fixture')
+            : fixtureTitleUnified(
+                fixture,
+                myClubName: myClubName,
+              );
 
     final fixtureTeamName =
         (fixture['team']?['name'] ?? fixture['team_name'] ?? '')
             .toString()
             .trim();
 
-    final lockedFixtureLabel = isPreselectFixture
-        ? 'Pre-Select Fixture'
-        : isTeamFixture
-            ? 'Team Fixture'
-            : isOpenSessionFixture
-                ? 'Open Session'
-                : 'RSVP Fixture';
+    final lockedFixtureLabel = isEventStyleFixture
+        ? (competitionTypeName.isNotEmpty ? competitionTypeName : 'Event')
+        : isPreselectFixture
+            ? 'Pre-Select Fixture'
+            : isTeamFixture
+                ? 'Team Fixture'
+                : isOpenSessionFixture
+                    ? 'Open Session'
+                    : 'RSVP Fixture';
 
     final isWorkflowLocked = _teamNameLocked || isPreselectFixture;
 
@@ -2395,153 +2484,194 @@ debugPrint(
             spacing: 8,
             runSpacing: 8,
             children: [
-              AppBadge(text: isHome ? 'HOME' : 'AWAY'),
+              if (!isEventStyleFixture)
+                AppBadge(text: isHome ? 'HOME' : 'AWAY'),
 
               if (displayFixtureLabel.isNotEmpty)
                 AppBadge(text: displayFixtureLabel.toUpperCase()),
 
-              if (section.isNotEmpty) AppBadge(text: section.toUpperCase()),
+              if (!isEventStyleFixture && section.isNotEmpty)
+                AppBadge(text: section.toUpperCase()),
 
-              AppBadge(text: _formatLabel(ppr).toUpperCase()),
+              if (!isEventStyleFixture) ...[
+                AppBadge(text: _formatLabel(ppr).toUpperCase()),
+                AppBadge(text: '$rinks TEAMS'),
+              ],
 
-              AppBadge(text: '$rinks TEAMS'),
-
-              if (isHome && green.isNotEmpty)
+              if (!isEventStyleFixture && isHome && green.isNotEmpty)
                 AppBadge(text: 'GREEN: $green'),
 
-              if (showOrientation)
+              if (!isEventStyleFixture && showOrientation)
                 AppBadge(
                   text: 'ORIENTATION: ${(orientation ?? 'NOT SET').replaceAll('_', ' ').toUpperCase()}',
                 ),
             ],
           ),
           
+          if (isEventStyleFixture) ...[
+            const SizedBox(height: 20),
+
+            if (isEventStyleFixture) ...[
+              const SizedBox(height: 20),
+              Card(
+                child: ListTile(
+                  title: const Text('Venue'),
+                  subtitle: Text(venue.isEmpty ? 'No venue set' : venue),
+                ),
+              ),
+            ],      
+      
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Event information',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      (fixture['notes'] ?? '').toString().trim().isEmpty
+                          ? 'No information has been added.'
+                          : (fixture['notes'] ?? '').toString(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Fixture workflow',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    fixtureTypeHelpText,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
 
-                  if (!isWorkflowLocked) ...[
-                    const SizedBox(height: 16),
+          if (!isEventStyleFixture) ...[          
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Fixture workflow',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      fixtureTypeHelpText,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
 
-                    if (isTeamFixture) ...[
-                      const Text(
-                        'Team',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: _selectedTeamId,
-                        decoration: const InputDecoration(
-                          hintText: 'Select a team',
-                          border: OutlineInputBorder(),
+                    if (!isWorkflowLocked) ...[
+                      const SizedBox(height: 16),
+
+                      if (isTeamFixture) ...[
+                        const Text(
+                          'Team',
+                          style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        items: _teams.map((t) {
-                          return DropdownMenuItem(
-                            value: t['id'].toString(),
-                            child: Text(t['name'].toString()),
-                          );
-                        }).toList(),
-                        onChanged: (v) => setState(() => _selectedTeamId = v),
-                      ),
-                    ] else ...[
-                      const Text(
-                        'Fixture label',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _teamNameCtrl,
-                        decoration: const InputDecoration(
-                          hintText: 'Enter fixture details (optional)',
-                          border: OutlineInputBorder(),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: _selectedTeamId,
+                          decoration: const InputDecoration(
+                            hintText: 'Select a team',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _teams.map((t) {
+                            return DropdownMenuItem(
+                              value: t['id'].toString(),
+                              child: Text(t['name'].toString()),
+                            );
+                          }).toList(),
+                          onChanged: (v) => setState(() => _selectedTeamId = v),
+                        ),
+                      ] else ...[
+                        const Text(
+                          'Fixture label',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _teamNameCtrl,
+                          decoration: const InputDecoration(
+                            hintText: 'Enter fixture details (optional)',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: ElevatedButton(
+                          onPressed: _savingTeam
+                              ? null
+                              : () async {
+                                  setState(() => _savingTeam = true);
+                                  try {
+                                    if (isTeamFixture) {
+                                      if (_selectedTeamId == null) {
+                                        throw Exception('Please select a team.');
+                                      }
+
+                                      final selectedTeam = _teams.firstWhere(
+                                        (t) => t['id'].toString() == _selectedTeamId,
+                                        orElse: () => <String, dynamic>{},
+                                      );
+
+                                      final selectedTeamName =
+                                          (selectedTeam['name'] ?? '').toString().trim();
+
+                                      await Supabase.instance.client
+                                          .from('fixtures')
+                                          .update({
+                                            'team_id': _selectedTeamId,
+                                            'team_name': selectedTeamName.isEmpty
+                                                ? null
+                                                : selectedTeamName,
+                                          })
+                                          .eq('id', widget.fixtureId);
+                                    } else {
+                                      final lbl = _teamNameCtrl.text.trim();
+                                      await Supabase.instance.client
+                                          .from('fixtures')
+                                          .update({
+                                            'team_id': null,
+                                            'team_name': lbl.isEmpty ? null : lbl,
+                                          })
+                                          .eq('id', widget.fixtureId);
+                                    }
+
+                                    _didChangeFixture = true;
+                                    await _reloadPreservingScroll();
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Failed to save: $e')),
+                                    );
+                                  } finally {
+                                    if (mounted) setState(() => _savingTeam = false);
+                                  }
+                                },
+                          child: _savingTeam
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Save'),
                         ),
                       ),
                     ],
-
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: ElevatedButton(
-                        onPressed: _savingTeam
-                            ? null
-                            : () async {
-                                setState(() => _savingTeam = true);
-                                try {
-                                  if (isTeamFixture) {
-                                    if (_selectedTeamId == null) {
-                                      throw Exception('Please select a team.');
-                                    }
-
-                                    final selectedTeam = _teams.firstWhere(
-                                      (t) => t['id'].toString() == _selectedTeamId,
-                                      orElse: () => <String, dynamic>{},
-                                    );
-
-                                    final selectedTeamName =
-                                        (selectedTeam['name'] ?? '').toString().trim();
-
-                                    await Supabase.instance.client
-                                        .from('fixtures')
-                                        .update({
-                                          'team_id': _selectedTeamId,
-                                          'team_name': selectedTeamName.isEmpty
-                                              ? null
-                                              : selectedTeamName,
-                                        })
-                                        .eq('id', widget.fixtureId);
-                                  } else {
-                                    final lbl = _teamNameCtrl.text.trim();
-                                    await Supabase.instance.client
-                                        .from('fixtures')
-                                        .update({
-                                          'team_id': null,
-                                          'team_name': lbl.isEmpty ? null : lbl,
-                                        })
-                                        .eq('id', widget.fixtureId);
-                                  }
-
-                                  _didChangeFixture = true;
-                                  await _reloadPreservingScroll();
-                                } catch (e) {
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Failed to save: $e')),
-                                  );
-                                } finally {
-                                  if (mounted) setState(() => _savingTeam = false);
-                                }
-                              },
-                        child: _savingTeam
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Save'),
-                      ),
-                    ),
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
+          ],
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -2606,135 +2736,138 @@ debugPrint(
               ),
             ),
           ),
-
           const SizedBox(height: 20),
-          Text(
-            'Captain & vice-captain',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 8),
-          SetCaptainSection(
-            fixture: fixture,
-            readOnly: !_canAssignCaptaincy,
-          ),
 
-          if (!isOpenSessionFixture && canRespondToTeamSelection) ...[
-            const SizedBox(height: 20),
+          if (!isEventStyleFixture) ...[
             Text(
-              'Team selection',
+              'Captain & vice-captain',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
             ),
             const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('You have been selected for this fixture.'),
-                    const SizedBox(height: 10),
+            SetCaptainSection(
+              fixture: fixture,
+              readOnly: !_canAssignCaptaincy,
+            ),
+          
 
-                    Row(
-                      children: [
-                        Text(
-                          'Current response: ',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
-                        Text(_teamSelectionStatusLabel(_myTeamSelectionStatus)),
-                      ],
+            if (!isOpenSessionFixture && canRespondToTeamSelection) ...[
+              const SizedBox(height: 20),
+              Text(
+                'Team selection',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
                     ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('You have been selected for this fixture.'),
+                      const SizedBox(height: 10),
 
-                    if (_myTeamSelection?['responded_at'] != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        'Responded: ${_formatLocalDisplay(DateTime.parse(_myTeamSelection!['responded_at'].toString()).toLocal())}',
-                        style: Theme.of(context).textTheme.bodySmall,
+                      Row(
+                        children: [
+                          Text(
+                            'Current response: ',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          Text(_teamSelectionStatusLabel(_myTeamSelectionStatus)),
+                        ],
+                      ),
+
+                      if (_myTeamSelection?['responded_at'] != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Responded: ${_formatLocalDisplay(DateTime.parse(_myTeamSelection!['responded_at'].toString()).toLocal())}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          _teamSelectionChoiceButton('accepted', 'Accept'),
+                          _teamSelectionChoiceButton('declined', 'Decline'),
+                        ],
                       ),
                     ],
-
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        _teamSelectionChoiceButton('accepted', 'Accept'),
-                        _teamSelectionChoiceButton('declined', 'Decline'),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
 
-          const SizedBox(height: 16),
-          if (showRsvpControls) ...[
             const SizedBox(height: 16),
-            Text('Your availability', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              children: [
-                _rsvpChoiceButton('yes', 'Yes'),
-                _rsvpChoiceButton('maybe', 'Maybe'),
-                _rsvpChoiceButton('no', 'No'),
-              ],
-            ),
-          ],
+            if (showRsvpControls) ...[
+              const SizedBox(height: 16),
+              Text('Your availability', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                children: [
+                  _rsvpChoiceButton('yes', 'Yes'),
+                  _rsvpChoiceButton('maybe', 'Maybe'),
+                  _rsvpChoiceButton('no', 'No'),
+                ],
+              ),
+            ],
 
-          if (isRsvpFixture && isPublished) ...[
-            const SizedBox(height: 24),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  'RSVP closed — fixture has been published.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+            if (isRsvpFixture && isPublished) ...[
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'RSVP closed — fixture has been published.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
 
-          if (isRsvpFixture && !isPublished) ...[
-            CaptainViewSection(fixture: fixture),
-          ],
+            if (isRsvpFixture && !isPublished) ...[
+              CaptainViewSection(fixture: fixture),
+            ],
 
 
-          if (!_usesSimpleBookingWorkflow &&
-              isHome &&
-              _greenAreaId != null &&
-              rinks > 0) ...[
-            const SizedBox(height: 12),
-            Card(
-              margin: const EdgeInsets.only(top: 8, bottom: 20),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: _buildGreenAndRinkAvailabilityBlock(''),
+            if (!_usesSimpleBookingWorkflow &&
+                isHome &&
+                _greenAreaId != null &&
+                rinks > 0) ...[
+              const SizedBox(height: 12),
+              Card(
+                margin: const EdgeInsets.only(top: 8, bottom: 20),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: _buildGreenAndRinkAvailabilityBlock(''),
+                ),
               ),
-            ),
-          ],
+            ],
 
-          if (_canMaintainMemberPreselectFixture) ...[
-            _buildMemberPreselectEditorPlaceholder(),
-          ],
+            if (_canMaintainMemberPreselectFixture) ...[
+              _buildMemberPreselectEditorPlaceholder(),
+            ],
 
-          if (!_usesSimpleBookingWorkflow &&
-              !isOpenSessionFixture &&
-              canViewTeam) ...[
-            const SizedBox(height: 12),
-            TeamSection(
-              key: ValueKey(
-                '${widget.fixtureId}-${_myTeamSelectionStatus ?? ''}-${fixture['ts']?['status'] ?? ''}',
+            if (!_usesSimpleBookingWorkflow &&
+                !isOpenSessionFixture &&
+                canViewTeam) ...[
+              const SizedBox(height: 12),
+              TeamSection(
+                key: ValueKey(
+                  '${widget.fixtureId}-${_myTeamSelectionStatus ?? ''}-${fixture['ts']?['status'] ?? ''}',
+                ),
+                fixture: fixture,
+                readOnly: !canManageTeam,
               ),
-              fixture: fixture,
-              readOnly: !canManageTeam,
-            ),
+            ],
           ],
         ],
       ),
