@@ -335,7 +335,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     _initDashboard();
 
     _notificationTimer =
-        Timer.periodic(const Duration(seconds: 20), (_) {
+        Timer.periodic(const Duration(seconds: 30), (_) {
       _loadUnreadNotificationCount();
     });
   }
@@ -1161,8 +1161,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     final canAccessAdmin =
         _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
 
-    debugPrint('Dashboard build filter: $_filter');
-    debugPrint('Dashboard build filter isDefault: ${_filter.isDefault}');
+//    debugPrint('Dashboard build filter: $_filter');
+//    debugPrint('Dashboard build filter isDefault: ${_filter.isDefault}');
 
     return Scaffold(
       floatingActionButton: GestureDetector(
@@ -1183,7 +1183,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => const PlayerHelpScreen(),
+                  builder: (_) => PlayerHelpScreen(
+                    showAdminGuide: _isClubAdmin,
+                  ),
                 ),
               );
             },

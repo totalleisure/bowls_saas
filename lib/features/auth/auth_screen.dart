@@ -554,7 +554,7 @@ class _AuthScreenState extends State<AuthScreen> {
                               onPressed: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    builder: (_) => const PlayerHelpScreen(),
+                                    builder: (_) => const PlayerHelpScreen(showAdminGuide: false),
                                   ),
                                 );
                               },

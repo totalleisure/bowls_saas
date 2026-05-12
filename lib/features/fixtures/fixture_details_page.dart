@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'captain_view_section.dart';
 import 'set_captain_section.dart';
 import 'fixture_display.dart';
+import 'fixture_message_screen.dart';
 import '../team/team_section.dart';
 import '../team/manage_team_screen.dart';
 import '../rinks/rinks_setup_screen.dart';
@@ -124,6 +125,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Map<String, dynamic>? get _selectedCompetitionType {
     final ct = _fixture?['competition_type'];
     return ct is Map<String, dynamic> ? ct : null;
+  }
+
+  String get _fixtureMessageSenderName {
+    if (_isFixtureCaptain) return 'Captain';
+    if (_isFixtureViceCaptain) return 'Vice-Captain';
+    if (_isSelector) return 'Selector';
+    if (_isClubAdmin) return 'Club Admin';
+    if (_isSuperuser) return 'Superuser';
+    return 'Club official';
   }
 
   String get _selectedCompetitionSelectionMode =>
@@ -848,7 +858,7 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
           .select(
             'id, club_id, venue_id, opponent_venue_id, green_area_id, '
             'start_at, end_at, is_home, section, rinks_required, players_per_rink, orientation, '
-            'team_name, notes, '
+            'team_id, team_name, notes, '
             'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
               'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, '
@@ -1921,7 +1931,7 @@ debugPrint(
                           ],
                         ),
 
-                        if (homeRinkLabel.isNotEmpty) ...[
+/*                         if (homeRinkLabel.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           Text(
                             'Physical rink: $homeRinkLabel',
@@ -1930,7 +1940,7 @@ debugPrint(
                           ),
                         ],
 
-                        const Divider(height: 28),
+                        const Divider(height: 28), */
                       ],
                     );
                   },
@@ -1940,7 +1950,7 @@ debugPrint(
             if (_isHome) ...[
               const SizedBox(height: 8),
 
-              const Text(
+/*               const Text(
                 'Rinks',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -1949,7 +1959,7 @@ debugPrint(
                 ),
               ),
 
-              const SizedBox(height: 12),
+              const SizedBox(height: 12), */
 
               if (_greenAreas.isEmpty) ...[
                 const InputDecorator(
@@ -1960,7 +1970,9 @@ debugPrint(
                   child: Text('No greens available for this venue'),
                 ),
               ] else ...[
-                _buildGreenAndRinkAvailabilityBlock(''),
+                _buildGreenAndRinkAvailabilityBlock(
+                  (_fixture?['green_areas']?['name'] ?? '').toString(),
+                ),
               ],
             ],
           ],
@@ -2409,17 +2421,6 @@ debugPrint(
     final isPublished = teamSelectionStatus == 'published';
     final showRsvpControls = isRsvpFixture && !isPublished;
 
-debugPrint(
-  'FIXTURE DETAILS PERMS: '
-  'canOperational=$_canEditFixtureOperationalDetails '
-  'canAdmin=$_canEditAdminFixtureDetails '
-  'captain=$_isFixtureCaptain '
-  'vice=$_isFixtureViceCaptain '
-  'currentMember=$_currentMemberId '
-  'captainId=${_fixture?['captain_member_profile_id']} '
-  'viceId=${_fixture?['vice_captain_member_profile_id']}',
-);
-
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(
@@ -2433,6 +2434,24 @@ debugPrint(
               icon: const Icon(Icons.delete_outline),
               onPressed: _confirmAndDelete, // make sure this method exists
             ),
+            IconButton(
+              tooltip: 'Send Fixture Message',
+              icon: const Icon(Icons.message),
+              onPressed: !_canEditFixtureOperationalDetails
+                  ? null
+                  : () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => FixtureMessageScreen(
+                            fixtureId: widget.fixtureId,
+                            currentMemberProfileId: _currentMemberId,
+                            senderName: _fixtureMessageSenderName ?? 'A club member',
+                          ),
+                        ),
+                      );
+                    },
+            ),                    
         ],
       ),
       body: ListView(
@@ -2847,7 +2866,9 @@ debugPrint(
                 margin: const EdgeInsets.only(top: 8, bottom: 20),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
-                  child: _buildGreenAndRinkAvailabilityBlock(''),
+                  child: _buildGreenAndRinkAvailabilityBlock(
+                    (_fixture?['green_areas']?['name'] ?? '').toString(),
+                  ),
                 ),
               ),
             ],

@@ -492,7 +492,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         ? null
         : (isHome ? repeatDate.opponentVenueId! : _homeVenueId!);
 
-    final fixtureLabel = _teamNameCtrl.text.trim();
+    final fixtureLabel = _isTeamFixture
+        ? (_selectedTeamName() ?? '')
+        : _teamNameCtrl.text.trim();
 
     if (_isTeamFixture && _teamId == null) {
       throw Exception('Please select a team.');
@@ -1060,7 +1062,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     if (row == null) return;
 
-    final selectionMode = (row['selection_mode'] ?? '').toString();
+    final selectionMode = (row['selection_mode'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     final name = (row['name'] ?? '').toString().trim();
     final section = (row['section'] ?? '').toString().trim();
     final isInternal = row['is_internal'] == true;
@@ -1107,13 +1112,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         _workflowType = FixtureWorkflowType.team;
         _isTeamFixture = true;
         _isPreselectFixture = false;
-
         _teamNameCtrl.text = name;
 
         if (linkedTeamId != null && linkedTeamId.isNotEmpty) {
           _teamId = linkedTeamId;
         } else {
-          _teamId ??= _teams.isNotEmpty ? _teams.first['id'].toString() : null;
+          _teamId = null; // force user to choose team
         }
       } else if (selectionMode == 'preselect') {
         _isTeamFixture = false;
@@ -1458,6 +1462,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return Color(int.parse('FF$clean', radix: 16));
   }
 
+  String? _selectedTeamName() {
+    if (_teamId == null || _teamId!.isEmpty) return null;
+
+    final team = _teams.firstWhere(
+      (t) => t['id'].toString() == _teamId,
+      orElse: () => <String, dynamic>{},
+    );
+
+    final name = (team['name'] ?? '').toString().trim();
+    return name.isEmpty ? null : name;
+  }
+
   Future<String?> _createVenueFromFixture({required bool isHomeVenue}) async {
     final nameCtrl = TextEditingController();
     final townCtrl = TextEditingController();
@@ -1763,7 +1779,11 @@ for (final m in _clubMembers) {
           ? null
           : (isInternalFixtureType ? null : (_isHome ? _opponentVenueId! : _homeVenueId!));
 
-      final fixtureLabel = _teamNameCtrl.text.trim();
+      final fixtureLabel = _isTeamFixture
+          ? (_selectedTeamName() ?? '')
+          : _teamNameCtrl.text.trim();
+
+debugPrint('CREATE FIXTURE isTeamFixture=$_isTeamFixture');
 
       if (_isTeamFixture && _teamId == null) {
         throw Exception('Please select a team.');
@@ -1807,7 +1827,21 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
       debugPrint('SAVE: read fixture id');
       final fixtureId = (insertedRows as List).first['id'].toString();
-            
+
+      String? teamSelectionId;
+
+      if (_isPreselectFixture) {
+        final teamSelectionRows = await _client
+            .from('team_selections')
+            .insert({
+              'fixture_id': fixtureId,
+              'status': 'published',
+            })
+            .select('id');
+
+        teamSelectionId = (teamSelectionRows as List).first['id'].toString();
+      }
+
       if (usesRinks) {
         debugPrint('SAVE: insert rinks');
 
@@ -1824,9 +1858,97 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
           });
         }
 
+        final createdRinks = <Map<String, dynamic>>[];
+
         if (rinkRows.isNotEmpty) {
-          await _client.from('fixture_rinks').insert(rinkRows);
+          final insertedRinks = await _client
+              .from('fixture_rinks')
+              .insert(rinkRows)
+              .select('id, fixture_rink_no');
+
+          createdRinks.addAll(List<Map<String, dynamic>>.from(insertedRinks));
         }
+
+        if (_isPreselectFixture && createdRinks.isNotEmpty) {
+          final assignments = <Map<String, dynamic>>[];
+          final selectedMemberIds = <String>{};
+
+          for (final rink in createdRinks) {
+            final teamNo = rink['fixture_rink_no'] as int;
+            final fixtureRinkId = rink['id'].toString();
+
+            for (var playerNo = 1; playerNo <= _playersPerRink; playerNo++) {
+              final key = _slotKey(teamNo, playerNo);
+
+              final playerId = _playerSelections[key];
+              if (playerId != null && playerId.isNotEmpty) {
+                assignments.add({
+                  'fixture_id': fixtureId,
+                  'fixture_rink_id': fixtureRinkId,
+                  'member_profile_id': playerId,
+                  'position': playerNo,
+                });
+                selectedMemberIds.add(playerId);
+              }
+
+              final opponentId = _opponentSelections[key];
+              if (opponentId != null && opponentId.isNotEmpty) {
+                assignments.add({
+                  'fixture_id': fixtureId,
+                  'fixture_rink_id': fixtureRinkId,
+                  'member_profile_id': opponentId,
+                  'position': 100 + playerNo,
+                });
+                selectedMemberIds.add(opponentId);
+              }
+            }
+
+            final markerKey = _slotKey(teamNo, 1);
+            final markerId = _markerSelections[markerKey];
+            if (markerId != null && markerId.isNotEmpty) {
+              assignments.add({
+                'fixture_id': fixtureId,
+                'fixture_rink_id': fixtureRinkId,
+                'member_profile_id': markerId,
+                'position': 201,
+              });
+              selectedMemberIds.add(markerId);
+            }
+          }
+
+          if (assignments.isNotEmpty) {
+            await _client.from('fixture_rink_assignments').insert(assignments);
+          }
+
+          final teamSelectionRows = await _client
+              .from('team_selections')
+              .insert({
+                'fixture_id': fixtureId,
+                'status': 'published',
+              })
+              .select('id');
+
+          final teamSelectionId =
+              (teamSelectionRows as List).first['id'].toString();
+
+          if (selectedMemberIds.isNotEmpty) {
+            final teamSelectionMembers = selectedMemberIds.map((memberId) {
+              final isBooker = memberId == captainMemberProfileId;
+
+              return {
+                'team_selection_id': teamSelectionId,
+                'member_profile_id': memberId,
+                'role': 'player',
+                'acceptance': isBooker ? 'accepted' : 'pending',
+                'is_selected': true,
+              };
+            }).toList();
+
+            await _client
+                .from('team_selection_members')
+                .insert(teamSelectionMembers);
+          }
+        }        
       }
 
       debugPrint('SAVE: pop');
@@ -2638,6 +2760,40 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         const SizedBox(height: 12),
                       ],
 
+                      if (_isTeamFixture && !_simpleBookingMode && !_isEventStyleFixture) ...[
+                        DropdownButtonFormField<String>(
+                          value: _teamId,
+                          decoration: const InputDecoration(
+                            labelText: 'Team',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _teams.map((team) {
+                            return DropdownMenuItem<String>(
+                              value: team['id'].toString(),
+                              child: Text((team['name'] ?? '').toString()),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _teamId = value;
+
+                              final selectedTeam = _teams.firstWhere(
+                                (t) => t['id'].toString() == value,
+                                orElse: () => <String, dynamic>{},
+                              );
+
+                              final selectedTeamName =
+                                  (selectedTeam['name'] ?? '').toString().trim();
+
+                              if (selectedTeamName.isNotEmpty) {
+                                _teamNameCtrl.text = selectedTeamName;
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
                       if (_isEventStyleFixture) ...[
                         TextField(
                           controller: _teamNameCtrl,
@@ -2753,6 +2909,8 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                                 icon: Icon(Icons.groups),
                               ),
                             ],
+
+
                             selected: {_workflowType},
                             onSelectionChanged: _workflowLockedByFixtureType
                                 ? null

@@ -15,6 +15,8 @@ import 'package:bowls_saas/Services/team_sheet_pdf.dart';
 import 'package:bowls_saas/Services/team_sheet_share.dart';
 import 'package:bowls_saas/Services/team_sheet_service.dart';
 
+import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
+
 class ManageTeamScreen extends StatefulWidget {
   final Map<String, dynamic> fixture;
   final bool readOnly;
@@ -630,342 +632,78 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     }
   }
 
-  Future<void> _showAddMemberDialog() async {
-    if (!_canAddPeople) return;
-
-    await _loadClubMembers();
-    if (!mounted) return;
+  Future<void> _addMembersFromPicker(Set<String> selectedIds) async {
+    if (selectedIds.isEmpty) return;
 
     final fixtureId = widget.fixture['id']?.toString();
     final teamId = widget.fixture['team_id']?.toString();
-    final requiresRsvp = widget.fixture['requires_rsvp'] == true;
 
-    if (fixtureId == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Fixture not loaded correctly.')),
-        );
-      }
-      return;
+    if (fixtureId == null || fixtureId.isEmpty) {
+      throw Exception('Fixture not loaded correctly.');
     }
 
-    // Allow team fixtures, RSVP fixtures, and pre-select fixtures.
-    // Only block truly unsupported fixture modes.
-    if (!_isTeamFixture && !requiresRsvp && !_isPreselectFixture) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Add players is not supported for this fixture type.'),
-          ),
-        );
-      }
-      return;
-    }
-
-    // Build the eligible list for the dialog
-    final List<Map<String, dynamic>> eligibleMembers = [];
-    final Set<String> existingIds = {};
+    List<Map<String, dynamic>> inserted = [];
 
     if (_isTeamFixture) {
       if (teamId == null || teamId.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Team fixture has no team assigned.')),
-          );
-        }
-        return;
+        throw Exception('Team fixture has no team assigned.');
       }
 
-      final existingRows = await _client
-          .from('team_members')
-          .select('member_profile_id')
-          .eq('team_id', teamId);
+      final payload = selectedIds
+          .map((id) => {
+                'team_id': teamId,
+                'member_profile_id': id,
+                'is_active': true,
+              })
+          .toList();
 
-      existingIds.addAll(
-        List<Map<String, dynamic>>.from(existingRows)
-            .map((r) => r['member_profile_id']?.toString())
-            .whereType<String>(),
+      inserted = List<Map<String, dynamic>>.from(
+        await _client.from('team_members').insert(payload).select(),
       );
-
-      for (final m in _clubMembers) {
-        final mpId = m['member_profile_id']?.toString();
-        if (mpId == null || mpId.isEmpty) continue;
-        if (existingIds.contains(mpId)) continue;
-        eligibleMembers.add(m);
-      }
     } else if (_isPreselectFixture) {
       if (_selectionId == null || _selectionId!.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Team selection not loaded yet.')),
-          );
-        }
-        return;
+        throw Exception('Team selection not loaded yet.');
       }
 
-      final existingRows = await _client
-          .from('team_selection_members')
-          .select('member_profile_id')
-          .eq('team_selection_id', _selectionId!);
+      final payload = selectedIds
+          .map((id) => {
+                'team_selection_id': _selectionId,
+                'member_profile_id': id,
+                'role': 'player',
+                'acceptance': 'pending',
+                'is_selected': true,
+              })
+          .toList();
 
-      existingIds.addAll(
-        List<Map<String, dynamic>>.from(existingRows)
-            .map((r) => r['member_profile_id']?.toString())
-            .whereType<String>(),
+      inserted = List<Map<String, dynamic>>.from(
+        await _client
+            .from('team_selection_members')
+            .insert(payload)
+            .select('member_profile_id, role, acceptance, is_selected'),
       );
-
-      for (final m in _clubMembers) {
-        final mpId = m['member_profile_id']?.toString();
-        if (mpId == null || mpId.isEmpty) continue;
-        if (existingIds.contains(mpId)) continue;
-        eligibleMembers.add(m);
-      }
     } else {
-      // RSVP fixture: exclude members already in fixture_rsvps
-      final existingRows = await _client
-          .from('fixture_rsvps')
-          .select('member_profile_id')
-          .eq('fixture_id', fixtureId);
+      final payload = selectedIds
+          .map((id) => {
+                'fixture_id': fixtureId,
+                'member_profile_id': id,
+                'status': 'maybe',
+              })
+          .toList();
 
-      existingIds.addAll(
-        List<Map<String, dynamic>>.from(existingRows)
-            .map((r) => r['member_profile_id']?.toString())
-            .whereType<String>(),
+      inserted = List<Map<String, dynamic>>.from(
+        await _client
+            .from('fixture_rsvps')
+            .insert(payload)
+            .select('id, fixture_id, member_profile_id, status'),
       );
-
-      for (final m in _clubMembers) {
-        final mpId = m['member_profile_id']?.toString();
-        if (mpId == null || mpId.isEmpty) continue;
-        if (existingIds.contains(mpId)) continue;
-        eligibleMembers.add(m);
-      }
-    }
-    // remove duplicates (safety)
-    final seen = <String>{};
-    eligibleMembers.removeWhere((m) {
-      final id = m['member_profile_id']?.toString() ?? '';
-      if (id.isEmpty) return true;
-      if (seen.contains(id)) return true;
-      seen.add(id);
-      return false;
-    });
-
-    // DEBUG
-    debugPrint('ADD_MEMBERS existing RSVP ids=$existingIds');
-    debugPrint(
-      'ADD_MEMBERS eligible ids=${eligibleMembers.map((m) => m['member_profile_id']).toList()}',
-    );
-
-    if (eligibleMembers.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No additional members available.')),
-        );
-      }
-      return;
     }
 
-    final selectedIds = <String>{};
+    await _load();
 
-    String dialogSearch = '';
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            final filteredMembers = eligibleMembers.where((m) {
-              final q = dialogSearch.trim().toLowerCase();
-              if (q.isEmpty) return true;
-
-              final displayName = (m['display_name'] ?? '').toString().toLowerCase();
-              final firstName = (m['first_name'] ?? '').toString().toLowerCase();
-              final lastName = (m['last_name'] ?? '').toString().toLowerCase();
-              final email = (m['email_address'] ?? '').toString().toLowerCase();
-
-              return displayName.contains(q) ||
-                  firstName.contains(q) ||
-                  lastName.contains(q) ||
-                  email.contains(q);
-            }).toList();
-
-            return AlertDialog(
-              title: Text(
-                _isTeamFixture
-                    ? 'Add players to team pool'
-                    : (_isPreselectFixture
-                        ? 'Add players to pre-select fixture'
-                        : 'Add players to RSVP pool'),
-              ),
-              content: SizedBox(
-                width: 420,
-                height: 460,
-                child: Column(
-                  children: [
-                    TextField(
-                      decoration: const InputDecoration(
-                        labelText: 'Search club members',
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (v) {
-                        setLocalState(() {
-                          dialogSearch = v;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: filteredMembers.isEmpty
-                          ? const Center(
-                              child: Text('No members match your search.'),
-                            )
-                          : ListView(
-                              children: filteredMembers.map((m) {
-                                final mpId = m['member_profile_id']?.toString() ?? '';
-                                final name =
-                                    (m['display_name'] ?? '(no name)').toString();
-                                final checked = selectedIds.contains(mpId);
-
-                                return CheckboxListTile(
-                                  value: checked,
-                                  dense: true,
-                                  title: Text(name),
-                                  controlAffinity:
-                                      ListTileControlAffinity.leading,
-                                  onChanged: (v) {
-                                    setLocalState(() {
-                                      if (v == true) {
-                                        selectedIds.add(mpId);
-                                      } else {
-                                        selectedIds.remove(mpId);
-                                      }
-                                    });
-                                  },
-                                );
-                              }).toList(),
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: Text(
-                    selectedIds.isEmpty
-                        ? 'Add selected'
-                        : 'Add selected (${selectedIds.length})',
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (ok != true) return;
-    if (selectedIds.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select at least one member.')),
-        );
-      }
-      return;
-    }
-
-    try {
-
-      List<Map<String, dynamic>> inserted = [];
-      
-      debugPrint(
-        'ADD_MEMBERS branch=${_isTeamFixture ? "team_members" : "fixture_rsvps"} '
-        'selectedIds=$selectedIds',
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Inserted rows: ${inserted.length}')),
       );
-
-      if (_isTeamFixture) {
-        final payload = selectedIds
-            .map((id) => {
-                  'team_id': teamId,
-                  'member_profile_id': id,
-                  'is_active': true,
-                })
-            .toList();
-
-        inserted = List<Map<String, dynamic>>.from(
-          await _client.from('team_members').insert(payload).select(),
-        );
-
-        debugPrint('ADD_MEMBERS TEAM inserted=$inserted');
-      } else if (_isPreselectFixture) {
-        final payload = selectedIds
-            .map((id) => {
-                  'team_selection_id': _selectionId,
-                  'member_profile_id': id,
-                  'role': 'player',
-                  'acceptance': 'pending',
-                  'is_selected': true,
-                })
-            .toList();
-
-        inserted = List<Map<String, dynamic>>.from(
-          await _client
-              .from('team_selection_members')
-              .insert(payload)
-              .select('member_profile_id, role, acceptance, is_selected'),
-        );
-
-        debugPrint('ADD_MEMBERS PRESELECT inserted=$inserted');
-      } else {
-        final payload = selectedIds
-            .map((id) => {
-                  'fixture_id': fixtureId,
-                  'member_profile_id': id,
-                  'status': 'maybe',
-                })
-            .toList();
-
-        debugPrint('ADD_MEMBERS RSVP payload=$payload');
-
-        inserted = List<Map<String, dynamic>>.from(
-          await _client
-              .from('fixture_rsvps')
-              .insert(payload)
-              .select('id, fixture_id, member_profile_id, status'),
-        );
-
-        debugPrint('ADD_MEMBERS RSVP inserted=$inserted');
-      }
-
-      await _load();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Inserted rows: ${inserted.length}')),
-        );
-      }
-/*       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _isTeamFixture
-                  ? 'Members added to team pool.'
-                  : 'Members added to RSVP pool as maybe.',
-            ),
-          ),
-        );
-      } */
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Add failed: $e')),
-        );
-      }
     }
   }
 
@@ -1399,22 +1137,32 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                   return;
                 }
 
-                if (_clubMembers.isEmpty) {
-                  setState(() => _loading = true);
-                  try {
-                    await _loadClubMembers();
-                  } catch (e) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to load club members: $e')),
-                    );
-                    return;
-                  } finally {
-                    if (mounted) setState(() => _loading = false);
-                  }
-                }
+                final selectedIds = await Navigator.of(context).push<List<String>?>(
+                  MaterialPageRoute(
+                    builder: (_) => ClubMemberPickerPage(
+                      clubId: widget.fixture['club_id'].toString(),
+                      title: 'Add Players',
+                      fixtureId: widget.fixture['id'].toString(),
+                      useFixtureSection: true,
+                      allowMultiple: true,
+                    ),
+                  ),
+                );
 
-                await _showAddMemberDialog();
+                if (!mounted || selectedIds == null || selectedIds.isEmpty) return;
+
+                setState(() => _loading = true);
+
+                try {
+                  await _addMembersFromPicker(selectedIds.toSet());
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to add players: $e')),
+                  );
+                } finally {
+                  if (mounted) setState(() => _loading = false);
+                }
               },
             ),
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),

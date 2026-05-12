@@ -1,0 +1,316 @@
+// Follow this setup guide to integrate the Deno language server with your editor:
+// https://deno.land/manual/getting_started/setup_your_environment
+// This enables autocomplete, go to definition, etc.
+
+// Setup type definitions for built-in Supabase Runtime APIs
+import "@supabase/functions-js/edge-runtime.d.ts"
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+
+console.log("Hello from Functions!")
+
+/* Deno.serve(async (req) => {
+  const { name } = await req.json()
+  const data = {
+    message: `Hello ${name}!`,
+  }
+
+  return new Response(
+    JSON.stringify(data),
+    { headers: { "Content-Type": "application/json" } },
+  )
+}) */
+
+function normalizeHeader(value: string): string {
+  return value
+    .replace(/^\uFEFF/, "") // strip UTF-8 BOM
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+}
+
+function parseCsv(text: string) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(",").map((h) => normalizeHeader(h));
+
+  return lines.slice(1).map((line, idx) => {
+    const cols = line.split(",").map((c) => c.trim());
+    const row: Record<string, string> = {};
+
+    headers.forEach((h, i) => {
+      row[h] = cols[i] ?? "";
+    });
+
+    row["_row"] = String(idx + 2); // includes header row
+    return row;
+  });
+}
+
+serve(async (req) => {
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets" }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    const body = await req.json();
+    const club_id: string = body.club_id;
+    const storage_path: string = body.storage_path; // path INSIDE the 'imports' bucket
+    const default_role: string = body.default_role ?? "member";
+    const invite_redirect_to: string = body.invite_redirect_to ?? ""; // e.g. https://your-web-app/#/invite
+
+    if (!club_id || !storage_path) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "club_id and storage_path are required" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    // Download CSV from Storage bucket 'imports'
+    const { data: file, error: dlErr } = await admin.storage.from("Imports").download(storage_path);
+    if (dlErr || !file) {
+      return new Response(
+        JSON.stringify({ ok: false, error: `Failed to download CSV: ${dlErr?.message}` }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const csvText = await file.text();
+    const rows = parseCsv(csvText);
+
+    // For small imports (30–40) this is OK.
+    // For larger imports we’d optimise user lookup.
+    const { data: usersList, error: listErr } = await admin.auth.admin.listUsers({ perPage: 2000 });
+    if (listErr) throw listErr;
+    const usersByEmail = new Map<string, string>();
+    for (const u of usersList.users) {
+      if (u.email) usersByEmail.set(u.email.toLowerCase(), u.id);
+    }
+
+    let created = 0;
+    let invited = 0;
+    let linked = 0;
+    let errors = 0;
+
+    const report: any[] = [];
+    const seenEmails = new Set<string>();
+
+    for (const r of rows) {
+      const rowNo = r["_row"];
+      const email = (r["email"] ?? "").trim().toLowerCase();
+      const first_name = (r["first_name"] ?? r["firstname"] ?? "").trim();
+      const last_name = (r["last_name"] ?? r["lastname"] ?? "").trim();
+      const password = (r["password"] ?? "").trim();
+      const role = (r["role"] ?? "").trim() || default_role;
+
+      // Missing email
+      if (!email) {
+        errors++;
+        report.push({ row: rowNo, email, status: "error", message: "Missing email" });
+        continue;
+      }
+
+      // Duplicate inside THIS CSV (case-insensitive)
+      const emailKey = email.toLowerCase();
+      if (seenEmails.has(emailKey)) {
+        report.push({ row: rowNo, email, status: "skipped_duplicate_in_csv" });
+        continue;
+      }      
+      seenEmails.add(emailKey);
+
+      try {
+        const emailKey = email.toLowerCase();
+        let authUserId: string | null = usersByEmail.get(emailKey) ?? null;
+        const existedAlready = authUserId != null;
+
+        let profileCreated = false;
+        let profileUpdated = false;
+
+        if (!authUserId && password) {
+          // Create auth user immediately (test-friendly)
+          const { data: createdUser, error: createErr } = await admin.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+          });
+          if (createErr) throw createErr;
+          authUserId = createdUser.user?.id ?? null;
+          if (!authUserId) throw new Error("createUser returned null user id");
+          usersByEmail.set(emailKey, authUserId);
+          created++;
+        }
+
+        if (!authUserId && !password) {
+          // Invite flow (production)
+          // Reuse an existing pending invite for this club/email if it exists
+          const { data: existingInvite, error: existingErr } = await admin
+            .from("club_invites")
+            .select("token")
+            .eq("club_id", club_id)
+            .ilike("email", email)
+            .is("used_at", null)
+            .eq("status", "pending")
+            .maybeSingle();
+
+          if (existingErr) throw existingErr;
+
+          let token: string;
+
+          if (existingInvite?.token) {
+            token = existingInvite.token as string;
+          } else {
+            const { data: inviteRow, error: inviteErr } = await admin
+              .from("club_invites")
+              .insert({
+                club_id,
+                email,
+                first_name,
+                last_name,
+                role,
+              })
+              .select("token")
+              .single();
+
+            if (inviteErr) throw inviteErr;
+            token = inviteRow.token as string;
+          }
+
+          const redirectTo = invite_redirect_to
+            ? `${invite_redirect_to}${invite_redirect_to.includes("?") ? "&" : "?"}token=${token}`
+            : undefined;
+
+          const { error: invErr } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo });
+          if (invErr) throw invErr;
+
+          invited++;
+          report.push({
+            row: rowNo,
+            email,
+            status: existingInvite?.token ? "invited_reused_token" : "invited",
+          });
+          continue;
+        }
+
+        if (!authUserId) throw new Error("Could not resolve auth user id");
+
+        // Ensure member_profiles row exists for this auth user
+        const { data: mpRow, error: mpErr } = await admin
+          .from("member_profiles")
+          .select("id, first_name, last_name, email_address")
+          .eq("user_id", authUserId)
+          .maybeSingle();
+
+        if (mpErr) throw mpErr;
+
+        let memberProfileId = mpRow?.id as string | undefined;
+
+        if (!memberProfileId) {
+          const { data: insMp, error: insMpErr } = await admin
+            .from("member_profiles")
+            .insert({
+              user_id: authUserId,
+              first_name,
+              last_name,
+              email_address: email,
+            })
+            .select("id")
+            .single();
+
+          if (insMpErr) throw insMpErr;
+          memberProfileId = insMp.id;
+
+          profileCreated = true;
+        } else {
+          const updates: Record<string, string> = {};
+
+          const existingFirst = (mpRow.first_name ?? "").toString().trim();
+          const existingLast = (mpRow.last_name ?? "").toString().trim();
+          const existingEmail = (mpRow.email_address ?? "").toString().trim();
+
+          if (!existingFirst && first_name) updates.first_name = first_name;
+          if (!existingLast && last_name) updates.last_name = last_name;
+          if (!existingEmail && email) updates.email_address = email;
+
+          if (Object.keys(updates).length > 0) {
+            const { error: updMpErr } = await admin
+              .from("member_profiles")
+              .update(updates)
+              .eq("id", memberProfileId);
+
+            if (updMpErr) throw updMpErr;
+            profileUpdated = true;
+          }
+        }
+
+        // Ensure club_memberships exists
+        const { error: cmErr } = await admin
+          .from("club_memberships")
+          .upsert(
+            { club_id, member_profile_id: memberProfileId, role },
+            { onConflict: "club_id,member_profile_id" },
+          );
+
+        if (cmErr) throw cmErr;
+
+        linked++;
+        let status = "already_linked_no_changes";
+
+        if (!existedAlready) {
+          status = "created_and_linked";
+        } else if (profileCreated) {
+          status = "created_profile_and_linked";
+        } else if (profileUpdated) {
+          status = "updated_profile_and_linked";
+        }
+
+        report.push({
+          row: rowNo,
+          email,
+          status,
+        });
+      } catch (e: any) {
+        errors++;
+        report.push({
+          row: rowNo,
+          email,
+          status: existedAlready ? "linked_existing_user" : "created_and_linked",
+        });
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        summary: { created, invited, linked, errors, total: rows.length },
+        report,
+      }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  } catch (e: any) {
+    return new Response(
+      JSON.stringify({ ok: false, error: e?.message ?? String(e) }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
+});
+
+/* To invoke locally:
+
+  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
+  2. Make an HTTP request:
+
+  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/import_members_csv' \
+    --header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0' \
+    --header 'Content-Type: application/json' \
+    --data '{"name":"Functions"}'
+
+*/

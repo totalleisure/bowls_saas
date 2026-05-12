@@ -185,15 +185,16 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
   }
 
   void _toggleMember(String memberProfileId) {
+    if (!widget.allowMultiple) {
+      Navigator.of(context).pop(<String>[memberProfileId]);
+      return;
+    }
+
     setState(() {
-      if (widget.allowMultiple) {
-        if (_selectedIds.contains(memberProfileId)) {
-          _selectedIds.remove(memberProfileId);
-        } else {
-          _selectedIds.add(memberProfileId);
-        }
+      if (_selectedIds.contains(memberProfileId)) {
+        _selectedIds.remove(memberProfileId);
       } else {
-        _selectedIds = {memberProfileId};
+        _selectedIds.add(memberProfileId);
       }
     });
   }
@@ -201,6 +202,10 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
   void _returnSelection() {
     Navigator.of(context).pop(_selectedIds.toList());
   }
+
+  void _clearSelection() {
+    Navigator.of(context).pop(<String>[]);
+  }  
 
   Widget _buildSectionToggle() {
     return SegmentedButton<MemberPickerSectionFilter>(
@@ -264,10 +269,16 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
-          TextButton(
-            onPressed: _returnSelection,
-            child: const Text('Return'),
-          ),
+          if (widget.initialSelectedIds.isNotEmpty)
+            TextButton(
+              onPressed: _clearSelection,
+              child: const Text('Clear'),
+            ),
+          if (widget.allowMultiple)
+            TextButton(
+              onPressed: _returnSelection,
+              child: const Text('Return'),
+            ),
         ],
       ),
       body: Stack(
@@ -318,18 +329,26 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
                           child: const Text('Cancel'),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _returnSelection,
-                          icon: const Icon(Icons.check),
-                          label: Text(
-                            widget.allowMultiple
-                                ? 'Return ${_selectedIds.length}'
-                                : 'Return',
+                      if (widget.initialSelectedIds.isNotEmpty) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _clearSelection,
+                            icon: const Icon(Icons.clear),
+                            label: const Text('Clear'),
                           ),
                         ),
-                      ),
+                      ],
+                      if (widget.allowMultiple) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _returnSelection,
+                            icon: const Icon(Icons.check),
+                            label: Text('Return ${_selectedIds.length}'),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ],

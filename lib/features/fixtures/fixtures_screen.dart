@@ -232,6 +232,13 @@ class _FixturesScreenState extends State<FixturesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: true, // 👈 helps, but not enough alone
+        leading: Navigator.of(context).canPop()
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
         title: Text(widget.memberBookingsOnly ? 'Member Fixtures' : 'Fixtures'),
         actions: <Widget>[
           IconButton(

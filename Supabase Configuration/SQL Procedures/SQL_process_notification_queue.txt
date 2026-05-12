@@ -1,0 +1,144 @@
+CREATE OR REPLACE FUNCTION public.process_notification_queue(p_limit integer DEFAULT 20)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  r record;
+  v_title text;
+  v_body text;
+  v_count int := 0;
+  v_player_name text;
+  v_fixture_label text;
+  v_fixture_date_text text;
+  v_home_away text;
+  v_venue_name text;
+  v_start_at timestamptz;
+begin
+  for r in
+    select *
+    from notification_queue
+    where status = 'pending'
+    order by created_at
+    limit p_limit
+  loop
+    begin
+      if r.target_member_profile_id is null then
+        update notification_queue
+        set status = 'failed',
+            attempts = attempts + 1,
+            last_error = 'target_member_profile_id is null'
+        where id = r.id;
+
+        continue;
+      end if;
+
+      v_player_name := coalesce(r.payload->>'player_name', 'A player');
+      v_fixture_label := coalesce(r.payload->>'fixture_label', 'Fixture');
+      v_home_away := coalesce(r.payload->>'home_away', '');
+      v_venue_name := coalesce(r.payload->>'venue_name', '');
+
+      begin
+        v_start_at := nullif(r.payload->>'fixture_date', '')::timestamptz;
+      exception
+        when others then
+          v_start_at := null;
+      end;
+
+      v_fixture_date_text := case
+        when v_start_at is not null then to_char(v_start_at, 'DD Mon YYYY HH24:MI')
+        else ''
+      end;
+
+      if r.event_type = 'team_acceptance_changed' then
+        v_title := 'Team update';
+
+        if (r.payload->>'new_acceptance') = 'accepted' then
+          v_body := v_player_name || ' has accepted selection for ' || v_fixture_label;
+        elsif (r.payload->>'new_acceptance') = 'declined' then
+          v_body := v_player_name || ' has declined selection for ' || v_fixture_label || '. Team changes may be needed.';
+        else
+          v_body := v_player_name || ' has changed response for ' || v_fixture_label;
+        end if;
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || ' On ' || v_fixture_date_text || '.';
+        end if;
+
+        if v_home_away <> '' or v_venue_name <> '' then
+          v_body := v_body
+            || case when v_home_away <> '' then ' ' || v_home_away else '' end
+            || case when v_venue_name <> '' then ' at ' || v_venue_name else '' end
+            || '.';
+        end if;
+      else
+        v_title := 'Update';
+        v_body := 'You have a new notification';
+      end if;
+
+      insert into app_notifications (
+        member_profile_id,
+        type,
+        title,
+        body,
+        data
+      )
+      values (
+        r.target_member_profile_id,
+        r.event_type,
+        v_title,
+        v_body,
+        jsonb_build_object(
+          'fixture_id', r.fixture_id,
+          'team_selection_id', r.team_selection_id,
+          'source_member_profile_id', r.member_profile_id
+        )
+      );
+/*
+      -- Optional email queue for important notifications
+      if r.event_type in ('team_acceptance_changed', 'reserve_promoted') then
+        insert into public.email_queue (
+          member_profile_id,
+          event_type,
+          recipient_email,
+          subject,
+          body,
+          payload
+        )
+
+        select
+          r.target_member_profile_id,
+          r.event_type,
+          mp.email_address,
+          v_title,
+          v_body,
+          jsonb_build_object(
+            'fixture_id', r.fixture_id,
+            'team_selection_id', r.team_selection_id
+          )
+        from public.member_profiles mp
+        where mp.id = r.target_member_profile_id
+          and mp.email_address is not null
+          and btrim(mp.email_address) <> '';
+      end if;
+*/
+      update notification_queue
+      set status = 'sent',
+          processed_at = now(),
+          last_error = null
+      where id = r.id;
+
+      v_count := v_count + 1;
+
+    exception when others then
+      update notification_queue
+      set status = 'failed',
+          attempts = attempts + 1,
+          last_error = sqlerrm
+      where id = r.id;
+    end;
+  end loop;
+
+  return v_count;
+end;
+$function$

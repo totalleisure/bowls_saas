@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+import 'admin_help_screen.dart';
 
 class PlayerHelpScreen extends StatefulWidget {
-  const PlayerHelpScreen({super.key});
+  final bool showAdminGuide;
+
+  const PlayerHelpScreen({
+    super.key,
+    this.showAdminGuide = false,
+  });
 
   @override
   State<PlayerHelpScreen> createState() => _PlayerHelpScreenState();
@@ -20,6 +26,7 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
   final _internalFixturesKey = GlobalKey();
   final _fixtureSheetsKey = GlobalKey();
   final _commonQuestionsKey = GlobalKey();
+  final _adminGuideKey = GlobalKey();
 
   Future<void> _jumpTo(GlobalKey key) async {
     final context = key.currentContext;
@@ -235,6 +242,11 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                       _topicButton('7. Internal Match Fixtures', _internalFixturesKey),
                       _topicButton('8. Fixture Sheets', _fixtureSheetsKey),
                       _topicButton('9. Common Questions', _commonQuestionsKey),
+                      if (widget.showAdminGuide)
+                        _topicButton(
+                          '10. Club Admin & Selector Guide',
+                          _adminGuideKey,
+                        ),                      
                     ],
                   ),
                 ),
@@ -517,6 +529,32 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     ),
                   ],
                 ),
+
+                if (widget.showAdminGuide)
+                  _buildSection(
+                    key: _adminGuideKey,
+                    title: '10. Club Admin & Selector Guide',
+                    children: [
+                      _p(
+                        'This section is available to club admins, selectors and authorised club officials. It covers club setup, fixture types, workflows, venues, greens, rinks, publishing, notifications and captain responsibilities.',
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.admin_panel_settings_outlined),
+                          label: const Text('Open Admin Guide'),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const AdminHelpScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),

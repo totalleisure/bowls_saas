@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../fixtures/fixture_details_page.dart';
 
+import 'diary_day_screen.dart';
 import 'rinks_day_view.dart';
 
 enum DiaryViewMode { month, week, day, rinks }
@@ -268,7 +269,7 @@ String? _myProfileId;
   Future<void> _openDay(DateTime date) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => RinkDayViewScreen(
+        builder: (_) => DiaryDayScreen(
           clubId: widget.clubId,
           clubName: widget.clubName,
           date: date,
