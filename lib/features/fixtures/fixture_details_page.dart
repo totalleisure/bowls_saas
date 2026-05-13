@@ -717,27 +717,62 @@ debugPrint(
       return;
     }
 
-    final assignments = await _client
-        .from('fixture_rink_assignments')
-        .select('''
-          fixture_rink_id,
-          member_profile_id,
-          position,
-          member:member_profiles(
-            id,
-            first_name,
-            last_name,
-            display_name
-          )
-        ''')
-        .inFilter('fixture_rink_id', rinkIds);
+final assignments = await _client
+    .from('fixture_rink_assignments')
+    .select('''
+      fixture_rink_id,
+      member_profile_id,
+      position,
+      member:member_profiles(
+        id,
+        first_name,
+        last_name,
+        display_name
+      )
+    ''')
+    .inFilter('fixture_rink_id', rinkIds);
+
+    final assignmentRows = List<Map<String, dynamic>>.from(assignments);
+
+    final selection = await _client
+        .from('team_selections')
+        .select('id')
+        .eq('fixture_id', widget.fixtureId)
+        .maybeSingle();
+
+    final acceptanceByMemberId = <String, String>{};
+
+    if (selection != null) {
+      final teamSelectionId = selection['id'].toString();
+
+      final selectionRows = await _client
+          .from('team_selection_members')
+          .select('member_profile_id, role, acceptance, is_selected')
+          .eq('team_selection_id', teamSelectionId)
+          .eq('is_selected', true);
+
+      for (final row in List<Map<String, dynamic>>.from(selectionRows)) {
+        final memberId = row['member_profile_id']?.toString();
+        final acceptance = row['acceptance']?.toString();
+
+        if (memberId != null && memberId.isNotEmpty && acceptance != null) {
+          acceptanceByMemberId[memberId] = acceptance;
+        }
+      }
+    }
+
+    for (final row in assignmentRows) {
+      final memberId = row['member_profile_id']?.toString();
+
+      row['acceptance'] =
+          memberId == null ? null : acceptanceByMemberId[memberId];
+    }
 
     if (!mounted) return;
 
     setState(() {
       _memberPreselectRinks = rinkRows;
-      _memberPreselectAssignments =
-          List<Map<String, dynamic>>.from(assignments);
+      _memberPreselectAssignments = assignmentRows;
     });
   }
 
@@ -1555,6 +1590,32 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     return _colourFromHex((cs?['foreground_hex'] ?? '#FFFFFF').toString());
   }
 
+  Color _acceptanceBackgroundColor(String? acceptance) {
+    switch ((acceptance ?? 'pending').toLowerCase()) {
+      case 'accepted':
+        return const Color(0xFFE8F5E9); // light green
+
+      case 'declined':
+        return const Color(0xFFFFEBEE); // light red
+
+      default:
+        return const Color(0xFFFFE0B2); // light amber
+    }
+  }
+
+  Color _acceptanceForegroundColor(String? acceptance) {
+    switch ((acceptance ?? 'pending').toLowerCase()) {
+      case 'accepted':
+        return Colors.green.shade900;
+
+      case 'declined':
+        return Colors.red.shade900;
+
+      default:
+        return Colors.orange.shade900;
+    }
+  }
+
   int? _teamNoForSelectedRink(String rinkLabel) {
     final label = rinkLabel.trim();
 
@@ -1838,24 +1899,37 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                 child: Text('Player $playerNo'),
                               ),
                               Expanded(
-                                child: OutlinedButton(
-                                onPressed: _canMaintainMemberPreselectFixture
-                                    ? () => _selectMemberPreselectSlot(
-                                          context: context,
-                                          fixtureRinkId: rinkId,
-                                          position: playerNo,
-                                          pickerTitle: 'Select Player $playerNo',
-                                          useFixtureSection: true,
-                                        )
-                                    : null,
-                                  child: Text(
-                                    _memberLabelFromAssignment(
-                                      _assignmentFor(
-                                        fixtureRinkId: rinkId,
-                                        position: playerNo,
+                                child: Builder(
+                                  builder: (context) {
+                                    final assignment = _assignmentFor(
+                                      fixtureRinkId: rinkId,
+                                      position: playerNo,
+                                    );
+
+                                    final acceptance =
+                                        assignment?['acceptance']?.toString();
+
+                                    return OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        backgroundColor:
+                                            _acceptanceBackgroundColor(acceptance),
+                                        foregroundColor:
+                                            _acceptanceForegroundColor(acceptance),
                                       ),
-                                    ),
-                                  ),
+                                      onPressed: _canMaintainMemberPreselectFixture
+                                          ? () => _selectMemberPreselectSlot(
+                                                context: context,
+                                                fixtureRinkId: rinkId,
+                                                position: playerNo,
+                                                pickerTitle: 'Select Player $playerNo',
+                                                useFixtureSection: true,
+                                              )
+                                          : null,
+                                      child: Text(
+                                        _memberLabelFromAssignment(assignment),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                               const SizedBox(width: 16),
@@ -1864,24 +1938,37 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                 child: Text('Opponent $playerNo'),
                               ),
                               Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _canMaintainMemberPreselectFixture
-                                      ? () => _selectMemberPreselectSlot(
-                                            context: context,
-                                            fixtureRinkId: rinkId,
-                                            position: 100 + playerNo,
-                                            pickerTitle: 'Select Opponent $playerNo',
-                                            useFixtureSection: true,
-                                          )
-                                      : null,
-                                  child: Text(
-                                    _memberLabelFromAssignment(
-                                      _assignmentFor(
-                                        fixtureRinkId: rinkId,
-                                        position: 100 + playerNo,
+                                child: Builder(
+                                  builder: (context) {
+                                    final assignment = _assignmentFor(
+                                      fixtureRinkId: rinkId,
+                                      position: 100 + playerNo,
+                                    );
+
+                                    final acceptance =
+                                        assignment?['acceptance']?.toString();
+
+                                    return OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        backgroundColor:
+                                            _acceptanceBackgroundColor(acceptance),
+                                        foregroundColor:
+                                            _acceptanceForegroundColor(acceptance),
                                       ),
-                                    ),
-                                  ),
+                                      onPressed: _canMaintainMemberPreselectFixture
+                                          ? () => _selectMemberPreselectSlot(
+                                                context: context,
+                                                fixtureRinkId: rinkId,
+                                                position: 100 + playerNo,
+                                                pickerTitle: 'Select Opponent $playerNo',
+                                                useFixtureSection: true,
+                                              )
+                                          : null,
+                                      child: Text(
+                                        _memberLabelFromAssignment(assignment),
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             ],
@@ -1896,40 +1983,43 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                               child: Text('Marker'),
                             ),
                             Expanded(
-                              child: OutlinedButton(
-                                onPressed: _canMaintainMemberPreselectFixture
-                                    ? () => _selectMemberPreselectSlot(
-                                          context: context,
-                                          fixtureRinkId: rinkId,
-                                          position: 201,
-                                          pickerTitle: 'Select Marker',
-                                          useFixtureSection: false,
-                                          initialSectionFilter: MemberPickerSectionFilter.open,
-                                        )
-                                    : null,
-                                child: Text(
-                                  _memberLabelFromAssignment(
-                                    _assignmentFor(
-                                      fixtureRinkId: rinkId,
-                                      position: 201,
+                              child: Builder(
+                                builder: (context) {
+                                  final assignment = _assignmentFor(
+                                    fixtureRinkId: rinkId,
+                                    position: 201,
+                                  );
+
+                                  final acceptance =
+                                      assignment?['acceptance']?.toString();
+
+                                  return OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      backgroundColor:
+                                          _acceptanceBackgroundColor(acceptance),
+                                      foregroundColor:
+                                          _acceptanceForegroundColor(acceptance),
                                     ),
-                                  ),
-                                ),
+                                    onPressed: _canMaintainMemberPreselectFixture
+                                        ? () => _selectMemberPreselectSlot(
+                                              context: context,
+                                              fixtureRinkId: rinkId,
+                                              position: 201,
+                                              pickerTitle: 'Select Marker',
+                                              useFixtureSection: false,
+                                              initialSectionFilter:
+                                                  MemberPickerSectionFilter.open,
+                                            )
+                                        : null,
+                                    child: Text(
+                                      _memberLabelFromAssignment(assignment),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
                           ],
                         ),
-
-/*                         if (homeRinkLabel.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Physical rink: $homeRinkLabel',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ],
-
-                        const Divider(height: 28), */
                       ],
                     );
                   },

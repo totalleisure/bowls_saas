@@ -1416,6 +1416,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   bool get _canUseRepeat {
+    if (_isPreselectFixture) return false;
+
     return _isClubAdmin || _isSelector || _isSuperuser;
   }
 
@@ -1873,7 +1875,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
         if (_isPreselectFixture && createdRinks.isNotEmpty) {
           final assignments = <Map<String, dynamic>>[];
-          final selectedMemberIds = <String>{};
+          final selectedMemberRoles = <String, String>{};
 
           for (final rink in createdRinks) {
             final teamNo = rink['fixture_rink_no'] as int;
@@ -1890,7 +1892,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                   'member_profile_id': playerId,
                   'position': playerNo,
                 });
-                selectedMemberIds.add(playerId);
+                selectedMemberRoles[playerId] = 'player';
               }
 
               final opponentId = _opponentSelections[key];
@@ -1901,7 +1903,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                   'member_profile_id': opponentId,
                   'position': 100 + playerNo,
                 });
-                selectedMemberIds.add(opponentId);
+                selectedMemberRoles[opponentId] = 'opponent';
               }
             }
 
@@ -1914,7 +1916,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                 'member_profile_id': markerId,
                 'position': 201,
               });
-              selectedMemberIds.add(markerId);
+              selectedMemberRoles[markerId] = 'marker';
             }
           }
 
@@ -1922,25 +1924,16 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
             await _client.from('fixture_rink_assignments').insert(assignments);
           }
 
-          final teamSelectionRows = await _client
-              .from('team_selections')
-              .insert({
-                'fixture_id': fixtureId,
-                'status': 'published',
-              })
-              .select('id');
-
-          final teamSelectionId =
-              (teamSelectionRows as List).first['id'].toString();
-
-          if (selectedMemberIds.isNotEmpty) {
-            final teamSelectionMembers = selectedMemberIds.map((memberId) {
+          if (teamSelectionId != null && selectedMemberRoles.isNotEmpty) {
+            final teamSelectionMembers = selectedMemberRoles.entries.map((entry) {
+              final memberId = entry.key;
+              final role = entry.value;
               final isBooker = memberId == captainMemberProfileId;
 
               return {
                 'team_selection_id': teamSelectionId,
                 'member_profile_id': memberId,
-                'role': 'player',
+                'role': role,
                 'acceptance': isBooker ? 'accepted' : 'pending',
                 'is_selected': true,
               };
