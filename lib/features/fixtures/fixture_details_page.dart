@@ -1734,68 +1734,59 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
     final selected = await Navigator.of(context).push<List<String>?>(
       MaterialPageRoute(
-        builder: (_) {
-          if (initialSectionFilter != null) {
-            return ClubMemberPickerPage(
-              clubId: _fixture?['club_id'],
-              title: pickerTitle,
-              fixtureId: widget.fixtureId,
-              useFixtureSection: useFixtureSection,
-              initialSectionFilter: initialSectionFilter!,
-              allowMultiple: false,
-              initialSelectedIds: {
-                if (oldMemberProfileId != null && oldMemberProfileId.isNotEmpty)
-                  oldMemberProfileId,
-              },
-            );
-          }
-
-          return ClubMemberPickerPage(
-            clubId: _fixture?['club_id'],
-            title: pickerTitle,
-            fixtureId: widget.fixtureId,
-            useFixtureSection: useFixtureSection,
-            allowMultiple: false,
-            initialSelectedIds: {
-              if (oldMemberProfileId != null && oldMemberProfileId.isNotEmpty)
-                oldMemberProfileId,
-            },
-          );
-        },
+        builder: (_) => ClubMemberPickerPage(
+          clubId: _fixture!['club_id'].toString(),
+          title: pickerTitle,
+          fixtureId: widget.fixtureId,
+          useFixtureSection: useFixtureSection,
+          initialSectionFilter:
+              initialSectionFilter ?? MemberPickerSectionFilter.mixed,
+          allowMultiple: false,
+          initialSelectedIds: {
+            if (oldMemberProfileId != null && oldMemberProfileId.isNotEmpty)
+              oldMemberProfileId,
+          },
+        ),
       ),
     );
 
     if (!mounted) return;
 
-    if (selected == null || selected.isEmpty) return;
+    if (selected == null) return; // Cancel
 
-    final newMemberProfileId = selected.first;
+    final newMemberProfileId = selected.isEmpty ? null : selected.first;
 
+    // If old member removed or replaced, mark old one unselected
     if (oldMemberProfileId != null &&
         oldMemberProfileId.isNotEmpty &&
         oldMemberProfileId != newMemberProfileId) {
       await _markTeamSelectionMemberUnselected(oldMemberProfileId);
     }
 
+    // Save selected member OR clear assignment
     await _saveFixtureRinkAssignment(
       fixtureRinkId: fixtureRinkId,
       position: position,
       memberProfileId: newMemberProfileId,
     );
 
-    await _markTeamSelectionMemberSelected(newMemberProfileId);
+    // If new member selected, mark selected
+    if (newMemberProfileId != null && newMemberProfileId.isNotEmpty) {
+      await _markTeamSelectionMemberSelected(newMemberProfileId);
+    }
   }
 
   Widget _buildMemberPreselectEditorPlaceholder() {
 
-debugPrint(
-  'MEMBER PRESELECT EDITOR: '
-  'isMemberBookable=$_usesSimpleBookingWorkflow '
-  'canManageTeam=$_canManageTeam '
-  'canMaintain=$_canMaintainMemberPreselectFixture '
-  'myMember=$_myMemberProfileId '
-  'captain=${_fixture?['captain_member_profile_id']}',
-);
+    debugPrint(
+      'MEMBER PRESELECT EDITOR: '
+      'isMemberBookable=$_usesSimpleBookingWorkflow '
+      'canManageTeam=$_canManageTeam '
+      'canMaintain=$_canMaintainMemberPreselectFixture '
+      'myMember=$_myMemberProfileId '
+      'captain=${_fixture?['captain_member_profile_id']}',
+    );
+
     return Card(
       margin: const EdgeInsets.only(top: 8, bottom: 20),
       child: Padding(
@@ -1826,8 +1817,6 @@ debugPrint(
                     final teamNo = rink['fixture_rink_no'] ?? '';
                     final playersPerSide =
                         (rink['players_per_rink'] as int?) ?? 2;
-                    final homeRinkLabel =
-                        (rink['home_rink_label'] ?? '').toString();
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,

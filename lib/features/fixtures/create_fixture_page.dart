@@ -3,10 +3,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
+import '../rinks/widgets/rink_availability_panel.dart';
+import 'package:bowls_saas/core/helpers/member_picker_helpers.dart';
+import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
+
 import 'fixture_details_page.dart';
 import 'repeat_fixture_planner_page.dart';
-import '../rinks/widgets/rink_availability_panel.dart';
-import '../../core/widgets/club_member_picker_page.dart';
 
 enum FixtureLocationType { home, away }
 enum FixtureWorkflowType { rsvp, team }
@@ -1307,12 +1309,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final width = MediaQuery.of(context).size.width;
 
     if (width >= 1000) {
-      return 'assets/images/auth_bg_desktop.png';
+      return 'assets/images/blank_bg_desktop_2.png';
     }
     if (width >= 600) {
-      return 'assets/images/auth_bg_tablet.png';
+      return 'assets/images/blank_bg_tablet_2.png';
     }
-    return 'assets/images/auth_bg_phone.png';
+    return 'assets/images/blank_bg_phone_2.png';
   }  
 
   bool get _canEditAdminFixtureDetails =>
@@ -2044,45 +2046,21 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
-                          final key = _slotKey(teamNo, playerNo);
-                          final current = _playerSelections[key];
-
-                          final selectedList = await Navigator.of(context).push<List<String>?>(
-                            MaterialPageRoute(
-                              builder: (_) => ClubMemberPickerPage(
-                                clubId: widget.clubId,
-                                title: 'Select Player $playerNo',
-                                fixtureId: null,
-                                useFixtureSection: true,
-                                allowMultiple: false,
-                                initialSelectedIds: {
-                                  if (current != null && current.isNotEmpty) current,
-                                },
-                              ),
-                            ),
+                          await pickFixtureSlotMember(
+                            context: context,
+                            clubId: widget.clubId,
+                            title: 'Select Player $playerNo',
+                            bucket: 'player',
+                            key: _slotKey(teamNo, playerNo),
+                            selections: _playerSelections,
+                            fixtureId: null,
+                            useFixtureSection: true,
+                            showError: _showSaveErrorDialog,
+                            memberAlreadySelectedElsewhere:
+                                _memberAlreadySelectedElsewhere,
                           );
 
-                          if (!mounted) return;
-                          if (selectedList == null) return;
-
-                          final selected = selectedList.isEmpty ? '' : selectedList.first;
-                          if (selected != null && mounted) {
-                            if (selected.isNotEmpty &&
-                                _memberAlreadySelectedElsewhere(
-                                  memberProfileId: selected,
-                                  targetBucket: 'player',
-                                  targetKey: key,
-                                )) {
-                              await _showSaveErrorDialog(
-                                'This member has already been selected elsewhere in this fixture.',
-                              );
-                              return;
-                            }
-
-                            setState(() {
-                              _playerSelections[key] = selected.isEmpty ? null : selected;
-                            });
-                          }
+                          if (mounted) setState(() {});
                         },
                         child: Text(
                           _selectedMemberLabel(_playerSelections[_slotKey(teamNo, playerNo)]),
@@ -2097,46 +2075,20 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
-                          final key = _slotKey(teamNo, playerNo);
-                          final current = _opponentSelections[key];
-
-                          final selectedList = await Navigator.of(context).push<List<String>?>(
-                            MaterialPageRoute(
-                              builder: (_) => ClubMemberPickerPage(
-                                clubId: widget.clubId,
-                                title: 'Select Opponent $playerNo',
-                                fixtureId: null,
-                                useFixtureSection: true,
-                                allowMultiple: false,
-                                initialSelectedIds: {
-                                  if (current != null && current.isNotEmpty) current,
-                                },
-                              ),
-                            ),
+                          await pickFixtureSlotMember(
+                            context: context,
+                            clubId: widget.clubId,
+                            title: 'Select Opponent $playerNo',
+                            bucket: 'opponent',
+                            key: _slotKey(teamNo, playerNo),
+                            selections: _opponentSelections,
+                            fixtureId: null,
+                            useFixtureSection: true,
+                            showError: _showSaveErrorDialog,
+                            memberAlreadySelectedElsewhere: _memberAlreadySelectedElsewhere,
                           );
 
-                          if (!mounted) return;
-                          if (selectedList == null) return;
-
-                          final selected = selectedList.isEmpty ? '' : selectedList.first;
-
-                          if (selected != null && mounted) {
-                            if (selected.isNotEmpty &&
-                                _memberAlreadySelectedElsewhere(
-                                  memberProfileId: selected,
-                                  targetBucket: 'opponent',
-                                  targetKey: key,
-                                )) {
-                              await _showSaveErrorDialog(
-                                'This member has already been selected elsewhere in this fixture.',
-                              );
-                              return;
-                            }
-
-                            setState(() {
-                              _opponentSelections[key] = selected.isEmpty ? null : selected;
-                            });
-                          }
+                          if (mounted) setState(() {});
                         },
                         child: Text(
                           _selectedMemberLabel(_opponentSelections[_slotKey(teamNo, playerNo)]),
@@ -2157,47 +2109,21 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () async {
-                        final key = _slotKey(teamNo, 1);
-                        final current = _markerSelections[key];
-
-                        final selectedList = await Navigator.of(context).push<List<String>?>(
-                          MaterialPageRoute(
-                            builder: (_) => ClubMemberPickerPage(
-                              clubId: widget.clubId,
-                              title: 'Select Marker',
-                              fixtureId: null,
-                              useFixtureSection: false,
-                              initialSectionFilter: MemberPickerSectionFilter.open,
-                              allowMultiple: false,
-                              initialSelectedIds: {
-                                if (current != null && current.isNotEmpty) current,
-                              },
-                            ),
-                          ),
+                        await pickFixtureSlotMember(
+                          context: context,
+                          clubId: widget.clubId,
+                          title: 'Select Marker',
+                          bucket: 'marker',
+                          key: _slotKey(teamNo, 1),
+                          selections: _markerSelections,
+                          fixtureId: null,
+                          useFixtureSection: false,
+                          initialSectionFilter: MemberPickerSectionFilter.open,
+                          showError: _showSaveErrorDialog,
+                          memberAlreadySelectedElsewhere: _memberAlreadySelectedElsewhere,
                         );
 
-                        if (!mounted) return;
-                        if (selectedList == null) return;
-
-                        final selected = selectedList.isEmpty ? '' : selectedList.first;
-
-                        if (selected != null && mounted) {
-                          if (selected.isNotEmpty &&
-                              _memberAlreadySelectedElsewhere(
-                                memberProfileId: selected,
-                                targetBucket: 'marker',
-                                targetKey: key,
-                              )) {
-                            await _showSaveErrorDialog(
-                              'This member has already been selected elsewhere in this fixture.',
-                            );
-                            return;
-                          }
-
-                          setState(() {
-                            _markerSelections[key] = selected.isEmpty ? null : selected;
-                          });
-                        }
+                        if (mounted) setState(() {});
                       },
                       child: Text(
                         _selectedMemberLabel(_markerSelections[_slotKey(teamNo, 1)]),

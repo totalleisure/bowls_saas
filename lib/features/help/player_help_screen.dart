@@ -44,11 +44,11 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
     final width = MediaQuery.of(context).size.width;
 
     if (width >= 1000) {
-      return 'assets/images/auth_bg_desktop.png';
+      return 'assets/images/blank_bg_desktop_2.png';
     } else if (width >= 600) {
-      return 'assets/images/auth_bg_tablet.png';
+      return 'assets/images/blank_bg_tablet_2.png';
     } else {
-      return 'assets/images/auth_bg_phone.png';
+      return 'assets/images/blank_bg_phone_2.png';
     }
   }
   

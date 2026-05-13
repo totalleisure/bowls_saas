@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'team_permissions.dart';
-import 'team_pool_add_members_screen.dart';
+import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
 class TeamPoolScreen extends StatefulWidget {
   final String teamId;
@@ -65,9 +65,15 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
 
   String _fullName(Map<String, dynamic>? mp) {
     if (mp == null) return '';
+
     final fn = (mp['first_name'] ?? '').toString().trim();
     final ln = (mp['last_name'] ?? '').toString().trim();
-    final name = ('$fn $ln').trim();
+
+    final name = [
+      if (ln.isNotEmpty) ln,
+      if (fn.isNotEmpty) fn,
+    ].join(', ');
+
     return name.isEmpty ? '(No name)' : name;
   }
 
@@ -87,6 +93,22 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
           .order('first_name', referencedTable: 'member_profiles');
 
       final list = (res as List).cast<Map<String, dynamic>>();
+
+      list.sort((a, b) {
+        final amp = a['member_profiles'] as Map<String, dynamic>?;
+        final bmp = b['member_profiles'] as Map<String, dynamic>?;
+
+        final aLast = (amp?['last_name'] ?? '').toString().toLowerCase();
+        final bLast = (bmp?['last_name'] ?? '').toString().toLowerCase();
+
+        final lastCompare = aLast.compareTo(bLast);
+        if (lastCompare != 0) return lastCompare;
+
+        final aFirst = (amp?['first_name'] ?? '').toString().toLowerCase();
+        final bFirst = (bmp?['first_name'] ?? '').toString().toLowerCase();
+
+        return aFirst.compareTo(bFirst);
+      });
 
       setState(() {
         _rows = list;
@@ -113,17 +135,56 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
   }
 
   Future<void> _openAddPlayers() async {
-    final added = await Navigator.of(context).push<bool>(
+    final alreadyInPool = _rows
+        .map((r) => r['member_profile_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    final selectedIds = await Navigator.of(context).push<List<String>?>(
       MaterialPageRoute(
-        builder: (_) => TeamPoolAddMembersScreen(
-          teamId: widget.teamId,
+        builder: (_) => ClubMemberPickerPage(
           clubId: widget.clubId,
+          title: 'Add players to ${widget.teamName}',
+
+          // We are choosing from the whole club, not only existing team members.
+          teamId: null,
+
+          // Team Pool is not fixture-section-led unless you pass a fixture id.
+          fixtureId: null,
+          useFixtureSection: false,
+          initialSectionFilter: MemberPickerSectionFilter.open,
+
+          allowMultiple: true,
+
+          // This stops existing pool members appearing.
+          excludeMemberProfileIds: alreadyInPool,
         ),
       ),
     );
 
-    if (added == true) {
+    if (!mounted || selectedIds == null || selectedIds.isEmpty) return;
+
+    setState(() => _loading = true);
+
+    try {
+      final payload = selectedIds.map((memberProfileId) {
+        return {
+          'team_id': widget.teamId,
+          'member_profile_id': memberProfileId,
+          'is_active': true,
+        };
+      }).toList();
+
+      await _client.from('team_members').insert(payload);
+
       await _loadPool();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to add players: $e')),
+      );
     }
   }
 

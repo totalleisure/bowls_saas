@@ -1070,6 +1070,30 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     );
   }
 
+  Set<String> _memberIdsAlreadyInAddPeopleList() {
+    final ids = <String>{};
+
+    // 1) Anyone already selected into the actual team
+    for (final r in _selected) {
+      final id = r['member_profile_id']?.toString();
+      if (id != null && id.isNotEmpty) {
+        ids.add(id);
+      }
+    }
+
+    // 2) Anyone already visible in the candidate/pool list
+    // This matters because the Add Players picker is adding people
+    // to the source list, not directly to the final selected team.
+    for (final r in _pool) {
+      final id = r['member_profile_id']?.toString();
+      if (id != null && id.isNotEmpty) {
+        ids.add(id);
+      }
+    }
+
+    return ids;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isPublished = _status == 'published';
@@ -1137,6 +1161,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                   return;
                 }
 
+                final excludeIds = _memberIdsAlreadyInAddPeopleList();
+
                 final selectedIds = await Navigator.of(context).push<List<String>?>(
                   MaterialPageRoute(
                     builder: (_) => ClubMemberPickerPage(
@@ -1145,6 +1171,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                       fixtureId: widget.fixture['id'].toString(),
                       useFixtureSection: true,
                       allowMultiple: true,
+                      excludeMemberProfileIds: excludeIds,
                     ),
                   ),
                 );

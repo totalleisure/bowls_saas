@@ -285,7 +285,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
         children: [
           Positioned.fill(
             child: Image.asset(
-              'assets/images/auth_bg_tablet.png', // change to your real background asset
+              'assets/images/blank_bg_tablet_2.png', // change to your real background asset
               fit: BoxFit.cover,
               opacity: const AlwaysStoppedAnimation(0.16),
             ),

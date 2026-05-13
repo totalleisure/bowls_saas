@@ -258,7 +258,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
     }
   }
 
-  Future<String?> _pickCaptaincyMember({
+  Future<List<String>?> _pickCaptaincyMember({
     required String title,
     String? currentId,
   }) async {
@@ -291,8 +291,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
       ),
     );
 
-    if (result == null || result.isEmpty) return null;
-    return result.first;
+    return result; // null = Cancel, [] = Clear, [id] = Selected
   }
 
   @override
@@ -413,7 +412,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
                         if (selected != null) {
                           setState(() {
-                            _selectedCaptainId = selected;
+                            _selectedCaptainId = selected.isEmpty ? null : selected.first;
                           });
                         }
                       },
@@ -437,7 +436,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
                         if (selected != null) {
                           setState(() {
-                            _selectedViceCaptainId = selected;
+                            _selectedViceCaptainId = selected.isEmpty ? null : selected.first;
                           });
                         }
                       },
