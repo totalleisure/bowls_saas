@@ -25,9 +25,9 @@ class _MembersScreenState extends State<MembersScreen> {
 
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
-  
+
   String? _error;
-  
+
   String _searchText = '';
 
   List<Map<String, dynamic>> _rows = const [];
@@ -46,15 +46,18 @@ class _MembersScreenState extends State<MembersScreen> {
       final email = (mp['email_address'] ?? '').toString().toLowerCase();
       final phone = (mp['phone'] ?? '').toString().toLowerCase();
       final role = (row['role'] ?? '').toString().toLowerCase();
-
+      final position = (mp['preferred_position'] ?? '')
+          .toString()
+          .toLowerCase();
       return first.contains(q) ||
           last.contains(q) ||
           displayName.contains(q) ||
           email.contains(q) ||
           phone.contains(q) ||
-          role.contains(q);
+          role.contains(q) ||
+          position.contains(q);
     }).toList();
-  }  
+  }
 
   String _roleLabel(String role) {
     switch (role) {
@@ -67,6 +70,18 @@ class _MembersScreenState extends State<MembersScreen> {
       default:
         return 'Member';
     }
+  }
+
+  String? _preferredPositionLabel(String? value) {
+    switch ((value ?? '').toLowerCase()) {
+      case 'lead':
+        return 'Lead';
+      case 'third':
+        return 'Third';
+      case 'skip':
+        return 'Skip';
+    }
+    return null;
   }
 
   final ScrollController _scrollController = ScrollController();
@@ -118,8 +133,11 @@ class _MembersScreenState extends State<MembersScreen> {
           .from('club_memberships')
           .select(
             'member_profile_id, role, is_active, '
-            'member_profiles(email_address, first_name, last_name, display_name, phone, '
-            'gender, gender_self_described, sex_at_birth)'
+            'member_profiles('
+            'email_address, first_name, last_name, display_name, phone, '
+            'address_line1, address_line2, town_city, county, postcode, '
+            'gender, gender_self_described, sex_at_birth, preferred_position'
+            ')',
           )
           .eq('club_id', widget.clubId)
           .order('role', ascending: true);
@@ -191,7 +209,9 @@ class _MembersScreenState extends State<MembersScreen> {
           '${widget.clubId}/members_${DateTime.now().millisecondsSinceEpoch}.csv';
 
       // Upload to Storage (bucket name is case sensitive in your project)
-      await client.storage.from('Imports').uploadBinary(
+      await client.storage
+          .from('Imports')
+          .uploadBinary(
             storagePath,
             bytes,
             fileOptions: const FileOptions(
@@ -238,11 +258,16 @@ class _MembersScreenState extends State<MembersScreen> {
                   Text('Errors: ${summary['errors'] ?? 0}'),
                   const SizedBox(height: 12),
                   if ((summary['errors'] ?? 0) != 0) ...[
-                    const Text('Errors:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const Text(
+                      'Errors:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 6),
                     for (final r in report)
                       if (r is Map && r['status'] == 'error')
-                        Text('Row ${r['row']}: ${r['email'] ?? ''} — ${r['message'] ?? ''}'),
+                        Text(
+                          'Row ${r['row']}: ${r['email'] ?? ''} — ${r['message'] ?? ''}',
+                        ),
                   ],
                 ],
               ),
@@ -261,9 +286,9 @@ class _MembersScreenState extends State<MembersScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Import failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -310,7 +335,7 @@ class _MembersScreenState extends State<MembersScreen> {
     });
   }
 
-  Future<bool> _confirmImportCsv({  
+  Future<bool> _confirmImportCsv({
     required String fileName,
     required int bytes,
   }) async {
@@ -332,23 +357,30 @@ class _MembersScreenState extends State<MembersScreen> {
           'This will create users (if passwords are provided) or create invites (if passwords are blank).',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Import')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Import'),
+          ),
         ],
       ),
     );
 
     return ok == true;
   }
-  
+
   Future<void> _openMemberEdit({
     required String memberProfileId,
     required Map<String, dynamic> memberProfile,
     required String role,
-    required bool active,    
+    required bool active,
   }) async {
-    _savedScrollOffset =
-        _scrollController.hasClients ? _scrollController.offset : 0;
+    _savedScrollOffset = _scrollController.hasClients
+        ? _scrollController.offset
+        : 0;
 
     final updated = await Navigator.push<bool>(
       context,
@@ -400,151 +432,171 @@ class _MembersScreenState extends State<MembersScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!))
-              : Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                      child: TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Search members',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _searchText.isEmpty
-                              ? null
-                              : IconButton(
-                                  icon: const Icon(Icons.clear),
-                                  tooltip: 'Clear search',
-                                  onPressed: () {
-                                    setState(() {
-                                      _searchText = '';
-                                    });
-                                  },
-                                ),
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            _searchText = value;
-                          });
-                        },
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          '${_filteredRows.length} member${_filteredRows.length == 1 ? '' : 's'}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey[700],
-                              ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: _filteredRows.isEmpty
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.search_off,
-                                      size: 48,
-                                      color: Colors.grey,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      _searchText.trim().isEmpty
-                                          ? 'No members found.'
-                                          : 'No members match your search.',
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        color: Colors.grey,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                          : ListView.builder(
-                              key: const PageStorageKey('members-list'),
-                              controller: _scrollController,
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              itemCount: _filteredRows.length,
-                              itemBuilder: (context, index) {
-                                final row = _filteredRows[index];
-
-                                final memberProfileId =
-                                    row['member_profile_id']?.toString() ?? '';
-
-                                final mp = (row['member_profiles'] as Map?)
-                                        ?.cast<String, dynamic>() ??
-                                    const {};
-
-                                final email =
-                                    (mp['email_address'] ?? '').toString().trim();
-                                final first =
-                                    (mp['first_name'] ?? '').toString().trim();
-                                final last =
-                                    (mp['last_name'] ?? '').toString().trim();
-                                final displayName =
-                                    (mp['display_name'] ?? '').toString().trim();
-                                final phone = (mp['phone'] ?? '').toString().trim();
-
-                                final role = (row['role'] ?? 'member').toString();
-                                final active = (row['is_active'] ?? true) as bool;
-
-                                final showPhoneFlag =
-                                    (mp['show_phone_in_directory'] ?? true) as bool;
-                                final showEmailFlag =
-                                    (mp['show_email_in_directory'] ?? true) as bool;
-
-                                final isAdminViewer = _canManageMembers;
-                                final showPhone = isAdminViewer || showPhoneFlag;
-                                final showEmail = isAdminViewer || showEmailFlag;
-
-                                final name = displayName.isNotEmpty
-                                    ? displayName
-                                    : [first, last]
-                                        .where((e) => e.isNotEmpty)
-                                        .join(' ');
-
-                                return Card(
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  child: ListTile(
-                                    title: Text(name.isEmpty ? '(no name)' : name),
-                                    subtitle: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (_canManageMembers) Text(_roleLabel(role)),
-                                        if (showPhone && phone.isNotEmpty) Text(phone),
-                                        if (showEmail && email.isNotEmpty) Text(email),
-                                        if (!active)
-                                          const Text(
-                                            'Inactive',
-                                            style: TextStyle(color: Colors.grey),
-                                          ),
-                                      ],
-                                    ),
-                                    trailing: const Icon(Icons.chevron_right),
-                                    onTap: () => _openMemberEdit(
-                                      memberProfileId: memberProfileId,
-                                      memberProfile: mp,
-                                      role: role,
-                                      active: active,
-                                    ),
-                                  ),
-                                );
+          ? Center(child: Text(_error!))
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search members',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchText.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              tooltip: 'Clear search',
+                              onPressed: () {
+                                setState(() {
+                                  _searchText = '';
+                                });
                               },
                             ),
+                      border: const OutlineInputBorder(),
+                      isDense: true,
                     ),
-                  ],
+                    onChanged: (value) {
+                      setState(() {
+                        _searchText = value;
+                      });
+                    },
+                  ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${_filteredRows.length} member${_filteredRows.length == 1 ? '' : 's'}',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: _filteredRows.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.search_off,
+                                  size: 48,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _searchText.trim().isEmpty
+                                      ? 'No members found.'
+                                      : 'No members match your search.',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          key: const PageStorageKey('members-list'),
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: _filteredRows.length,
+                          itemBuilder: (context, index) {
+                            final row = _filteredRows[index];
+
+                            final memberProfileId =
+                                row['member_profile_id']?.toString() ?? '';
+
+                            final mp =
+                                (row['member_profiles'] as Map?)
+                                    ?.cast<String, dynamic>() ??
+                                const {};
+
+                            final email = (mp['email_address'] ?? '')
+                                .toString()
+                                .trim();
+                            final first = (mp['first_name'] ?? '')
+                                .toString()
+                                .trim();
+                            final last = (mp['last_name'] ?? '')
+                                .toString()
+                                .trim();
+                            final displayName = (mp['display_name'] ?? '')
+                                .toString()
+                                .trim();
+                            final phone = (mp['phone'] ?? '').toString().trim();
+
+                            final role = (row['role'] ?? 'member').toString();
+                            final active = (row['is_active'] ?? true) as bool;
+
+                            final showPhoneFlag =
+                                (mp['show_phone_in_directory'] ?? true) as bool;
+                            final showEmailFlag =
+                                (mp['show_email_in_directory'] ?? true) as bool;
+
+                            final isAdminViewer = _canManageMembers;
+                            final showPhone = isAdminViewer || showPhoneFlag;
+                            final showEmail = isAdminViewer || showEmailFlag;
+
+                            final preferredPosition =
+                                (mp['preferred_position'] ?? '')
+                                    .toString()
+                                    .trim();
+
+                            final preferredPositionLabel =
+                                _preferredPositionLabel(preferredPosition);
+
+                            final name = displayName.isNotEmpty
+                                ? displayName
+                                : [
+                                    first,
+                                    last,
+                                  ].where((e) => e.isNotEmpty).join(' ');
+
+                            return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              child: ListTile(
+                                title: Text(
+                                  '${name.isEmpty ? '(no name)' : name}'
+                                  '${preferredPositionLabel == null ? '' : ' (Preferred playing position: $preferredPositionLabel)'}',
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_canManageMembers)
+                                      Text(_roleLabel(role)),
+                                    if (showPhone && phone.isNotEmpty)
+                                      Text(phone),
+                                    if (showEmail && email.isNotEmpty)
+                                      Text(email),
+                                    if (!active)
+                                      const Text(
+                                        'Inactive',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                  ],
+                                ),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => _openMemberEdit(
+                                  memberProfileId: memberProfileId,
+                                  memberProfile: mp,
+                                  role: role,
+                                  active: active,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
     );
   }
 }

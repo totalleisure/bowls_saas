@@ -14,7 +14,8 @@ Future<void> pickFixtureSlotMember({
     required String memberProfileId,
     required String targetBucket,
     required String targetKey,
-  }) memberAlreadySelectedElsewhere,
+  })
+  memberAlreadySelectedElsewhere,
   String? fixtureId,
   bool useFixtureSection = true,
   MemberPickerSectionFilter initialSectionFilter =

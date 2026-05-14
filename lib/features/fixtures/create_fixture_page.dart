@@ -11,6 +11,7 @@ import 'fixture_details_page.dart';
 import 'repeat_fixture_planner_page.dart';
 
 enum FixtureLocationType { home, away }
+
 enum FixtureWorkflowType { rsvp, team }
 
 class CreateFixturePage extends StatefulWidget {
@@ -48,10 +49,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   bool _isTeamFixture = false;
   bool _isPreselectFixture = false;
 
+  bool _hasUnsavedChanges = false;
+
+  void _markDirty() {
+    if (_hasUnsavedChanges) return;
+    setState(() {
+      _hasUnsavedChanges = true;
+    });
+  }
+
   final _teamNameCtrl = TextEditingController();
 
   final _notesCtrl = TextEditingController();
-
 
   DateTime? _startAtLocal;
   DateTime? _endAtLocal;
@@ -73,11 +82,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   final Map<String, String?> _opponentSelections = {};
   final Map<String, String?> _markerSelections = {};
 
-    // Teams (for team fixtures)
+  // Teams (for team fixtures)
   List<Map<String, dynamic>> _teams = [];
   String? _teamId;
 
-// Greens (green_areas) - belong to a venue
+  // Greens (green_areas) - belong to a venue
   List<Map<String, dynamic>> _greenAreas = [];
   String? _greenAreaId;
 
@@ -91,7 +100,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   int _rinksRequired = 6;
   int _playersPerRink = 4; // 4 = rinks, 3 = triples, 2 = pairs
 
-    // Fixture types
+  // Fixture types
   List<Map<String, dynamic>> _fixtureTypes = [];
   String? _fixtureTypeId;
   bool _workflowLockedByFixtureType = false;
@@ -116,18 +125,22 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
 
     return null;
-  }  
+  }
 
   SupabaseClient get _client => Supabase.instance.client;
 
   @override
   void initState() {
     super.initState();
+    _teamNameCtrl.addListener(_markDirty);
+    _notesCtrl.addListener(_markDirty);
     _load();
   }
 
   @override
   void dispose() {
+    _teamNameCtrl.removeListener(_markDirty);
+    _notesCtrl.removeListener(_markDirty);
     _teamNameCtrl.dispose();
     _notesCtrl.dispose();
     super.dispose();
@@ -149,7 +162,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       await _loadClubMembers();
 
       _defaultBookerIntoFirstPlayerSlot();
-
     } catch (e) {
       if (mounted) {
         setState(() => _error = e.toString());
@@ -317,8 +329,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
             child: ListView(
               shrinkWrap: true,
               children: dates.map((d) {
-                final dateText =
-                    MaterialLocalizations.of(context).formatFullDate(d.date);
+                final dateText = MaterialLocalizations.of(
+                  context,
+                ).formatFullDate(d.date);
 
                 final opponentName = _opponentVenueName(d.opponentVenueId);
 
@@ -356,7 +369,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     while (mounted) {
       final selectionMode = _selectedFixtureSelectionMode.trim().toLowerCase();
 
-      final requiresOpponent = selectionMode != 'preselect' &&
+      final requiresOpponent =
+          selectionMode != 'preselect' &&
           selectionMode != 'open' &&
           selectionMode != 'opensession' &&
           selectionMode != 'open_session' &&
@@ -486,9 +500,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       throw Exception('Please select a green area.');
     }
 
-    final String venueId = isHome
-        ? _homeVenueId!
-        : repeatDate.opponentVenueId!;
+    final String venueId = isHome ? _homeVenueId! : repeatDate.opponentVenueId!;
 
     final String? opponentVenueId = isInternalFixtureType
         ? null
@@ -513,20 +525,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     final availablePreferredLabels = <String>[];
     final unavailablePreferredLabels = <String>[];
-    
+
     if (isHome) {
       final availability = List<Map<String, dynamic>>.from(availabilityRows);
 
       if (preferredRinkLabels.isNotEmpty) {
         for (final label in preferredRinkLabels) {
-          final matching = availability.firstWhere(
-            (r) {
-              final rinkLabel =
-                  (r['rink_label'] ?? r['label'] ?? r['name'] ?? '').toString();
-              return rinkLabel == label;
-            },
-            orElse: () => <String, dynamic>{},
-          );
+          final matching = availability.firstWhere((r) {
+            final rinkLabel = (r['rink_label'] ?? r['label'] ?? r['name'] ?? '')
+                .toString();
+            return rinkLabel == label;
+          }, orElse: () => <String, dynamic>{});
 
           final isBooked = matching['is_booked'] == true;
 
@@ -558,27 +567,31 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       }
     }
 
-    final insertedRows = await _client.from('fixtures').insert({
-      'club_id': widget.clubId,
-      'start_at': startAt.toUtc().toIso8601String(),
-      'end_at': endAt.toUtc().toIso8601String(),
-      'is_home': isHome,
-      'section': _section,
-      'rinks_required': _rinksRequired,
-      'players_per_rink': _playersPerRink,
-      'competition_type_id': _fixtureTypeId,
-      'team_id': _isTeamFixture ? _teamId : null,
-      'team_name': fixtureLabel.isEmpty ? null : fixtureLabel,
-      'requires_rsvp': (!_isTeamFixture && !_isPreselectFixture),
-      'venue_id': venueId,
-      'opponent_venue_id': opponentVenueId,
-      'green_area_id': isHome ? _greenAreaId : null,
-      'orientation': (isHome &&
-              _isOutdoorSelectedGreen &&
-              _orientationEnabledForSelectedGreen)
-          ? _orientation
-          : null,
-    }).select('id');
+    final insertedRows = await _client
+        .from('fixtures')
+        .insert({
+          'club_id': widget.clubId,
+          'start_at': startAt.toUtc().toIso8601String(),
+          'end_at': endAt.toUtc().toIso8601String(),
+          'is_home': isHome,
+          'section': _section,
+          'rinks_required': _rinksRequired,
+          'players_per_rink': _playersPerRink,
+          'competition_type_id': _fixtureTypeId,
+          'team_id': _isTeamFixture ? _teamId : null,
+          'team_name': fixtureLabel.isEmpty ? null : fixtureLabel,
+          'requires_rsvp': (!_isTeamFixture && !_isPreselectFixture),
+          'venue_id': venueId,
+          'opponent_venue_id': opponentVenueId,
+          'green_area_id': isHome ? _greenAreaId : null,
+          'orientation':
+              (isHome &&
+                  _isOutdoorSelectedGreen &&
+                  _orientationEnabledForSelectedGreen)
+              ? _orientation
+              : null,
+        })
+        .select('id');
 
     final fixtureId = (insertedRows as List).first['id'].toString();
 
@@ -587,7 +600,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     for (var i = 1; i <= _rinksRequired; i++) {
       final preferredLabelIndex = i - 1;
-      final homeRinkLabel = preferredLabelIndex < availablePreferredLabels.length
+      final homeRinkLabel =
+          preferredLabelIndex < availablePreferredLabels.length
           ? availablePreferredLabels[preferredLabelIndex]
           : null;
 
@@ -604,22 +618,21 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       await _client.from('fixture_rinks').insert(rinkRows);
     }
 
-    final assignedCount = availablePreferredLabels.length.clamp(0, _rinksRequired);
+    final assignedCount = availablePreferredLabels.length.clamp(
+      0,
+      _rinksRequired,
+    );
     final missingCount = unavailablePreferredLabels.length;
 
     final message = preferredRinkLabels.isEmpty
         ? 'Created successfully'
         : missingCount == 0
-            ? 'Created successfully. Preferred rinks assigned.'
-            : 'Created successfully. $assignedCount preferred rink${assignedCount == 1 ? '' : 's'} assigned; '
-                '$missingCount preferred rink${missingCount == 1 ? '' : 's'} unavailable, remaining rink booking left unassigned.';
+        ? 'Created successfully. Preferred rinks assigned.'
+        : 'Created successfully. $assignedCount preferred rink${assignedCount == 1 ? '' : 's'} assigned; '
+              '$missingCount preferred rink${missingCount == 1 ? '' : 's'} unavailable, remaining rink booking left unassigned.';
 
-    return RepeatFixtureCreateOutcome(
-      fixtureId: fixtureId,
-      message: message,
-    );
-
-  }  
+    return RepeatFixtureCreateOutcome(fixtureId: fixtureId, message: message);
+  }
 
   Future<void> _createRepeatFixtures(
     List<RepeatFixtureDate> dates, {
@@ -667,6 +680,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     if (!mounted) return;
 
+    _hasUnsavedChanges = false;
     Navigator.pop(context, true);
   }
 
@@ -712,9 +726,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     _opponentVenues = List<Map<String, dynamic>>.from(opponentVenues);
 
     // Defaults (first item), if not already selected
-    _homeVenueId ??= _homeVenues.isNotEmpty ? _homeVenues.first['id'].toString() : null;
-    _opponentVenueId ??=
-        _opponentVenues.isNotEmpty ? _opponentVenues.first['id'].toString() : null;
+    _homeVenueId ??= _homeVenues.isNotEmpty
+        ? _homeVenues.first['id'].toString()
+        : null;
+    _opponentVenueId ??= _opponentVenues.isNotEmpty
+        ? _opponentVenues.first['id'].toString()
+        : null;
 
     _eventVenueId ??= _homeVenueId ?? _opponentVenueId;
   }
@@ -778,9 +795,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           search = value.toLowerCase();
                           setStateSheet(() {
                             filtered = getVenues().where((v) {
-                              final name = (v['name'] ?? '').toString().toLowerCase();
-                              final town = (v['town_city'] ?? '').toString().toLowerCase();
-                              final postcode = (v['postcode'] ?? '').toString().toLowerCase();
+                              final name = (v['name'] ?? '')
+                                  .toString()
+                                  .toLowerCase();
+                              final town = (v['town_city'] ?? '')
+                                  .toString()
+                                  .toLowerCase();
+                              final postcode = (v['postcode'] ?? '')
+                                  .toString()
+                                  .toLowerCase();
                               return name.contains(search) ||
                                   town.contains(search) ||
                                   postcode.contains(search);
@@ -791,21 +814,29 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                       const SizedBox(height: 12),
                       Expanded(
                         child: filtered.isEmpty
-                            ? const Center(child: Text('No venues match your search.'))
+                            ? const Center(
+                                child: Text('No venues match your search.'),
+                              )
                             : ListView.builder(
                                 itemCount: filtered.length,
                                 itemBuilder: (_, i) {
                                   final v = filtered[i];
                                   final name = (v['name'] ?? '').toString();
-                                  final town = (v['town_city'] ?? '').toString().trim();
-                                  final postcode = (v['postcode'] ?? '').toString().trim();
+                                  final town = (v['town_city'] ?? '')
+                                      .toString()
+                                      .trim();
+                                  final postcode = (v['postcode'] ?? '')
+                                      .toString()
+                                      .trim();
 
                                   return ListTile(
                                     title: Text(name),
-                                    subtitle: Text([
-                                      if (town.isNotEmpty) town,
-                                      if (postcode.isNotEmpty) postcode,
-                                    ].join(' • ')),
+                                    subtitle: Text(
+                                      [
+                                        if (town.isNotEmpty) town,
+                                        if (postcode.isNotEmpty) postcode,
+                                      ].join(' • '),
+                                    ),
                                     onTap: () => Navigator.pop(
                                       sheetContext,
                                       v['id'].toString(),
@@ -865,11 +896,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     final greens = await _client
         .from('green_areas')
-        .select('id, name, venue_id, discipline, orientation_mode, allowed_orientations')
+        .select(
+          'id, name, venue_id, discipline, orientation_mode, allowed_orientations',
+        )
         .eq('venue_id', _homeVenueId!)
         .order('name');
 
-    debugPrint('GREEN LOAD: found ${greens.length} greens for venue $_homeVenueId');
+    debugPrint(
+      'GREEN LOAD: found ${greens.length} greens for venue $_homeVenueId',
+    );
     debugPrint('GREEN LOAD: greens=$greens');
 
     final loadedGreens = List<Map<String, dynamic>>.from(greens);
@@ -878,7 +913,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     setState(() {
       _greenAreas = loadedGreens;
-      _greenAreaId = _greenAreas.isNotEmpty ? _greenAreas.first['id'].toString() : null;
+      _greenAreaId = _greenAreas.isNotEmpty
+          ? _greenAreas.first['id'].toString()
+          : null;
       _syncOrientationToSelectedGreen();
     });
   }
@@ -896,7 +933,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (fixtureRinkId == null || fixtureRinkId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Cannot move this booking yet. Missing fixture rink id.'),
+          content: Text(
+            'Cannot move this booking yet. Missing fixture rink id.',
+          ),
         ),
       );
       return;
@@ -904,9 +943,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     await Supabase.instance.client
         .from('fixture_rinks')
-        .update({
-          'home_rink_label': newRinkLabel,
-        })
+        .update({'home_rink_label': newRinkLabel})
         .eq('id', fixtureRinkId);
 
     setState(() {
@@ -916,9 +953,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     await _loadRinkAvailability();
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Moved $oldLabel to $newRinkLabel')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Moved $oldLabel to $newRinkLabel')));
   }
 
   Future<void> _swapBookedRinks(
@@ -928,16 +965,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final aId = a['fixture_rink_id']?.toString();
     final bId = b['fixture_rink_id']?.toString();
 
-    final aLabel =
-        (a['rink_label'] ?? a['label'] ?? a['name'] ?? '').toString();
-    final bLabel =
-        (b['rink_label'] ?? b['label'] ?? b['name'] ?? '').toString();
+    final aLabel = (a['rink_label'] ?? a['label'] ?? a['name'] ?? '')
+        .toString();
+    final bLabel = (b['rink_label'] ?? b['label'] ?? b['name'] ?? '')
+        .toString();
 
     if (aId == null || aId.isEmpty || bId == null || bId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot swap. Missing fixture rink id.'),
-        ),
+        const SnackBar(content: Text('Cannot swap. Missing fixture rink id.')),
       );
       return;
     }
@@ -945,10 +980,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     try {
       await Supabase.instance.client.rpc(
         'swap_fixture_rink_labels',
-        params: {
-          'p_a_fixture_rink_id': aId,
-          'p_b_fixture_rink_id': bId,
-        },
+        params: {'p_a_fixture_rink_id': aId, 'p_b_fixture_rink_id': bId},
       );
 
       setState(() {
@@ -958,19 +990,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       await _loadRinkAvailability();
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Swapped $aLabel with $bLabel')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Swapped $aLabel with $bLabel')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Swap failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Swap failed: $e')));
     }
   }
-  
-  Future<void> _handleRinkTap(Map<String, dynamic> rink) async {  
 
+  Future<void> _handleRinkTap(Map<String, dynamic> rink) async {
     if (!_hasEnoughRinkCapacity) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1080,10 +1111,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     final usesSimpleBookingWorkflow =
         isInternal && selectionModeLower == 'preselect';
-        
+
     setState(() {
       _fixtureTypeId = fixtureTypeId;
       _workflowLockedByFixtureType = true;
+      _hasUnsavedChanges = true;
 
       if (!usesRinks) {
         _isHome = true;
@@ -1128,7 +1160,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
         _teamNameCtrl.text = name;
       } else if (selectionMode == 'opensession') {
-//        _workflowType = FixtureWorkflowType.rsvp; // neutral existing workflow
+        //        _workflowType = FixtureWorkflowType.rsvp; // neutral existing workflow
         _isTeamFixture = false;
         _isPreselectFixture = false;
         _teamId = null;
@@ -1167,7 +1199,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         _opponentVenueId = null;
 
         _teamNameCtrl.text = name;
-      }      
+      }
     });
 
     if (usesRinks) {
@@ -1189,7 +1221,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   String _selectedMemberLabel(String? memberProfileId) {
     if (memberProfileId == null) return 'Select player';
 
-    final match = _clubMembers.where((m) => m['id'].toString() == memberProfileId);
+    final match = _clubMembers.where(
+      (m) => m['id'].toString() == memberProfileId,
+    );
     if (match.isEmpty) return 'Select player';
 
     return _memberLabel(match.first);
@@ -1273,7 +1307,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     for (final rink in _rinkAvailability) {
       final rinkLabel =
-          (rink['rink_label'] ?? rink['label'] ?? rink['name'] ?? '').toString();
+          (rink['rink_label'] ?? rink['label'] ?? rink['name'] ?? '')
+              .toString();
 
       if (rinkLabel.isEmpty) continue;
 
@@ -1315,19 +1350,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       return 'assets/images/blank_bg_tablet_2.png';
     }
     return 'assets/images/blank_bg_phone_2.png';
-  }  
+  }
 
   bool get _canEditAdminFixtureDetails =>
-      _isSuperuser ||
-      _isClubAdmin ||
-      _isSelector ||
-      _isFixtureCreator;
+      _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
 
   bool get _canEditFixtureOperationalDetails =>
-      _canEditAdminFixtureDetails ||
-      _isFixtureCaptain ||
-      _isFixtureViceCaptain;
-      
+      _canEditAdminFixtureDetails || _isFixtureCaptain || _isFixtureViceCaptain;
+
   Map<String, dynamic>? get _selectedFixtureType =>
       _fixtureTypeById(_fixtureTypeId);
 
@@ -1359,7 +1389,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   bool get _isOpenSessionFixture =>
       _selectedFixtureSelectionMode == 'opensession' ||
       _selectedFixtureSelectionMode == 'open_session' ||
-      _selectedFixtureSelectionMode == 'open-session';  
+      _selectedFixtureSelectionMode == 'open-session';
 
   bool get _selectedFixtureUsesRinks {
     final raw = _selectedFixtureType?['uses_rinks'];
@@ -1387,7 +1417,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     });
 
     return venues;
-  }      
+  }
 
   /// ACCESS:
   /// Controls whether the logged-in user may create/use this fixture type.
@@ -1397,7 +1427,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     return _selectedFixtureIsBookableByMembers;
   }
-      
+
   bool get _canSeeAllFixtureTypes =>
       _isSuperuser || _isClubAdmin || _isSelector;
 
@@ -1497,11 +1527,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
               ),
               TextField(
                 controller: townCtrl,
-                decoration: const InputDecoration(labelText: 'Town/City (optional)'),
+                decoration: const InputDecoration(
+                  labelText: 'Town/City (optional)',
+                ),
               ),
               TextField(
                 controller: postcodeCtrl,
-                decoration: const InputDecoration(labelText: 'Postcode (optional)'),
+                decoration: const InputDecoration(
+                  labelText: 'Postcode (optional)',
+                ),
               ),
             ],
           ),
@@ -1531,8 +1565,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
             'club_id': widget.clubId,
             'name': venueName,
             'is_home_venue': isHomeVenue,
-            'town_city': townCtrl.text.trim().isEmpty ? null : townCtrl.text.trim(),
-            'postcode': postcodeCtrl.text.trim().isEmpty ? null : postcodeCtrl.text.trim(),
+            'town_city': townCtrl.text.trim().isEmpty
+                ? null
+                : townCtrl.text.trim(),
+            'postcode': postcodeCtrl.text.trim().isEmpty
+                ? null
+                : postcodeCtrl.text.trim(),
           })
           .select('id')
           .single();
@@ -1542,17 +1580,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       await _loadVenues();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Venue created ✅')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Venue created ✅')));
       }
 
       return newId;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Create venue error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Create venue error: $e')));
       }
       return null;
     }
@@ -1586,11 +1624,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     _clubMembers = members;
 
-debugPrint('CLUB MEMBERS LOADED: ${_clubMembers.length}');
-for (final m in _clubMembers) {
-  debugPrint('MEMBER: ${m['id']} ${_memberLabel(m)}');
-}
-
+    debugPrint('CLUB MEMBERS LOADED: ${_clubMembers.length}');
+    for (final m in _clubMembers) {
+      debugPrint('MEMBER: ${m['id']} ${_memberLabel(m)}');
+    }
   }
 
   void _defaultBookerIntoFirstPlayerSlot() {
@@ -1627,7 +1664,13 @@ for (final m in _clubMembers) {
     if (time == null) return;
 
     setState(() {
-      _endAtLocal = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _endAtLocal = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
     });
     _loadRinkAvailability();
   }
@@ -1651,7 +1694,13 @@ for (final m in _clubMembers) {
     if (time == null) return;
 
     setState(() {
-      _startAtLocal = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _startAtLocal = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
 
       // Default end time to start + 2 hours if not set yet,
       // or if end is not after the new start.
@@ -1742,7 +1791,7 @@ for (final m in _clubMembers) {
       }
       if (_section.trim().isEmpty) {
         throw Exception('Section is missing for the selected Fixture Type.');
-      }      
+      }
       if (_startAtLocal == null) {
         throw Exception('Please select a start date/time.');
       }
@@ -1781,53 +1830,68 @@ for (final m in _clubMembers) {
 
       final String? opponentVenueId = !usesRinks
           ? null
-          : (isInternalFixtureType ? null : (_isHome ? _opponentVenueId! : _homeVenueId!));
+          : (isInternalFixtureType
+                ? null
+                : (_isHome ? _opponentVenueId! : _homeVenueId!));
 
       final fixtureLabel = _isTeamFixture
           ? (_selectedTeamName() ?? '')
           : _teamNameCtrl.text.trim();
 
-debugPrint('CREATE FIXTURE isTeamFixture=$_isTeamFixture');
+      debugPrint('CREATE FIXTURE isTeamFixture=$_isTeamFixture');
 
       if (_isTeamFixture && _teamId == null) {
         throw Exception('Please select a team.');
       }
 
-      final captainMemberProfileId =
-          _simpleBookingMode ? _currentMemberId : null;
+      final captainMemberProfileId = _simpleBookingMode
+          ? _currentMemberId
+          : null;
 
-debugPrint('CREATE FIXTURE captainMemberProfileId=$captainMemberProfileId');
-debugPrint('CREATE FIXTURE currentMemberId=$_currentMemberId');
-debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
+      debugPrint(
+        'CREATE FIXTURE captainMemberProfileId=$captainMemberProfileId',
+      );
+      debugPrint('CREATE FIXTURE currentMemberId=$_currentMemberId');
+      debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
-      final insertedRows = await _client.from('fixtures').insert({
-        'club_id': widget.clubId,
-        'start_at': _startAtLocal!.toUtc().toIso8601String(),
-        'end_at': _endAtLocal!.toUtc().toIso8601String(),
-        'is_home': _isHome,
-        'section': _section.isEmpty ? 'open' : _section,
-        'rinks_required': usesRinks ? _rinksRequired : 0,
-        'players_per_rink': usesRinks ? _playersPerRink : 1,
-        'competition_type_id': _fixtureTypeId,
-        'team_id': _isTeamFixture ? _teamId : null,
-        'team_name': fixtureLabel.isEmpty ? null : fixtureLabel,
+      final insertedRows = await _client
+          .from('fixtures')
+          .insert({
+            'club_id': widget.clubId,
+            'start_at': _startAtLocal!.toUtc().toIso8601String(),
+            'end_at': _endAtLocal!.toUtc().toIso8601String(),
+            'is_home': _isHome,
+            'section': _section.isEmpty ? 'open' : _section,
+            'rinks_required': usesRinks ? _rinksRequired : 0,
+            'players_per_rink': usesRinks ? _playersPerRink : 1,
+            'competition_type_id': _fixtureTypeId,
+            'team_id': _isTeamFixture ? _teamId : null,
+            'team_name': fixtureLabel.isEmpty ? null : fixtureLabel,
 
-        // ✅ IMPORTANT: override DB default TRUE
-        // RSVP => true
-        // Team / Preselect => false
-        'requires_rsvp': usesRinks && (!_isTeamFixture && !_isPreselectFixture),
+            // ✅ IMPORTANT: override DB default TRUE
+            // RSVP => true
+            // Team / Preselect => false
+            'requires_rsvp':
+                usesRinks && (!_isTeamFixture && !_isPreselectFixture),
 
-        'venue_id': venueId,
-        'opponent_venue_id': opponentVenueId,
+            'venue_id': venueId,
+            'opponent_venue_id': opponentVenueId,
 
-        // Greens/orientation only relevant for HOME fixtures
-        'green_area_id': usesRinks && _isHome ? _greenAreaId : null,
-        'orientation': (usesRinks && _isHome && _isOutdoorSelectedGreen && _orientationEnabledForSelectedGreen)
-            ? _orientation
-            : null,
-        'captain_member_profile_id': captainMemberProfileId,  
-        'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),          
-      }).select('id');
+            // Greens/orientation only relevant for HOME fixtures
+            'green_area_id': usesRinks && _isHome ? _greenAreaId : null,
+            'orientation':
+                (usesRinks &&
+                    _isHome &&
+                    _isOutdoorSelectedGreen &&
+                    _orientationEnabledForSelectedGreen)
+                ? _orientation
+                : null,
+            'captain_member_profile_id': captainMemberProfileId,
+            'notes': _notesCtrl.text.trim().isEmpty
+                ? null
+                : _notesCtrl.text.trim(),
+          })
+          .select('id');
 
       debugPrint('SAVE: read fixture id');
       final fixtureId = (insertedRows as List).first['id'].toString();
@@ -1837,10 +1901,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
       if (_isPreselectFixture) {
         final teamSelectionRows = await _client
             .from('team_selections')
-            .insert({
-              'fixture_id': fixtureId,
-              'status': 'published',
-            })
+            .insert({'fixture_id': fixtureId, 'status': 'published'})
             .select('id');
 
         teamSelectionId = (teamSelectionRows as List).first['id'].toString();
@@ -1925,7 +1986,9 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
           }
 
           if (teamSelectionId != null && selectedMemberRoles.isNotEmpty) {
-            final teamSelectionMembers = selectedMemberRoles.entries.map((entry) {
+            final teamSelectionMembers = selectedMemberRoles.entries.map((
+              entry,
+            ) {
               final memberId = entry.key;
               final role = entry.value;
               final isBooker = memberId == captainMemberProfileId;
@@ -1943,14 +2006,16 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                 .from('team_selection_members')
                 .insert(teamSelectionMembers);
           }
-        }        
+        }
       }
 
       debugPrint('SAVE: pop');
-      
+
       if (!mounted) return;
-      
-      debugPrint('create_fixture_page: created fixtureId=$fixtureId, opening details...');
+
+      debugPrint(
+        'create_fixture_page: created fixtureId=$fixtureId, opening details...',
+      );
 
       final changed = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
@@ -1962,9 +2027,9 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
       if (!context.mounted) return;
 
+      _hasUnsavedChanges = false;
       // return to fixtures_screen
       Navigator.pop(context, true);
-
     } on PostgrestException catch (e) {
       final message = e.message.contains('Not enough rinks available')
           ? 'Not enough rinks are available at that time. Please choose another time, date, or green.'
@@ -1977,7 +2042,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
         });
       }
 
-      await _showSaveErrorDialog(message);      
+      await _showSaveErrorDialog(message);
     } catch (e) {
       final message = e.toString();
 
@@ -2014,10 +2079,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
             const Text(
               'Players, opponents and rinks',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
             ),
             const SizedBox(height: 12),
 
@@ -2029,13 +2091,14 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
               ),
               const SizedBox(height: 8),
 
-              for (var playerNo = 1; playerNo <= playersPerSide; playerNo++) ...[
+              for (
+                var playerNo = 1;
+                playerNo <= playersPerSide;
+                playerNo++
+              ) ...[
                 Row(
                   children: [
-                    SizedBox(
-                      width: 80,
-                      child: Text('Player $playerNo'),
-                    ),
+                    SizedBox(width: 80, child: Text('Player $playerNo')),
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
@@ -2056,15 +2119,14 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                           if (mounted) setState(() {});
                         },
                         child: Text(
-                          _selectedMemberLabel(_playerSelections[_slotKey(teamNo, playerNo)]),
+                          _selectedMemberLabel(
+                            _playerSelections[_slotKey(teamNo, playerNo)],
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 16),
-                    SizedBox(
-                      width: 90,
-                      child: Text('Opponent $playerNo'),
-                    ),
+                    SizedBox(width: 90, child: Text('Opponent $playerNo')),
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
@@ -2078,13 +2140,16 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                             fixtureId: null,
                             useFixtureSection: true,
                             showError: _showSaveErrorDialog,
-                            memberAlreadySelectedElsewhere: _memberAlreadySelectedElsewhere,
+                            memberAlreadySelectedElsewhere:
+                                _memberAlreadySelectedElsewhere,
                           );
 
                           if (mounted) setState(() {});
                         },
                         child: Text(
-                          _selectedMemberLabel(_opponentSelections[_slotKey(teamNo, playerNo)]),
+                          _selectedMemberLabel(
+                            _opponentSelections[_slotKey(teamNo, playerNo)],
+                          ),
                         ),
                       ),
                     ),
@@ -2095,10 +2160,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
               Row(
                 children: [
-                  const SizedBox(
-                    width: 80,
-                    child: Text('Marker'),
-                  ),
+                  const SizedBox(width: 80, child: Text('Marker')),
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () async {
@@ -2113,13 +2175,16 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                           useFixtureSection: false,
                           initialSectionFilter: MemberPickerSectionFilter.open,
                           showError: _showSaveErrorDialog,
-                          memberAlreadySelectedElsewhere: _memberAlreadySelectedElsewhere,
+                          memberAlreadySelectedElsewhere:
+                              _memberAlreadySelectedElsewhere,
                         );
 
                         if (mounted) setState(() {});
                       },
                       child: Text(
-                        _selectedMemberLabel(_markerSelections[_slotKey(teamNo, 1)]),
+                        _selectedMemberLabel(
+                          _markerSelections[_slotKey(teamNo, 1)],
+                        ),
                       ),
                     ),
                   ),
@@ -2128,7 +2193,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
               const Divider(height: 28),
             ],
 
-            _buildGreenAndRinkAvailabilityBlock(),          
+            _buildGreenAndRinkAvailabilityBlock(),
           ],
         ),
       ),
@@ -2144,10 +2209,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
               ? 'Rinks — $_selectedGreenName'
               : 'Rinks',
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
         ),
         const SizedBox(height: 8),
         _buildRinkAvailabilitySection(),
@@ -2218,13 +2280,13 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
         Column(
           children: _rinkAvailability.map((r) {
-            final rinkLabel =
-                (r['rink_label'] ?? r['label'] ?? r['name'] ?? '').toString();
+            final rinkLabel = (r['rink_label'] ?? r['label'] ?? r['name'] ?? '')
+                .toString();
             final isBooked = r['is_booked'] == true;
             final bookedText = (r['booked_text'] ?? '').toString();
 
             final selectedTeamNo = _teamNoForSelectedRink(rinkLabel);
-            final isSelected = selectedTeamNo != null;            
+            final isSelected = selectedTeamNo != null;
 
             final bgHex = (r['background_hex'] ?? '#FEE2E2').toString();
             final fgHex = (r['foreground_hex'] ?? '#991B1B').toString();
@@ -2239,7 +2301,8 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                         '')
                     .toString();
 
-            final isSelectedBooked = isBooked && selectedBookedLabel == rinkLabel;
+            final isSelectedBooked =
+                isBooked && selectedBookedLabel == rinkLabel;
 
             return InkWell(
               onTap: () => _handleRinkTap(r),
@@ -2252,20 +2315,20 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                   color: isSelectedBooked
                       ? Colors.amber.shade100
                       : isBooked
-                          ? bookedBgColor
-                          : isSelected
-                              ? _selectedFixtureBgColor
-                              : Colors.green.shade50,
+                      ? bookedBgColor
+                      : isSelected
+                      ? _selectedFixtureBgColor
+                      : Colors.green.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     width: (isSelected || isSelectedBooked) ? 2 : 1,
                     color: isSelectedBooked
                         ? Colors.orange.shade700
                         : isBooked
-                            ? bookedFgColor.withOpacity(0.35)
-                            : isSelected
-                                ? _selectedFixtureBgColor
-                                : Colors.green.shade300,
+                        ? bookedFgColor.withOpacity(0.35)
+                        : isSelected
+                        ? _selectedFixtureBgColor
+                        : Colors.green.shade300,
                   ),
                 ),
                 child: Column(
@@ -2281,10 +2344,10 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                               color: isSelectedBooked
                                   ? Colors.orange.shade900
                                   : isBooked
-                                      ? bookedFgColor
-                                      : isSelected
-                                          ? _selectedFixtureFgColor
-                                          : Colors.green.shade900,
+                                  ? bookedFgColor
+                                  : isSelected
+                                  ? _selectedFixtureFgColor
+                                  : Colors.green.shade900,
                             ),
                           ),
                         ),
@@ -2300,23 +2363,23 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
                     Text(
                       isBooked
                           ? isSelectedBooked
-                              ? 'Selected booking — tap a free rink to move it, or another booked rink to swap'
-                              : bookedText
+                                ? 'Selected booking — tap a free rink to move it, or another booked rink to swap'
+                                : bookedText
                           : isSelected
-                              ? 'Selected for Team $selectedTeamNo'
-                              : _selectedBookedRink != null
-                                  ? 'Free — tap to move selected booking here'
-                                  : 'Free',
+                          ? 'Selected for Team $selectedTeamNo'
+                          : _selectedBookedRink != null
+                          ? 'Free — tap to move selected booking here'
+                          : 'Free',
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                      color: isSelectedBooked
-                          ? Colors.orange.shade900
-                          : isBooked
-                              ? bookedFgColor
-                              : isSelected
-                                  ? _selectedFixtureFgColor
-                                  : Colors.green.shade900,
+                        color: isSelectedBooked
+                            ? Colors.orange.shade900
+                            : isBooked
+                            ? bookedFgColor
+                            : isSelected
+                            ? _selectedFixtureFgColor
+                            : Colors.green.shade900,
                       ),
                     ),
                   ],
@@ -2353,19 +2416,13 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: fg.withOpacity(0.20),
-        ),
+        border: Border.all(color: fg.withOpacity(0.20)),
       ),
       child: Text(
         ft['name']?.toString() ?? '',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: fg,
-          fontWeight: FontWeight.w600,
-          fontSize: 16,
-        ),
+        style: TextStyle(color: fg, fontWeight: FontWeight.w600, fontSize: 16),
       ),
     );
   }
@@ -2420,9 +2477,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: fg.withOpacity(0.20),
-            ),
+            border: Border.all(color: fg.withOpacity(0.20)),
           ),
           child: Text(
             selected['name']?.toString() ?? '',
@@ -2539,7 +2594,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
     _applyFixtureType(selected);
   }
 
-   Future<void> _showRepeatCreationResults(
+  Future<void> _showRepeatCreationResults(
     List<RepeatFixtureCreationResult> results,
   ) async {
     await showDialog<void>(
@@ -2552,8 +2607,9 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
             child: ListView(
               shrinkWrap: true,
               children: results.map((r) {
-                final dateText =
-                    MaterialLocalizations.of(context).formatFullDate(r.date);
+                final dateText = MaterialLocalizations.of(
+                  context,
+                ).formatFullDate(r.date);
 
                 return ListTile(
                   leading: Icon(
@@ -2575,7 +2631,7 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
         );
       },
     );
-  }  
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2588,520 +2644,627 @@ debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
         : formatWhenLocal(_endAtLocal!.toUtc().toIso8601String());
 
     final selectedGreen = _selectedGreenArea;
-    final allowedOrients =
-        selectedGreen == null ? <String>[] : _allowedOrientationsFor(selectedGreen);
+    final allowedOrients = selectedGreen == null
+        ? <String>[]
+        : _allowedOrientationsFor(selectedGreen);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _isEventStyleFixture
-              ? 'Create Event'
-              : (_simpleBookingMode ? 'Book Fixture' : 'Create Fixture'),
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+
+        if (!_hasUnsavedChanges) {
+          Navigator.pop(context);
+          return;
+        }
+
+        final discard = await showDialog<bool>(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              title: const Text('Discard changes?'),
+              content: const Text(
+                'You have unsaved fixture changes. Discard them?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Discard'),
+                ),
+              ],
+            );
+          },
+        );
+
+        if (discard == true && mounted) {
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            _isEventStyleFixture
+                ? 'Create Event'
+                : (_simpleBookingMode ? 'Book Fixture' : 'Create Fixture'),
+          ),
         ),
-      ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.16,
-              child: Image.asset(
-                _backgroundImageForWidth(context),
-                fit: BoxFit.cover,
+
+        floatingActionButton: _hasUnsavedChanges
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (_canUseRepeat) ...[
+                    FloatingActionButton.extended(
+                      heroTag: 'repeat_fixture',
+                      onPressed: _loading ? null : _openRepeatPlanner,
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      icon: const Icon(Icons.repeat),
+                      label: const Text('Repeat'),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  FloatingActionButton.extended(
+                    heroTag: 'save_fixture',
+                    onPressed: _loading ? null : _save,
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    icon: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.save),
+                    label: const Text('Save'),
+                  ),
+                ],
+              )
+            : null,
+
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.16,
+                child: Image.asset(
+                  _backgroundImageForWidth(context),
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
-          ),
-          _loading
-              ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_error != null) ...[
-                        Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (_error != null) ...[
+                          Text(
+                            _error!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
 
-                      const Text(
-                        'Fixture Type',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      _selectedFixtureTypeField(),
-                      const SizedBox(height: 12),
-
-                      if (!_simpleBookingMode && !_isEventStyleFixture) ...[
                         const Text(
-                          'Location',
+                          'Fixture Type',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
+                        _selectedFixtureTypeField(),
+                        const SizedBox(height: 12),
 
-                        if (_fixtureTypeById(_fixtureTypeId)?['is_internal'] == true) ...[
-                          InputDecorator(
+                        if (!_simpleBookingMode && !_isEventStyleFixture) ...[
+                          const Text(
+                            'Location',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+
+                          if (_fixtureTypeById(
+                                _fixtureTypeId,
+                              )?['is_internal'] ==
+                              true) ...[
+                            InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Location',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: const Text('Home'),
+                            ),
+                          ] else ...[
+                            SegmentedButton<FixtureLocationType>(
+                              segments: const [
+                                ButtonSegment(
+                                  value: FixtureLocationType.home,
+                                  label: Text('Home'),
+                                  icon: Icon(Icons.home),
+                                ),
+                                ButtonSegment(
+                                  value: FixtureLocationType.away,
+                                  label: Text('Away'),
+                                  icon: Icon(Icons.directions_bus),
+                                ),
+                              ],
+                              selected: {_fixtureLocation},
+                              onSelectionChanged: (newSelection) async {
+                                final v = newSelection.first;
+                                setState(() {
+                                  _fixtureLocation = v;
+                                  _isHome = v == FixtureLocationType.home;
+                                  _greenAreas = [];
+                                  _greenAreaId = null;
+                                  _orientation = null;
+                                });
+                                _markDirty();
+                                await _loadGreenAreas();
+                              },
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                        ],
+
+                        if (_isTeamFixture &&
+                            !_simpleBookingMode &&
+                            !_isEventStyleFixture) ...[
+                          DropdownButtonFormField<String>(
+                            value: _teamId,
                             decoration: const InputDecoration(
-                              labelText: 'Location',
+                              labelText: 'Team',
                               border: OutlineInputBorder(),
                             ),
-                            child: const Text('Home'),
-                          ),
-                        ] else ...[
-                          SegmentedButton<FixtureLocationType>(
-                            segments: const [
-                              ButtonSegment(
-                                value: FixtureLocationType.home,
-                                label: Text('Home'),
-                                icon: Icon(Icons.home),
-                              ),
-                              ButtonSegment(
-                                value: FixtureLocationType.away,
-                                label: Text('Away'),
-                                icon: Icon(Icons.directions_bus),
-                              ),
-                            ],
-                            selected: {_fixtureLocation},
-                            onSelectionChanged: (newSelection) async {
-                              final v = newSelection.first;
+                            items: _teams.map((team) {
+                              return DropdownMenuItem<String>(
+                                value: team['id'].toString(),
+                                child: Text((team['name'] ?? '').toString()),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
                               setState(() {
-                                _fixtureLocation = v;
-                                _isHome = v == FixtureLocationType.home;
-                                _greenAreas = [];
-                                _greenAreaId = null;
-                                _orientation = null;
+                                _teamId = value;
+
+                                final selectedTeam = _teams.firstWhere(
+                                  (t) => t['id'].toString() == value,
+                                  orElse: () => <String, dynamic>{},
+                                );
+
+                                final selectedTeamName =
+                                    (selectedTeam['name'] ?? '')
+                                        .toString()
+                                        .trim();
+
+                                if (selectedTeamName.isNotEmpty) {
+                                  _teamNameCtrl.text = selectedTeamName;
+                                }
                               });
-                              await _loadGreenAreas();
+                              _markDirty();
                             },
                           ),
+                          const SizedBox(height: 12),
                         ],
-                        const SizedBox(height: 12),
-                      ],
 
-                      if (_isTeamFixture && !_simpleBookingMode && !_isEventStyleFixture) ...[
-                        DropdownButtonFormField<String>(
-                          value: _teamId,
-                          decoration: const InputDecoration(
-                            labelText: 'Team',
-                            border: OutlineInputBorder(),
+                        if (_isEventStyleFixture) ...[
+                          TextField(
+                            controller: _teamNameCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Fixture Label',
+                              hintText:
+                                  'e.g. AGM Meeting, Summer Barbecue, Quiz Night',
+                              border: OutlineInputBorder(),
+                            ),
                           ),
-                          items: _teams.map((team) {
-                            return DropdownMenuItem<String>(
-                              value: team['id'].toString(),
-                              child: Text((team['name'] ?? '').toString()),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _teamId = value;
+                        ],
 
-                              final selectedTeam = _teams.firstWhere(
-                                (t) => t['id'].toString() == value,
-                                orElse: () => <String, dynamic>{},
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Start'),
+                                  const SizedBox(height: 6),
+                                  OutlinedButton(
+                                    onPressed: _pickDateTime,
+                                    child: Text(startLabel),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('End'),
+                                  const SizedBox(height: 6),
+                                  OutlinedButton(
+                                    onPressed: _pickEndDateTime,
+                                    child: Text(endLabel),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        if (_isEventStyleFixture) ...[
+                          InkWell(
+                            onTap: () async {
+                              final selected = await _pickVenue(
+                                getVenues: () => _allVenues,
+                                title: 'Select Venue',
+                                isHomeVenue: true,
                               );
 
-                              final selectedTeamName =
-                                  (selectedTeam['name'] ?? '').toString().trim();
-
-                              if (selectedTeamName.isNotEmpty) {
-                                _teamNameCtrl.text = selectedTeamName;
+                              if (selected != null) {
+                                setState(() => _eventVenueId = selected);
+                                _markDirty();
                               }
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (_isEventStyleFixture) ...[
-                        TextField(
-                          controller: _teamNameCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Fixture Label',
-                            hintText: 'e.g. AGM Meeting, Summer Barbecue, Quiz Night',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ],
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Start'),
-                                const SizedBox(height: 6),
-                                OutlinedButton(
-                                  onPressed: _pickDateTime,
-                                  child: Text(startLabel),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('End'),
-                                const SizedBox(height: 6),
-                                OutlinedButton(
-                                  onPressed: _pickEndDateTime,
-                                  child: Text(endLabel),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      if (_isEventStyleFixture) ...[
-                        InkWell(
-                          onTap: () async {
-                            final selected = await _pickVenue(
-                              getVenues: () => _allVenues,
-                              title: 'Select Venue',
-                              isHomeVenue: true,
-                            );
-
-                            if (selected != null) {
-                              setState(() => _eventVenueId = selected);
-                            }
-                          },
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Venue',
-                              border: OutlineInputBorder(),
-                            ),
-                            child: Text(
-                              _allVenues
-                                      .firstWhere(
-                                        (v) => v['id'].toString() == _eventVenueId,
-                                        orElse: () => {'name': 'Select venue'},
-                                      )['name']
-                                      ?.toString() ??
-                                  'Select venue',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        TextFormField(
-                          controller: _notesCtrl,
-                          minLines: 3,
-                          maxLines: 8,
-                          decoration: const InputDecoration(
-                            labelText: 'Information',
-                            alignLabelWithHint: true,
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (!_simpleBookingMode && !_isEventStyleFixture) ...[
-
-                        const SizedBox(height: 8),
-
-                        if (_isPreselectFixture) ...[
-                          InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Pre-Selection mode',
-                              border: OutlineInputBorder(),
-                            ),
-                            child: const Text('Pre-Select'),
-                          ),
-                        ] else ...[
-                          SegmentedButton<FixtureWorkflowType>(
-                            segments: const [
-                              ButtonSegment(
-                                value: FixtureWorkflowType.rsvp,
-                                label: Text('RSVP'),
-                                icon: Icon(Icons.how_to_reg),
+                            },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Venue',
+                                border: OutlineInputBorder(),
                               ),
-                              ButtonSegment(
-                                value: FixtureWorkflowType.team,
-                                label: Text('Team'),
-                                icon: Icon(Icons.groups),
+                              child: Text(
+                                _allVenues
+                                        .firstWhere(
+                                          (v) =>
+                                              v['id'].toString() ==
+                                              _eventVenueId,
+                                          orElse: () => {
+                                            'name': 'Select venue',
+                                          },
+                                        )['name']
+                                        ?.toString() ??
+                                    'Select venue',
                               ),
-                            ],
-
-
-                            selected: {_workflowType},
-                            onSelectionChanged: _workflowLockedByFixtureType
-                                ? null
-                                : (newSelection) {
-                                    final v = newSelection.first;
-                                    setState(() {
-                                      _workflowType = v;
-                                      _isTeamFixture =
-                                          v == FixtureWorkflowType.team;
-                                      _isPreselectFixture = false;
-
-                                      if (_isTeamFixture) {
-                                        _teamId ??= _teams.isNotEmpty
-                                            ? _teams.first['id'].toString()
-                                            : null;
-                                      } else {
-                                        _teamId = null;
-                                      }
-                                    });
-                                  },
-                          ),
-                        ],
-
-                        const SizedBox(height: 8),
-                      ],
-
-                      if (!_isTeamFixture && !_simpleBookingMode && !_isEventStyleFixture) ...[
-                        TextField(
-                          controller: _teamNameCtrl,
-                          readOnly: _isPreselectFixture,
-                          decoration: InputDecoration(
-                            labelText: _isPreselectFixture
-                                ? 'Pre-Selected fixture label'
-                                : 'Fixture label (optional)',
-                            hintText: _isPreselectFixture
-                                ? 'Set from Fixture Type'
-                                : 'e.g. Mid-week National Team Selection',
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (!_isEventStyleFixture &&
-                          (!_simpleBookingMode || _homeVenues.length > 1)) ...[
-                        InkWell(
-                          onTap: () async {
-                            final selected = await _pickVenue(
-                              getVenues: () => _homeVenues,
-                              title: 'Select home venue',
-                              isHomeVenue: true,
-                            );
-
-                            if (selected != null) {
-                              setState(() {
-                                _homeVenueId = selected;
-                                _greenAreas = [];
-                                _greenAreaId = null;
-                                _orientation = null;
-                              });
-
-                              await _loadGreenAreas();
-                            }
-                          },
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Home venue',
-                              border: OutlineInputBorder(),
                             ),
-                            child: Text(
-                              _homeVenues
-                                      .firstWhere(
-                                        (v) => v['id'].toString() == _homeVenueId,
-                                        orElse: () => {'name': 'Select venue'},
-                                      )['name']
-                                      ?.toString() ??
-                                  'Select venue',
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-                      ],
-                      
-                      if (!_simpleBookingMode &&
-                          !_isEventStyleFixture &&
-                          _fixtureTypeById(_fixtureTypeId)?['is_internal'] != true) ...[
-                        InkWell(
-                          onTap: () async {
-                            final selected = await _pickVenue(
-                              getVenues: () => _opponentVenues,
-                              title: 'Select Opponent Club',
-                              isHomeVenue: false,
-                            );
-                            if (selected != null) {
-                              setState(() => _opponentVenueId = selected);
-                            }
-                          },
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Opponent Club',
-                              border: OutlineInputBorder(),
-                            ),
-                            child: Text(
-                              _opponentVenues
-                                      .firstWhere(
-                                        (v) =>
-                                            v['id'].toString() == _opponentVenueId,
-                                        orElse: () => {'name': 'Select Club'},
-                                      )['name']
-                                      ?.toString() ??
-                                  'Select Club',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (!_isEventStyleFixture &&
-                          _isHome &&
-                          (!_simpleBookingMode || _greenAreas.length > 1)) ...[
-                        if (_greenAreas.isEmpty) ...[
-                          const InputDecorator(
-                            decoration: InputDecoration(
-                              labelText: 'Green area',
-                              border: OutlineInputBorder(),
-                            ),
-                            child: Text('No greens available for this venue'),
                           ),
                           const SizedBox(height: 12),
-                        ] else ...[
-                          DropdownButtonFormField<String>(
-                            value: _greenAreaId,
+
+                          TextFormField(
+                            controller: _notesCtrl,
+                            minLines: 3,
+                            maxLines: 8,
                             decoration: const InputDecoration(
-                              labelText: 'Green area',
+                              labelText: 'Information',
+                              alignLabelWithHint: true,
                               border: OutlineInputBorder(),
                             ),
-                            items: _greenAreas.map((g) {
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        if (!_simpleBookingMode && !_isEventStyleFixture) ...[
+                          const SizedBox(height: 8),
+
+                          if (_isPreselectFixture) ...[
+                            InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Pre-Selection mode',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: const Text('Pre-Select'),
+                            ),
+                          ] else ...[
+                            SegmentedButton<FixtureWorkflowType>(
+                              segments: const [
+                                ButtonSegment(
+                                  value: FixtureWorkflowType.rsvp,
+                                  label: Text('RSVP'),
+                                  icon: Icon(Icons.how_to_reg),
+                                ),
+                                ButtonSegment(
+                                  value: FixtureWorkflowType.team,
+                                  label: Text('Team'),
+                                  icon: Icon(Icons.groups),
+                                ),
+                              ],
+
+                              selected: {_workflowType},
+                              onSelectionChanged: _workflowLockedByFixtureType
+                                  ? null
+                                  : (newSelection) {
+                                      final v = newSelection.first;
+                                      setState(() {
+                                        _workflowType = v;
+                                        _isTeamFixture =
+                                            v == FixtureWorkflowType.team;
+                                        _isPreselectFixture = false;
+
+                                        if (_isTeamFixture) {
+                                          _teamId ??= _teams.isNotEmpty
+                                              ? _teams.first['id'].toString()
+                                              : null;
+                                        } else {
+                                          _teamId = null;
+                                        }
+                                      });
+                                      _markDirty();
+                                    },
+                            ),
+                          ],
+
+                          const SizedBox(height: 8),
+                        ],
+
+                        if (!_isTeamFixture &&
+                            !_simpleBookingMode &&
+                            !_isEventStyleFixture) ...[
+                          TextField(
+                            controller: _teamNameCtrl,
+                            readOnly: _isPreselectFixture,
+                            decoration: InputDecoration(
+                              labelText: _isPreselectFixture
+                                  ? 'Pre-Selected fixture label'
+                                  : 'Fixture label (optional)',
+                              hintText: _isPreselectFixture
+                                  ? 'Set from Fixture Type'
+                                  : 'e.g. Mid-week National Team Selection',
+                              border: const OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        if (!_isEventStyleFixture &&
+                            (!_simpleBookingMode ||
+                                _homeVenues.length > 1)) ...[
+                          InkWell(
+                            onTap: () async {
+                              final selected = await _pickVenue(
+                                getVenues: () => _homeVenues,
+                                title: 'Select home venue',
+                                isHomeVenue: true,
+                              );
+
+                              if (selected != null) {
+                                setState(() {
+                                  _homeVenueId = selected;
+                                  _greenAreas = [];
+                                  _greenAreaId = null;
+                                  _orientation = null;
+                                });
+                                _markDirty();
+                                await _loadGreenAreas();
+                              }
+                            },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Home venue',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: Text(
+                                _homeVenues
+                                        .firstWhere(
+                                          (v) =>
+                                              v['id'].toString() ==
+                                              _homeVenueId,
+                                          orElse: () => {
+                                            'name': 'Select venue',
+                                          },
+                                        )['name']
+                                        ?.toString() ??
+                                    'Select venue',
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 12),
+                        ],
+
+                        if (!_simpleBookingMode &&
+                            !_isEventStyleFixture &&
+                            _fixtureTypeById(_fixtureTypeId)?['is_internal'] !=
+                                true) ...[
+                          InkWell(
+                            onTap: () async {
+                              final selected = await _pickVenue(
+                                getVenues: () => _opponentVenues,
+                                title: 'Select Opponent Club',
+                                isHomeVenue: false,
+                              );
+                              if (selected != null) {
+                                setState(() => _opponentVenueId = selected);
+                                _markDirty();
+                              }
+                            },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Opponent Club',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: Text(
+                                _opponentVenues
+                                        .firstWhere(
+                                          (v) =>
+                                              v['id'].toString() ==
+                                              _opponentVenueId,
+                                          orElse: () => {'name': 'Select Club'},
+                                        )['name']
+                                        ?.toString() ??
+                                    'Select Club',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        if (!_isEventStyleFixture &&
+                            _isHome &&
+                            (!_simpleBookingMode ||
+                                _greenAreas.length > 1)) ...[
+                          if (_greenAreas.isEmpty) ...[
+                            const InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Green area',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: Text('No greens available for this venue'),
+                            ),
+                            const SizedBox(height: 12),
+                          ] else ...[
+                            DropdownButtonFormField<String>(
+                              value: _greenAreaId,
+                              decoration: const InputDecoration(
+                                labelText: 'Green area',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: _greenAreas.map((g) {
+                                return DropdownMenuItem(
+                                  value: g['id'].toString(),
+                                  child: Text(g['name'].toString()),
+                                );
+                              }).toList(),
+                              onChanged: (v) {
+                                setState(() {
+                                  _greenAreaId = v;
+                                  _syncOrientationToSelectedGreen();
+                                });
+                                _markDirty();
+                                _loadRinkAvailability();
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                        ],
+
+                        if (!_isEventStyleFixture &&
+                            _isHome &&
+                            _isOutdoorSelectedGreen &&
+                            _orientationEnabledForSelectedGreen &&
+                            allowedOrients.isNotEmpty) ...[
+                          DropdownButtonFormField<String>(
+                            value: _orientation,
+                            decoration: const InputDecoration(
+                              labelText: 'Orientation',
+                            ),
+                            items: allowedOrients.map((o) {
                               return DropdownMenuItem(
-                                value: g['id'].toString(),
-                                child: Text(g['name'].toString()),
+                                value: o,
+                                child: Text(_prettyOrientation(o)),
                               );
                             }).toList(),
                             onChanged: (v) {
-                              setState(() {
-                                _greenAreaId = v;
-                                _syncOrientationToSelectedGreen();
-                              });
-                              _loadRinkAvailability();
+                              setState(() => _orientation = v);
+                              _markDirty();
                             },
                           ),
                           const SizedBox(height: 12),
                         ],
-                      ],
 
-                      if (!_isEventStyleFixture &&
-                          _isHome &&
-                          _isOutdoorSelectedGreen &&
-                          _orientationEnabledForSelectedGreen &&
-                          allowedOrients.isNotEmpty) ...[
-                        DropdownButtonFormField<String>(
-                          value: _orientation,
-                          decoration:
-                              const InputDecoration(labelText: 'Orientation'),
-                          items: allowedOrients.map((o) {
-                            return DropdownMenuItem(
-                              value: o,
-                              child: Text(_prettyOrientation(o)),
-                            );
-                          }).toList(),
-                          onChanged: (v) => setState(() => _orientation = v),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (!_simpleBookingMode && !_isEventStyleFixture) ...[
-                        DropdownButtonFormField<String>(
-                          value: _section.isEmpty ? null : _section,
-                          decoration: const InputDecoration(
-                            labelText: 'Section',
-                          ),
-                          items: const [
-                            DropdownMenuItem(value: 'open', child: Text('Open')),
-                            DropdownMenuItem(value: 'mixed', child: Text('Mixed')),
-                            DropdownMenuItem(value: 'mens', child: Text("Men's")),
-                            DropdownMenuItem(
-                                value: 'ladies', child: Text("Ladies")),
-                          ],
-                          onChanged: _fixtureTypeId == null
-                              ? (value) {
-                                  setState(() {
-                                    _section = value ?? '';
-                                  });
-                                }
-                              : null,
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        if (!_isEventStyleFixture) ...[
-                          DropdownButtonFormField<int>(
-                            value: _playersPerRink,
-                            decoration: const InputDecoration(labelText: 'Format'),
-                            items: const [4, 3, 2, 1].map((ppr) {
-                              return DropdownMenuItem(
-                                value: ppr,
-                                child: Text(
-                                  ppr == 4
-                                      ? 'Fours (4)'
-                                      : ppr == 3
-                                          ? 'Triples (3)'
-                                          : ppr == 2
-                                              ? 'Pairs (2)'
-                                              : 'Singles (1)',
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (v) =>
-                                setState(() => _playersPerRink = v ?? 4),
+                        if (!_simpleBookingMode && !_isEventStyleFixture) ...[
+                          DropdownButtonFormField<String>(
+                            value: _section.isEmpty ? null : _section,
+                            decoration: const InputDecoration(
+                              labelText: 'Section',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'open',
+                                child: Text('Open'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'mixed',
+                                child: Text('Mixed'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'mens',
+                                child: Text("Men's"),
+                              ),
+                              DropdownMenuItem(
+                                value: 'ladies',
+                                child: Text("Ladies"),
+                              ),
+                            ],
+                            onChanged: _fixtureTypeId == null
+                                ? (value) {
+                                    setState(() {
+                                      _section = value ?? '';
+                                    });
+                                    _markDirty();
+                                  }
+                                : null,
                           ),
 
                           const SizedBox(height: 12),
-                        ]
-                      ],
 
-                      if (!_isEventStyleFixture) ...[
-                        DropdownButtonFormField<int>(
-                          value: _rinksRequired,
-                          decoration: const InputDecoration(labelText: 'Rinks required'),
-                          items: List.generate(12, (i) => i + 1).map((n) {
-                            return DropdownMenuItem(
-                              value: n,
-                              child: Text(n.toString()),
-                            );
-                          }).toList(),
-                          onChanged: (v) {
-                            setState(() => _rinksRequired = v ?? 1);
-                            _loadRinkAvailability();
-                          },
-                        ),
-                        const SizedBox(height: 20),
-                      ],
-
-                      if (!_isEventStyleFixture && _simpleBookingMode) ...[
-                        _buildMemberBookingInlineSection(),
-                      ] else if (!_isEventStyleFixture && _shouldShowRinksSection) ...[
-                        _buildGreenAndRinkAvailabilityBlock(),
-                      ],
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _loading ? null : _save,
-                              icon: const Icon(Icons.save),
-                              label: const Text('Save'),
+                          if (!_isEventStyleFixture) ...[
+                            DropdownButtonFormField<int>(
+                              value: _playersPerRink,
+                              decoration: const InputDecoration(
+                                labelText: 'Format',
+                              ),
+                              items: const [4, 3, 2, 1].map((ppr) {
+                                return DropdownMenuItem(
+                                  value: ppr,
+                                  child: Text(
+                                    ppr == 4
+                                        ? 'Fours (4)'
+                                        : ppr == 3
+                                        ? 'Triples (3)'
+                                        : ppr == 2
+                                        ? 'Pairs (2)'
+                                        : 'Singles (1)',
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (v) {
+                                setState(() => _playersPerRink = v ?? 4);
+                                _markDirty();
+                              },
                             ),
-                          ),
-                          if (_canUseRepeat) ...[
-                            const SizedBox(width: 12),
-                            OutlinedButton.icon(
-                              onPressed: _loading ? null : _openRepeatPlanner,
-                              icon: const Icon(Icons.repeat),
-                              label: const Text('Repeat'),
-                            ),
+
+                            const SizedBox(height: 12),
                           ],
                         ],
-                      )
-                    ],
+
+                        if (!_isEventStyleFixture) ...[
+                          DropdownButtonFormField<int>(
+                            value: _rinksRequired,
+                            decoration: const InputDecoration(
+                              labelText: 'Rinks required',
+                            ),
+                            items: List.generate(12, (i) => i + 1).map((n) {
+                              return DropdownMenuItem(
+                                value: n,
+                                child: Text(n.toString()),
+                              );
+                            }).toList(),
+                            onChanged: (v) {
+                              setState(() => _rinksRequired = v ?? 1);
+                              _markDirty();
+                              _loadRinkAvailability();
+                            },
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+
+                        if (!_isEventStyleFixture && _simpleBookingMode) ...[
+                          _buildMemberBookingInlineSection(),
+                        ] else if (!_isEventStyleFixture &&
+                            _shouldShowRinksSection) ...[
+                          _buildGreenAndRinkAvailabilityBlock(),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -3122,10 +3285,7 @@ class RepeatFixtureCreationResult {
 }
 
 class RepeatFixtureCreateOutcome {
-  RepeatFixtureCreateOutcome({
-    required this.fixtureId,
-    required this.message,
-  });
+  RepeatFixtureCreateOutcome({required this.fixtureId, required this.message});
 
   final String fixtureId;
   final String message;

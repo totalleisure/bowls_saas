@@ -39,18 +39,28 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   late final TextEditingController _genderSelfDescribed;
   String? _gender;
   String? _sexAtBirth;
+  String? _preferredPosition;
 
   late String _role;
   late bool _active;
 
   bool _saving = false;
 
+  bool _hasUnsavedChanges = false;
+
+  void _markDirty() {
+    if (_hasUnsavedChanges) return;
+    setState(() => _hasUnsavedChanges = true);
+  }
+
   @override
   void initState() {
     super.initState();
     final i = widget.initial;
 
-    _firstName = TextEditingController(text: (i['first_name'] ?? '').toString());
+    _firstName = TextEditingController(
+      text: (i['first_name'] ?? '').toString(),
+    );
     _lastName = TextEditingController(text: (i['last_name'] ?? '').toString());
     _email = TextEditingController(text: (i['email_address'] ?? '').toString());
     _phone = TextEditingController(text: (i['phone'] ?? '').toString());
@@ -62,11 +72,12 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     _postcode = TextEditingController(text: (i['postcode'] ?? '').toString());
     _gender = i['gender']?.toString();
     _sexAtBirth = i['sex_at_birth']?.toString();
+    _preferredPosition = i['preferred_position']?.toString();
     _genderSelfDescribed = TextEditingController(
       text: (i['gender_self_described'] ?? '').toString(),
-    );    
+    );
     _role = widget.initialRole;
-    _active = widget.initialActive;  
+    _active = widget.initialActive;
   }
 
   @override
@@ -84,6 +95,20 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     super.dispose();
   }
 
+  String _backgroundAsset(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+
+    if (width >= 1100) {
+      return 'assets/images/blank_bg_desktop_2.png';
+    }
+
+    if (width >= 700) {
+      return 'assets/images/blank_bg_tablet_2.png';
+    }
+
+    return 'assets/images/blank_bg_phone_2.png';
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -93,7 +118,10 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
       final first = _firstName.text.trim();
       final last = _lastName.text.trim();
-      final displayName = [first, last].where((s) => s.isNotEmpty).join(' ').trim();
+      final displayName = [
+        first,
+        last,
+      ].where((s) => s.isNotEmpty).join(' ').trim();
 
       final payload = <String, dynamic>{
         'first_name': first.isEmpty ? null : first,
@@ -105,18 +133,21 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
         'address_line2': _a2.text.trim().isEmpty ? null : _a2.text.trim(),
         'town_city': _town.text.trim().isEmpty ? null : _town.text.trim(),
         'county': _county.text.trim().isEmpty ? null : _county.text.trim(),
-        'postcode': _postcode.text.trim().isEmpty ? null : _postcode.text.trim(),
+        'postcode': _postcode.text.trim().isEmpty
+            ? null
+            : _postcode.text.trim(),
         'gender': _gender,
         'gender_self_described': _gender == 'prefer_to_self_describe'
             ? (_genderSelfDescribed.text.trim().isEmpty
-                ? null
-                : _genderSelfDescribed.text.trim())
+                  ? null
+                  : _genderSelfDescribed.text.trim())
             : null,
-        'sex_at_birth': _sexAtBirth,        
+        'sex_at_birth': _sexAtBirth,
+        'preferred_position': _preferredPosition,
       };
 
-//      debugPrint('Saving member_profile_id=${widget.memberProfileId}');
-//      debugPrint('Payload=$payload');
+      //      debugPrint('Saving member_profile_id=${widget.memberProfileId}');
+      //      debugPrint('Payload=$payload');
 
       final updated = await client
           .from('member_profiles')
@@ -124,7 +155,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           .eq('id', widget.memberProfileId)
           .select('id, first_name, last_name, email_address, display_name');
 
-//      debugPrint('Update returned: $updated');
+      //      debugPrint('Update returned: $updated');
 
       final check = await client
           .from('member_profiles')
@@ -135,27 +166,25 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       if (widget.canManageMembers) {
         await client
             .from('club_memberships')
-            .update({
-              'role': _role,
-              'is_active': _active,
-            })
+            .update({'role': _role, 'is_active': _active})
             .eq('club_id', widget.clubId)
             .eq('member_profile_id', widget.memberProfileId);
       }
 
-//      debugPrint('Post-save row: $check');
+      //      debugPrint('Post-save row: $check');
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Member updated')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Member updated')));
+      setState(() => _hasUnsavedChanges = false);
       Navigator.pop(context, true);
     } catch (e) {
-//      debugPrint('SAVE FAILED: $e');
+      //      debugPrint('SAVE FAILED: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Save failed: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -167,10 +196,30 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       child: TextField(
         controller: c,
         keyboardType: type,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
+        onChanged: (_) => _markDirty(),
+        style: const TextStyle(
+          color: Colors.black,
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
+          floatingLabelStyle: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.w700,
+          ),
+          border: const OutlineInputBorder(),
+          enabledBorder: const OutlineInputBorder(
+            borderSide: BorderSide(color: Colors.black54),
+          ),
+          focusedBorder: const OutlineInputBorder(
+            borderSide: BorderSide(color: Colors.black, width: 2),
+          ),
           isDense: true,
-        ).copyWith(labelText: label),
+        ),
       ),
     );
   }
@@ -200,141 +249,223 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit member'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          Text('Basic details', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          _field('First name', _firstName),
-          _field('Last name (surname)', _lastName),
-          _field('Email', _email, type: TextInputType.emailAddress),
-          _field('Phone', _phone, type: TextInputType.phone),
-          
-          const SizedBox(height: 12),
-          Text('Personal details', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
+    return PopScope(
+      canPop: !_hasUnsavedChanges,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop || !_hasUnsavedChanges) return;
 
-          _dropdownField(
-            label: 'Gender',
-            value: _gender,
-            items: const [
-              DropdownMenuItem(value: 'male', child: Text('Male')),
-              DropdownMenuItem(value: 'female', child: Text('Female')),
-              DropdownMenuItem(value: 'non_binary', child: Text('Non-binary')),
-              DropdownMenuItem(
-                value: 'prefer_to_self_describe',
-                child: Text('Prefer to self-describe'),
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Discard changes?'),
+            content: const Text('Your unsaved changes will be lost.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
               ),
-              DropdownMenuItem(
-                value: 'prefer_not_to_say',
-                child: Text('Prefer not to say'),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Discard'),
               ),
             ],
-            onChanged: (value) {
-              setState(() {
-                _gender = value;
-                if (_gender != 'prefer_to_self_describe') {
-                  _genderSelfDescribed.clear();
-                }
-              });
-            },
           ),
+        );
 
-          if (_gender == 'prefer_to_self_describe')
-            _field('Please describe your gender', _genderSelfDescribed),
-
-          _dropdownField(
-            label: 'Sex at birth',
-            value: _sexAtBirth,
-            helperText: 'Optional',
-            items: const [
-              DropdownMenuItem(value: 'male', child: Text('Male')),
-              DropdownMenuItem(value: 'female', child: Text('Female')),
-              DropdownMenuItem(value: 'intersex', child: Text('Intersex')),
-              DropdownMenuItem(
-                value: 'prefer_not_to_say',
-                child: Text('Prefer not to say'),
-              ),
-            ],
-            onChanged: (value) {
-              setState(() {
-                _sexAtBirth = value;
-              });
-            },
+        if (leave == true && mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage(_backgroundAsset(context)),
+            fit: BoxFit.cover,
           ),
-          
-          const SizedBox(height: 12),
-          Text('Address', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          _field('Address line 1', _a1),
-          _field('Address line 2', _a2),
-          _field('Town / City', _town),
-          _field('County', _county),
-          _field('Postcode', _postcode),
-
-          if (widget.canManageMembers) ...[
-            const SizedBox(height: 12),
-            Text(
-              'Admin details',
-              style: Theme.of(context).textTheme.titleMedium,
+        ),
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(title: const Text('Edit member')),
+          floatingActionButton: _hasUnsavedChanges
+              ? FloatingActionButton.extended(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save),
+                  label: const Text('Save'),
+                )
+              : null,
+          body: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.88),
+              borderRadius: BorderRadius.circular(20),
             ),
-            const SizedBox(height: 8),
+            child: ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                Text(
+                  'Basic details',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                _field('First name', _firstName),
+                _field('Last name (surname)', _lastName),
+                _field('Email', _email, type: TextInputType.emailAddress),
+                _field('Phone', _phone, type: TextInputType.phone),
 
-            _dropdownField(
-              label: 'Role',
-              value: _role,
-              items: const [
-                DropdownMenuItem(
-                  value: 'member',
-                  child: Text('Member'),
+                const SizedBox(height: 12),
+                Text(
+                  'Personal details',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-                DropdownMenuItem(
-                  value: 'captain',
-                  child: Text('Captain'),
+                const SizedBox(height: 8),
+
+                _dropdownField(
+                  label: 'Gender',
+                  value: _gender,
+                  items: const [
+                    DropdownMenuItem(value: 'male', child: Text('Male')),
+                    DropdownMenuItem(value: 'female', child: Text('Female')),
+                    DropdownMenuItem(
+                      value: 'non_binary',
+                      child: Text('Non-binary'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'prefer_to_self_describe',
+                      child: Text('Prefer to self-describe'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'prefer_not_to_say',
+                      child: Text('Prefer not to say'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _gender = value;
+                      if (_gender != 'prefer_to_self_describe') {
+                        _genderSelfDescribed.clear();
+                      }
+                    });
+                    _markDirty();
+                  },
                 ),
-                DropdownMenuItem(
-                  value: 'selector',
-                  child: Text('Selector'),
+
+                if (_gender == 'prefer_to_self_describe')
+                  _field('Please describe your gender', _genderSelfDescribed),
+
+                _dropdownField(
+                  label: 'Sex at birth',
+                  value: _sexAtBirth,
+                  helperText: 'Optional',
+                  items: const [
+                    DropdownMenuItem(value: 'male', child: Text('Male')),
+                    DropdownMenuItem(value: 'female', child: Text('Female')),
+                    DropdownMenuItem(
+                      value: 'intersex',
+                      child: Text('Intersex'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'prefer_not_to_say',
+                      child: Text('Prefer not to say'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _sexAtBirth = value;
+                    });
+                    _markDirty();
+                  },
                 ),
-                DropdownMenuItem(
-                  value: 'admin',
-                  child: Text('Admin'),
+
+                const SizedBox(height: 12),
+                Text('Address', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                _field('Address line 1', _a1),
+                _field('Address line 2', _a2),
+                _field('Town / City', _town),
+                _field('County', _county),
+                _field('Postcode', _postcode),
+
+                const SizedBox(height: 12),
+                Text(
+                  'Player details',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
+
+                const SizedBox(height: 8),
+                _dropdownField(
+                  label: 'Preferred Player Position',
+                  value: _preferredPosition,
+                  items: const [
+                    DropdownMenuItem(value: 'lead', child: Text('Lead')),
+                    DropdownMenuItem(value: 'third', child: Text('Third')),
+                    DropdownMenuItem(value: 'skip', child: Text('Skip')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _preferredPosition = value;
+                    });
+                    _markDirty();
+                  },
+                ),
+
+                if (widget.canManageMembers) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Admin details',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  _dropdownField(
+                    label: 'Role',
+                    value: _role,
+                    items: const [
+                      DropdownMenuItem(value: 'member', child: Text('Member')),
+                      DropdownMenuItem(
+                        value: 'captain',
+                        child: Text('Captain'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'selector',
+                        child: Text('Selector'),
+                      ),
+                      DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _role = value;
+                      });
+                      _markDirty();
+                    },
+                  ),
+
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Active member'),
+                    value: _active,
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _active = value;
+                      });
+                      _markDirty();
+                    },
+                  ),
+                ],
               ],
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _role = value;
-                });
-              },
             ),
-
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Active member'),
-              value: _active,
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _active = value;
-                });
-              },
-            ),
-          ],
-
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.save),
-            label: const Text('Save'),
           ),
-        ],
+        ),
       ),
     );
   }

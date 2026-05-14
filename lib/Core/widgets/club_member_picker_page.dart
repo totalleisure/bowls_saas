@@ -3,12 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-enum MemberPickerSectionFilter {
-  mens,
-  ladies,
-  mixed,
-  open,
-}
+enum MemberPickerSectionFilter { mens, ladies, mixed, open }
 
 class ClubMemberPickerMember {
   final String memberProfileId;
@@ -16,6 +11,7 @@ class ClubMemberPickerMember {
   final String? emailAddress;
   final String? phone;
   final String? sexAtBirth;
+  final String? preferredPosition;
 
   const ClubMemberPickerMember({
     required this.memberProfileId,
@@ -23,15 +19,19 @@ class ClubMemberPickerMember {
     this.emailAddress,
     this.phone,
     this.sexAtBirth,
+    this.preferredPosition,
   });
 
   factory ClubMemberPickerMember.fromMap(Map<String, dynamic> map) {
     return ClubMemberPickerMember(
       memberProfileId: map['member_profile_id'].toString(),
-      displayName: (map['picker_name'] ?? map['display_name'] ?? 'Unnamed member').toString(),
+      displayName:
+          (map['picker_name'] ?? map['display_name'] ?? 'Unnamed member')
+              .toString(),
       emailAddress: map['email_address']?.toString(),
       phone: map['phone']?.toString(),
       sexAtBirth: map['sex_at_birth']?.toString(),
+      preferredPosition: map['preferred_position']?.toString(),
     );
   }
 }
@@ -86,6 +86,14 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
   late Set<String> _selectedIds;
 
   List<ClubMemberPickerMember> _members = [];
+
+  String _memberDisplayTitle(ClubMemberPickerMember member) {
+    final preferred = (member.preferredPosition ?? '').trim();
+
+    if (preferred.isEmpty) return member.displayName;
+
+    return '${member.displayName} ($preferred)';
+  }
 
   @override
   void initState() {
@@ -151,8 +159,9 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
       final loaded = (rows as List)
           .map((row) => ClubMemberPickerMember.fromMap(row))
           .where(
-            (member) =>
-                !widget.excludeMemberProfileIds.contains(member.memberProfileId),
+            (member) => !widget.excludeMemberProfileIds.contains(
+              member.memberProfileId,
+            ),
           )
           .toList();
 
@@ -205,7 +214,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
 
   void _clearSelection() {
     Navigator.of(context).pop(<String>[]);
-  }  
+  }
 
   Widget _buildSectionToggle() {
     return SegmentedButton<MemberPickerSectionFilter>(
@@ -224,9 +233,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
 
   Widget _buildList() {
     if (_members.isEmpty) {
-      return const Center(
-        child: Text('No members found.'),
-      );
+      return const Center(child: Text('No members found.'));
     }
 
     return ListView.separated(
@@ -245,7 +252,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
                   : '?',
             ),
           ),
-          title: Text(member.displayName),
+          title: Text(_memberDisplayTitle(member)),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -270,10 +277,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
         title: Text(widget.title),
         actions: [
           if (widget.initialSelectedIds.isNotEmpty)
-            TextButton(
-              onPressed: _clearSelection,
-              child: const Text('Clear'),
-            ),
+            TextButton(onPressed: _clearSelection, child: const Text('Clear')),
           if (widget.allowMultiple)
             TextButton(
               onPressed: _returnSelection,
@@ -317,8 +321,8 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
                     child: _loading
                         ? const Center(child: CircularProgressIndicator())
                         : _error != null
-                            ? Center(child: Text(_error!))
-                            : _buildList(),
+                        ? Center(child: Text(_error!))
+                        : _buildList(),
                   ),
                   const SizedBox(height: 12),
                   Row(
