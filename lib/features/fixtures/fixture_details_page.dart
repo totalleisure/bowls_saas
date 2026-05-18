@@ -42,7 +42,6 @@ class FixtureDetailsPage extends StatefulWidget {
 }
 
 class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
-
   int _loadCount = 0;
 
   String? _currentMemberId;
@@ -62,7 +61,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _canAssignCaptaincy = false;
   bool _canManageTeam = false;
   bool _canViewTeam = false;
-  
+
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _fixture;
@@ -118,7 +117,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     return null;
-  }  
+  }
 
   final Map<String, String> _selectedHomeRinkByFixtureRinkId = {};
 
@@ -174,15 +173,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _canEditAdminFixtureDetails =>
-      _isSuperuser ||
-      _isClubAdmin ||
-      _isSelector ||
-      _isFixtureCreator;
+      _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
 
   bool get _canEditFixtureOperationalDetails =>
-      _canEditAdminFixtureDetails ||
-      _isFixtureCaptain ||
-      _isFixtureViceCaptain; 
+      _canEditAdminFixtureDetails || _isFixtureCaptain || _isFixtureViceCaptain;
 
   bool get _canMaintainMemberPreselectFixture {
     return _usesSimpleBookingWorkflow &&
@@ -204,8 +198,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _isFixtureViceCaptain {
-    final viceCaptainId =
-        _fixture?['vice_captain_member_profile_id']?.toString();
+    final viceCaptainId = _fixture?['vice_captain_member_profile_id']
+        ?.toString();
 
     return _currentMemberId != null &&
         viceCaptainId != null &&
@@ -219,13 +213,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _canSelectBookedRink(Map<String, dynamic> rink) {
     final bookedFixtureId = rink['booked_fixture_id']?.toString();
 
-debugPrint(
-  'CAN SELECT BOOKED RINK: '
-  'bookedFixtureId=$bookedFixtureId '
-  'thisFixture=${widget.fixtureId} '
-  'canAdmin=$_canEditAdminFixtureDetails '
-  'canOps=$_canEditFixtureOperationalDetails',
-);
+    debugPrint(
+      'CAN SELECT BOOKED RINK: '
+      'bookedFixtureId=$bookedFixtureId '
+      'thisFixture=${widget.fixtureId} '
+      'canAdmin=$_canEditAdminFixtureDetails '
+      'canOps=$_canEditFixtureOperationalDetails',
+    );
 
     if (bookedFixtureId == null || bookedFixtureId.isEmpty) {
       return false;
@@ -289,9 +283,7 @@ debugPrint(
     if (isBooked) {
       if (!_canSelectBookedRink(rink)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You cannot move this rink booking.'),
-          ),
+          const SnackBar(content: Text('You cannot move this rink booking.')),
         );
         return;
       }
@@ -389,9 +381,9 @@ debugPrint(
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Move failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Move failed: $e')));
     }
   }
 
@@ -404,16 +396,14 @@ debugPrint(
     final aId = a['fixture_rink_id']?.toString();
     final bId = b['fixture_rink_id']?.toString();
 
-    final aLabel =
-        (a['rink_label'] ?? a['label'] ?? a['name'] ?? '').toString();
-    final bLabel =
-        (b['rink_label'] ?? b['label'] ?? b['name'] ?? '').toString();
+    final aLabel = (a['rink_label'] ?? a['label'] ?? a['name'] ?? '')
+        .toString();
+    final bLabel = (b['rink_label'] ?? b['label'] ?? b['name'] ?? '')
+        .toString();
 
     if (aId == null || aId.isEmpty || bId == null || bId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot swap. Missing fixture rink id.'),
-        ),
+        const SnackBar(content: Text('Cannot swap. Missing fixture rink id.')),
       );
       return;
     }
@@ -421,10 +411,7 @@ debugPrint(
     try {
       await Supabase.instance.client.rpc(
         'swap_fixture_rink_labels',
-        params: {
-          'p_a_fixture_rink_id': aId,
-          'p_b_fixture_rink_id': bId,
-        },
+        params: {'p_a_fixture_rink_id': aId, 'p_b_fixture_rink_id': bId},
       );
 
       setState(() {
@@ -446,14 +433,14 @@ debugPrint(
       });
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Swapped $aLabel with $bLabel')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Swapped $aLabel with $bLabel')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Swap failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Swap failed: $e')));
     }
   }
 
@@ -479,7 +466,9 @@ debugPrint(
 
     final greens = await _client
         .from('green_areas')
-        .select('id, name, venue_id, discipline, orientation_mode, allowed_orientations')
+        .select(
+          'id, name, venue_id, discipline, orientation_mode, allowed_orientations',
+        )
         .eq('venue_id', _homeVenueId!)
         .order('name');
 
@@ -497,8 +486,9 @@ debugPrint(
           loadedGreens.any((g) => g['id'].toString() == fixtureGreenId)) {
         _greenAreaId = fixtureGreenId;
       } else {
-        _greenAreaId =
-            loadedGreens.isNotEmpty ? loadedGreens.first['id'].toString() : null;
+        _greenAreaId = loadedGreens.isNotEmpty
+            ? loadedGreens.first['id'].toString()
+            : null;
       }
 
       _syncOrientationToSelectedGreen();
@@ -557,15 +547,12 @@ debugPrint(
         return;
       }
 
-      await _client.from('fixture_rink_assignments').upsert(
-        {
-          'fixture_id': widget.fixtureId,
-          'fixture_rink_id': fixtureRinkId,
-          'position': position,
-          'member_profile_id': memberProfileId,
-        },
-        onConflict: 'fixture_rink_id,position',
-      );
+      await _client.from('fixture_rink_assignments').upsert({
+        'fixture_id': widget.fixtureId,
+        'fixture_rink_id': fixtureRinkId,
+        'position': position,
+        'member_profile_id': memberProfileId,
+      }, onConflict: 'fixture_rink_id,position');
     }
 
     await _loadMemberPreselectData();
@@ -672,7 +659,9 @@ debugPrint(
 
       final row = await client
           .from('team_selection_members')
-          .select('id, team_selection_id, member_profile_id, role, acceptance, responded_at, created_at')
+          .select(
+            'id, team_selection_id, member_profile_id, role, acceptance, responded_at, created_at',
+          )
           .eq('team_selection_id', teamSelectionId)
           .eq('member_profile_id', myId)
           .maybeSingle();
@@ -703,8 +692,7 @@ debugPrint(
 
     final rinkRows = List<Map<String, dynamic>>.from(rinks);
 
-    final rinkIds =
-        rinkRows.map((r) => r['id'].toString()).toList();
+    final rinkIds = rinkRows.map((r) => r['id'].toString()).toList();
 
     if (rinkIds.isEmpty) {
       if (!mounted) return;
@@ -717,9 +705,9 @@ debugPrint(
       return;
     }
 
-final assignments = await _client
-    .from('fixture_rink_assignments')
-    .select('''
+    final assignments = await _client
+        .from('fixture_rink_assignments')
+        .select('''
       fixture_rink_id,
       member_profile_id,
       position,
@@ -730,7 +718,7 @@ final assignments = await _client
         display_name
       )
     ''')
-    .inFilter('fixture_rink_id', rinkIds);
+        .inFilter('fixture_rink_id', rinkIds);
 
     final assignmentRows = List<Map<String, dynamic>>.from(assignments);
 
@@ -764,8 +752,9 @@ final assignments = await _client
     for (final row in assignmentRows) {
       final memberId = row['member_profile_id']?.toString();
 
-      row['acceptance'] =
-          memberId == null ? null : acceptanceByMemberId[memberId];
+      row['acceptance'] = memberId == null
+          ? null
+          : acceptanceByMemberId[memberId];
     }
 
     if (!mounted) return;
@@ -808,10 +797,12 @@ final assignments = await _client
 
     final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
 
-debugPrint('PROFILE RAW myProfileId = $myProfileId');
-debugPrint('FIXTURE club_id = ${_fixture?['club_id']}');
-debugPrint('FIXTURE captain = ${_fixture?['captain_member_profile_id']}');
-debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
+    debugPrint('PROFILE RAW myProfileId = $myProfileId');
+    debugPrint('FIXTURE club_id = ${_fixture?['club_id']}');
+    debugPrint('FIXTURE captain = ${_fixture?['captain_member_profile_id']}');
+    debugPrint(
+      'FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}',
+    );
 
     // 1) Global superuser
     final superuserRow = await supabase
@@ -847,20 +838,20 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
 
       _isFixtureCreator = _isSuperuser || _isClubAdmin || _isSelector;
 
-      final captainId =
-          _fixture?['captain_member_profile_id']?.toString();
+      final captainId = _fixture?['captain_member_profile_id']?.toString();
 
-      final viceCaptainId =
-          _fixture?['vice_captain_member_profile_id']?.toString();
+      final viceCaptainId = _fixture?['vice_captain_member_profile_id']
+          ?.toString();
     } else {
       _currentMemberId = myProfileId;
       _isClubAdmin = false;
       _isSelector = false;
-      _isFixtureCreator = _isSuperuser;  
+      _isFixtureCreator = _isSuperuser;
     }
 
-  final captainId = _fixture?['captain_member_profile_id']?.toString();
-  final viceCaptainId = _fixture?['vice_captain_member_profile_id']?.toString();
+    final captainId = _fixture?['captain_member_profile_id']?.toString();
+    final viceCaptainId = _fixture?['vice_captain_member_profile_id']
+        ?.toString();
 
     debugPrint(
       'Dashboard perms: super=$_isSuperuser '
@@ -881,7 +872,7 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
 
   Future<void> _load() async {
     _loadCount++;
-    print('FixtureDetails _load() count=$_loadCount id=${widget.fixtureId}');    
+    print('FixtureDetails _load() count=$_loadCount id=${widget.fixtureId}');
     setState(() {
       _loading = true;
       _error = null;
@@ -896,10 +887,10 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
             'team_id, team_name, notes, '
             'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
-              'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, '
-              'colour_scheme:fixture_colour_schemes('
-                'id, name, background_hex, foreground_hex'
-              ')'
+            'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, '
+            'colour_scheme:fixture_colour_schemes('
+            'id, name, background_hex, foreground_hex'
+            ')'
             '), '
             'team:teams!fixtures_team_id_fkey(name), '
             'venue:venues!fixtures_venue_id_fkey(name), '
@@ -907,44 +898,44 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
             'green_areas(name, discipline, orientation_mode), '
             'captain:member_profiles!fixtures_captain_member_profile_id_fkey(display_name), '
             'vice:member_profiles!fixtures_vice_captain_member_profile_id_fkey(display_name), '
-            'ts:team_selections(id, status)'
+            'ts:team_selections(id, status)',
           )
           .eq('id', widget.fixtureId)
           .single();
 
       if (!mounted) return;
-        setState(() {
-          _fixture = Map<String, dynamic>.from(f);
-          _teamNameCtrl.text = (_fixture?['team_name'] ?? '').toString();
-          _selectedTeamId = _fixture?['team_id']?.toString();
-          
-          final loadedCompetitionType =
-              _fixture?['competition_type'] as Map<String, dynamic>?;
-          final loadedSelectionMode =
-              (loadedCompetitionType?['selection_mode'] ?? '').toString().trim();
+      setState(() {
+        _fixture = Map<String, dynamic>.from(f);
+        _teamNameCtrl.text = (_fixture?['team_name'] ?? '').toString();
+        _selectedTeamId = _fixture?['team_id']?.toString();
 
-          _isTeamFixtureUi =
-              loadedSelectionMode == 'team' || _selectedTeamId != null;
-          _loading = false;
-        });
+        final loadedCompetitionType =
+            _fixture?['competition_type'] as Map<String, dynamic>?;
+        final loadedSelectionMode =
+            (loadedCompetitionType?['selection_mode'] ?? '').toString().trim();
 
-        // run post-load checks
-        await _loadPermissions();
-        await _loadMyMemberProfileId();
-        await _loadMyTeamSelection();
-        await _loadTeamNameLocked();
-        await _loadTeams();
-        await _loadMyRsvp();
-        if (_usesSimpleBookingWorkflow) {
-          await _loadClubMembers();
-        }
+        _isTeamFixtureUi =
+            loadedSelectionMode == 'team' || _selectedTeamId != null;
+        _loading = false;
+      });
 
-        final fixtureRinksRequired =
-            int.tryParse((_fixture?['rinks_required'] ?? '0').toString()) ?? 0;
+      // run post-load checks
+      await _loadPermissions();
+      await _loadMyMemberProfileId();
+      await _loadMyTeamSelection();
+      await _loadTeamNameLocked();
+      await _loadTeams();
+      await _loadMyRsvp();
+      if (_usesSimpleBookingWorkflow) {
+        await _loadClubMembers();
+      }
 
-        if (fixtureRinksRequired > 0) {
-          await _loadMemberPreselectData();
-        }
+      final fixtureRinksRequired =
+          int.tryParse((_fixture?['rinks_required'] ?? '0').toString()) ?? 0;
+
+      if (fixtureRinksRequired > 0) {
+        await _loadMemberPreselectData();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -970,7 +961,9 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
       setState(() {
         _teams = List<Map<String, dynamic>>.from(rows);
         _selectedTeamId ??= _fixture?['team_id']?.toString();
-        if (_selectedTeamId == null && _teams.isNotEmpty && (_fixture?['team_id'] != null)) {
+        if (_selectedTeamId == null &&
+            _teams.isNotEmpty &&
+            (_fixture?['team_id'] != null)) {
           _selectedTeamId = _teams.first['id'].toString();
         }
       });
@@ -998,8 +991,9 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
   String _selectedMemberLabel(String? memberProfileId) {
     if (memberProfileId == null) return 'Select player';
 
-    final match =
-        _clubMembers.where((m) => m['id'].toString() == memberProfileId);
+    final match = _clubMembers.where(
+      (m) => m['id'].toString() == memberProfileId,
+    );
 
     if (match.isEmpty) return 'Select player';
 
@@ -1068,9 +1062,7 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirm new fixture date/time'),
-        content: Text(
-          'Change fixture to:\n${_formatLocalDateTime(newLocal)}',
-        ),
+        content: Text('Change fixture to:\n${_formatLocalDateTime(newLocal)}'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1094,9 +1086,7 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
     try {
       await Supabase.instance.client
           .from('fixtures')
-          .update({
-            'start_at': newLocal.toUtc().toIso8601String(),
-          })
+          .update({'start_at': newLocal.toUtc().toIso8601String()})
           .eq('id', widget.fixtureId);
 
       _didChangeFixture = true;
@@ -1112,9 +1102,9 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
       setState(() {
         _error = e.toString();
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update fixture: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to update fixture: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -1144,16 +1134,13 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
         return;
       }
 
-      final access = await loadClubAccess(
-        clubId: clubId,
-        client: _client,
-      );
+      final access = await loadClubAccess(clubId: clubId, client: _client);
 
-      final fixtureCaptainId =
-          _fixture?['captain_member_profile_id']?.toString();
+      final fixtureCaptainId = _fixture?['captain_member_profile_id']
+          ?.toString();
 
-      final fixtureViceCaptainId =
-          _fixture?['vice_captain_member_profile_id']?.toString();
+      final fixtureViceCaptainId = _fixture?['vice_captain_member_profile_id']
+          ?.toString();
 
       final isFixtureCaptain =
           fixtureCaptainId != null &&
@@ -1169,8 +1156,7 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
       final canDeleteFixture = canAdminManage;
       final canAssignCaptaincy = canAdminManage;
 
-      final canManageTeam =
-          canAdminManage || isFixtureCaptain || isFixtureVice;
+      final canManageTeam = canAdminManage || isFixtureCaptain || isFixtureVice;
 
       final myTeamSelection = _myTeamSelection != null;
       final canViewTeam = canManageTeam || myTeamSelection;
@@ -1212,7 +1198,7 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
       'viewTeam=$_canViewTeam',
     );
   }
-  
+
   Future<void> _confirmAndDelete() async {
     if (!_canDeleteFixture) return;
     final confirmed = await showDialog<bool>(
@@ -1241,18 +1227,19 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
     setState(() => _loading = true);
 
     try {
-      await _client.rpc('delete_fixture', params: {
-        'p_fixture_id': widget.fixtureId,
-      });
+      await _client.rpc(
+        'delete_fixture',
+        params: {'p_fixture_id': widget.fixtureId},
+      );
 
       if (!mounted) return;
       Navigator.pop(context, true); // tell previous screen to refresh
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
     }
   }
 
@@ -1276,16 +1263,16 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
       }, onConflict: 'fixture_id,member_profile_id');
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('RSVP set to $label')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('RSVP set to $label')));
     } catch (e) {
       // Revert highlight if DB write fails
       if (mounted) {
         setState(() => _myRsvp = previous);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('RSVP error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('RSVP error: $e')));
       }
     }
     await _loadMyRsvp();
@@ -1357,13 +1344,12 @@ debugPrint('FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}');
   }
 
   Future<void> _loadRinkAvailability() async {
-
-debugPrint(
-  'RINK AVAILABILITY CHECK: '
-  'green=$_greenAreaId '
-  'start=$_startAtLocal '
-  'end=$_endAtLocal',
-);
+    debugPrint(
+      'RINK AVAILABILITY CHECK: '
+      'green=$_greenAreaId '
+      'start=$_startAtLocal '
+      'end=$_endAtLocal',
+    );
 
     if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
       setState(() {
@@ -1388,8 +1374,8 @@ debugPrint(
         },
       );
 
-debugPrint('RINK AVAILABILITY RPC rows=$rows');
-debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
+      debugPrint('RINK AVAILABILITY RPC rows=$rows');
+      debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
       if (!mounted) return;
 
@@ -1448,9 +1434,9 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     } catch (e) {
       if (!mounted) return;
       setState(() => _myTeamSelectionStatus = previous);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to respond: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to respond: $e')));
     }
 
     await _load();
@@ -1484,18 +1470,14 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     if (!newEnd.isAfter(startLocal)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('End time must be after start time.'),
-        ),
+        const SnackBar(content: Text('End time must be after start time.')),
       );
       return;
     }
 
     await Supabase.instance.client
         .from('fixtures')
-        .update({
-          'end_at': newEnd.toUtc().toIso8601String(),
-        })
+        .update({'end_at': newEnd.toUtc().toIso8601String()})
         .eq('id', widget.fixtureId);
 
     _didChangeFixture = true;
@@ -1532,7 +1514,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
   }
 
   Widget _teamSelectionChoiceButton(String status, String label) {
-    final isSelected = (_myTeamSelectionStatus ?? '').trim().toLowerCase() == status;
+    final isSelected =
+        (_myTeamSelectionStatus ?? '').trim().toLowerCase() == status;
 
     return ElevatedButton(
       style: isSelected
@@ -1755,14 +1738,14 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     } else {
       await client
           .from('team_selection_members')
-          .update({
-            'is_selected': true,
-          })
+          .update({'is_selected': true})
           .eq('id', existing['id']);
     }
   }
 
-  Future<void> _markTeamSelectionMemberUnselected(String memberProfileId) async {
+  Future<void> _markTeamSelectionMemberUnselected(
+    String memberProfileId,
+  ) async {
     final client = Supabase.instance.client;
     final teamSelectionId = await _teamSelectionIdForFixture();
 
@@ -1773,9 +1756,7 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
     await client
         .from('team_selection_members')
-        .update({
-          'is_selected': false,
-        })
+        .update({'is_selected': false})
         .eq('team_selection_id', teamSelectionId)
         .eq('member_profile_id', memberProfileId);
   }
@@ -1838,7 +1819,6 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
   }
 
   Widget _buildMemberPreselectEditorPlaceholder() {
-
     debugPrint(
       'MEMBER PRESELECT EDITOR: '
       'isMemberBookable=$_usesSimpleBookingWorkflow '
@@ -1858,10 +1838,7 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
             const Text(
               'Players, opponents and rinks',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
             ),
             const SizedBox(height: 12),
 
@@ -1889,9 +1866,11 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                         ),
                         const SizedBox(height: 8),
 
-                        for (var playerNo = 1;
-                            playerNo <= playersPerSide;
-                            playerNo++) ...[
+                        for (
+                          var playerNo = 1;
+                          playerNo <= playersPerSide;
+                          playerNo++
+                        ) ...[
                           Row(
                             children: [
                               SizedBox(
@@ -1906,24 +1885,30 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                       position: playerNo,
                                     );
 
-                                    final acceptance =
-                                        assignment?['acceptance']?.toString();
+                                    final acceptance = assignment?['acceptance']
+                                        ?.toString();
 
                                     return OutlinedButton(
                                       style: OutlinedButton.styleFrom(
                                         backgroundColor:
-                                            _acceptanceBackgroundColor(acceptance),
+                                            _acceptanceBackgroundColor(
+                                              acceptance,
+                                            ),
                                         foregroundColor:
-                                            _acceptanceForegroundColor(acceptance),
+                                            _acceptanceForegroundColor(
+                                              acceptance,
+                                            ),
                                       ),
-                                      onPressed: _canMaintainMemberPreselectFixture
+                                      onPressed:
+                                          _canMaintainMemberPreselectFixture
                                           ? () => _selectMemberPreselectSlot(
-                                                context: context,
-                                                fixtureRinkId: rinkId,
-                                                position: playerNo,
-                                                pickerTitle: 'Select Player $playerNo',
-                                                useFixtureSection: true,
-                                              )
+                                              context: context,
+                                              fixtureRinkId: rinkId,
+                                              position: playerNo,
+                                              pickerTitle:
+                                                  'Select Player $playerNo',
+                                              useFixtureSection: true,
+                                            )
                                           : null,
                                       child: Text(
                                         _memberLabelFromAssignment(assignment),
@@ -1945,24 +1930,30 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                       position: 100 + playerNo,
                                     );
 
-                                    final acceptance =
-                                        assignment?['acceptance']?.toString();
+                                    final acceptance = assignment?['acceptance']
+                                        ?.toString();
 
                                     return OutlinedButton(
                                       style: OutlinedButton.styleFrom(
                                         backgroundColor:
-                                            _acceptanceBackgroundColor(acceptance),
+                                            _acceptanceBackgroundColor(
+                                              acceptance,
+                                            ),
                                         foregroundColor:
-                                            _acceptanceForegroundColor(acceptance),
+                                            _acceptanceForegroundColor(
+                                              acceptance,
+                                            ),
                                       ),
-                                      onPressed: _canMaintainMemberPreselectFixture
+                                      onPressed:
+                                          _canMaintainMemberPreselectFixture
                                           ? () => _selectMemberPreselectSlot(
-                                                context: context,
-                                                fixtureRinkId: rinkId,
-                                                position: 100 + playerNo,
-                                                pickerTitle: 'Select Opponent $playerNo',
-                                                useFixtureSection: true,
-                                              )
+                                              context: context,
+                                              fixtureRinkId: rinkId,
+                                              position: 100 + playerNo,
+                                              pickerTitle:
+                                                  'Select Opponent $playerNo',
+                                              useFixtureSection: true,
+                                            )
                                           : null,
                                       child: Text(
                                         _memberLabelFromAssignment(assignment),
@@ -1978,10 +1969,7 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
                         Row(
                           children: [
-                            const SizedBox(
-                              width: 80,
-                              child: Text('Marker'),
-                            ),
+                            const SizedBox(width: 80, child: Text('Marker')),
                             Expanded(
                               child: Builder(
                                 builder: (context) {
@@ -1990,26 +1978,31 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                     position: 201,
                                   );
 
-                                  final acceptance =
-                                      assignment?['acceptance']?.toString();
+                                  final acceptance = assignment?['acceptance']
+                                      ?.toString();
 
                                   return OutlinedButton(
                                     style: OutlinedButton.styleFrom(
                                       backgroundColor:
-                                          _acceptanceBackgroundColor(acceptance),
+                                          _acceptanceBackgroundColor(
+                                            acceptance,
+                                          ),
                                       foregroundColor:
-                                          _acceptanceForegroundColor(acceptance),
+                                          _acceptanceForegroundColor(
+                                            acceptance,
+                                          ),
                                     ),
-                                    onPressed: _canMaintainMemberPreselectFixture
+                                    onPressed:
+                                        _canMaintainMemberPreselectFixture
                                         ? () => _selectMemberPreselectSlot(
-                                              context: context,
-                                              fixtureRinkId: rinkId,
-                                              position: 201,
-                                              pickerTitle: 'Select Marker',
-                                              useFixtureSection: false,
-                                              initialSectionFilter:
-                                                  MemberPickerSectionFilter.open,
-                                            )
+                                            context: context,
+                                            fixtureRinkId: rinkId,
+                                            position: 201,
+                                            pickerTitle: 'Select Marker',
+                                            useFixtureSection: false,
+                                            initialSectionFilter:
+                                                MemberPickerSectionFilter.open,
+                                          )
                                         : null,
                                     child: Text(
                                       _memberLabelFromAssignment(assignment),
@@ -2029,7 +2022,7 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
             if (_isHome) ...[
               const SizedBox(height: 8),
 
-/*               const Text(
+              /*               const Text(
                 'Rinks',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -2039,7 +2032,6 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
               ),
 
               const SizedBox(height: 12), */
-
               if (_greenAreas.isEmpty) ...[
                 const InputDecorator(
                   decoration: InputDecoration(
@@ -2126,8 +2118,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
         Column(
           children: _rinkAvailability.map((r) {
-            final rinkLabel =
-                (r['rink_label'] ?? r['label'] ?? r['name'] ?? '').toString();
+            final rinkLabel = (r['rink_label'] ?? r['label'] ?? r['name'] ?? '')
+                .toString();
             final isBooked = r['is_booked'] == true;
             final bookedText = (r['booked_text'] ?? '').toString();
 
@@ -2158,12 +2150,11 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                         '')
                     .toString();
 
-            final isSelectedBooked = isBooked && selectedBookedLabel == rinkLabel;
+            final isSelectedBooked =
+                isBooked && selectedBookedLabel == rinkLabel;
 
             return InkWell(
-              onTap: !_canMaintainFixtureRinks
-                  ? null
-                  : () => _handleRinkTap(r),
+              onTap: !_canMaintainFixtureRinks ? null : () => _handleRinkTap(r),
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 width: double.infinity,
@@ -2173,20 +2164,20 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                   color: isSelectedBooked
                       ? Colors.amber.shade100
                       : isSelected
-                          ? _selectedFixtureBgColor
-                          : isBooked
-                              ? bookedBgColor
-                              : Colors.green.shade50,
+                      ? _selectedFixtureBgColor
+                      : isBooked
+                      ? bookedBgColor
+                      : Colors.green.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     width: (isSelected || isSelectedBooked) ? 2 : 1,
                     color: isSelectedBooked
                         ? Colors.orange.shade700
                         : isSelected
-                            ? _selectedFixtureFgColor
-                            : isBooked
-                                ? bookedFgColor.withOpacity(0.35)
-                                : Colors.green.shade300,
+                        ? _selectedFixtureFgColor
+                        : isBooked
+                        ? bookedFgColor.withOpacity(0.35)
+                        : Colors.green.shade300,
                   ),
                 ),
                 child: Row(
@@ -2196,23 +2187,23 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                       child: Text(
                         isBooked
                             ? isSelectedBooked
-                                ? 'Selected booking — tap a free rink to move it, or another booked rink to swap'
-                                : bookedText
+                                  ? 'Selected booking — tap a free rink to move it, or another booked rink to swap'
+                                  : bookedText
                             : isSelected
-                                ? 'Selected for Team $selectedTeamNo'
-                                : _selectedBookedRink != null
-                                    ? 'Free — tap to move selected booking here'
-                                    : 'Free',
+                            ? 'Selected for Team $selectedTeamNo'
+                            : _selectedBookedRink != null
+                            ? 'Free — tap to move selected booking here'
+                            : 'Free',
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: isSelectedBooked
                               ? Colors.orange.shade900
                               : isBooked
-                                  ? bookedFgColor
-                                  : isSelected
-                                      ? _selectedFixtureFgColor
-                                      : Colors.green.shade900,
+                              ? bookedFgColor
+                              : isSelected
+                              ? _selectedFixtureFgColor
+                              : Colors.green.shade900,
                         ),
                       ),
                     ),
@@ -2220,20 +2211,23 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                     const SizedBox(width: 8),
 
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: isSelectedBooked
                             ? Colors.orange.shade100
                             : isBooked
-                                ? Colors.white.withOpacity(0.28)
-                                : Colors.green.shade100,
+                            ? Colors.white.withOpacity(0.28)
+                            : Colors.green.shade100,
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
                           color: isSelectedBooked
                               ? Colors.orange.shade700
                               : isBooked
-                                  ? bookedFgColor.withOpacity(0.55)
-                                  : Colors.green.shade400,
+                              ? bookedFgColor.withOpacity(0.55)
+                              : Colors.green.shade400,
                         ),
                       ),
                       child: Row(
@@ -2255,8 +2249,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                               color: isSelectedBooked
                                   ? Colors.orange.shade900
                                   : isBooked
-                                      ? bookedFgColor
-                                      : Colors.green.shade900,
+                                  ? bookedFgColor
+                                  : Colors.green.shade900,
                             ),
                           ),
                         ],
@@ -2279,10 +2273,7 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
         Text(
           greenName.isNotEmpty ? 'Rinks — $greenName' : 'Rinks',
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
         ),
         const SizedBox(height: 8),
         _buildRinkAvailabilitySection(),
@@ -2307,14 +2298,12 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
       _scrollController.jumpTo(target);
     });
-  }  
+  }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_error != null) {
@@ -2330,9 +2319,7 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
               ),
           ],
         ),
-        body: Center(
-          child: Text('Error: $_error'),
-        ),
+        body: Center(child: Text('Error: $_error')),
       );
     }
 
@@ -2355,12 +2342,13 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
           )
         : null;
 
-    final competitionTypeName =
-        (competitionType?['name'] ?? '').toString().trim();
-    final competitionSelectionMode =
-        (competitionType?['selection_mode'] ?? '').toString().trim();
-    final isInternalFixtureType =
-        competitionType?['is_internal'] == true;
+    final competitionTypeName = (competitionType?['name'] ?? '')
+        .toString()
+        .trim();
+    final competitionSelectionMode = (competitionType?['selection_mode'] ?? '')
+        .toString()
+        .trim();
+    final isInternalFixtureType = competitionType?['is_internal'] == true;
 
     final selectionMode = competitionSelectionMode
         .toLowerCase()
@@ -2379,17 +2367,17 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
         (fixture['requires_rsvp'] == true &&
             !isPreselectFixture &&
             !isTeamFixture &&
-            !isOpenSessionFixture);   
+            !isOpenSessionFixture);
 
     final isHome = (fixture['is_home'] as bool?) ?? true;
 
     final modeLabel = isPreselectFixture
         ? 'Pre-Select'
         : isTeamFixture
-            ? 'Team'
-            : isOpenSessionFixture
-                ? 'Open Session'
-                : 'RSVP';
+        ? 'Team'
+        : isOpenSessionFixture
+        ? 'Open Session'
+        : 'RSVP';
 
     final pageTitle = isEventStyleFixture
         ? 'Event Details'
@@ -2402,7 +2390,9 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
         : (competitionTypeName.isNotEmpty ? competitionTypeName : fixtureLabel);
 
     final teamRow = fixture['team'] as Map<String, dynamic>?;
-    final teamName = (teamRow?['name'] ?? fixture['team_name'] ?? '').toString().trim();
+    final teamName = (teamRow?['name'] ?? fixture['team_name'] ?? '')
+        .toString()
+        .trim();
 
     final startAt = fixture['start_at'] as String?;
     final when = startAt != null
@@ -2415,7 +2405,9 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
         : when.add(const Duration(hours: 2));
 
     final venue = (fixture['venue']?['name'] as String?) ?? '';
-    final opponent = (fixture['opponent_venue']?['name'] ?? '').toString().trim();
+    final opponent = (fixture['opponent_venue']?['name'] ?? '')
+        .toString()
+        .trim();
     final green = (fixture['green_areas']?['name'] as String?) ?? '';
     final section = (fixture['section'] as String?) ?? '';
 
@@ -2424,13 +2416,10 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     final matchHeader = isEventStyleFixture
         ? (displayFixtureLabel.isNotEmpty ? displayFixtureLabel : 'Event')
         : isPreselectFixture
-            ? (displayFixtureLabel.isNotEmpty
-                ? 'Internal $displayFixtureLabel'
-                : 'Internal Fixture')
-            : fixtureTitleUnified(
-                fixture,
-                myClubName: myClubName,
-              );
+        ? (displayFixtureLabel.isNotEmpty
+              ? 'Internal $displayFixtureLabel'
+              : 'Internal Fixture')
+        : fixtureTitleUnified(fixture, myClubName: myClubName);
 
     final fixtureTeamName =
         (fixture['team']?['name'] ?? fixture['team_name'] ?? '')
@@ -2440,32 +2429,32 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     final lockedFixtureLabel = isEventStyleFixture
         ? (competitionTypeName.isNotEmpty ? competitionTypeName : 'Event')
         : isPreselectFixture
-            ? 'Pre-Select Fixture'
-            : isTeamFixture
-                ? 'Team Fixture'
-                : isOpenSessionFixture
-                    ? 'Open Session'
-                    : 'RSVP Fixture';
+        ? 'Pre-Select Fixture'
+        : isTeamFixture
+        ? 'Team Fixture'
+        : isOpenSessionFixture
+        ? 'Open Session'
+        : 'RSVP Fixture';
 
     final isWorkflowLocked = _teamNameLocked || isPreselectFixture;
 
     final fixtureTypeLabel = isPreselectFixture
         ? 'Pre-Select Fixture'
         : isTeamFixture
-            ? 'Team Fixture'
-            : isOpenSessionFixture
-                ? 'Open Session'
-                : 'RSVP Fixture';
+        ? 'Team Fixture'
+        : isOpenSessionFixture
+        ? 'Open Session'
+        : 'RSVP Fixture';
 
     final fixtureTypeHelpText = isPreselectFixture
         ? 'Players are pre-selected for this fixture.'
         : isOpenSessionFixture
-            ? 'This fixture is an open session. Members do not need to RSVP or accept team selection.'
-            : isWorkflowLocked
-                ? 'This fixture workflow can no longer be changed.'
-                : isTeamFixture
-                    ? 'This fixture uses a team-based workflow.'
-                    : 'This fixture uses RSVP availability.';
+        ? 'This fixture is an open session. Members do not need to RSVP or accept team selection.'
+        : isWorkflowLocked
+        ? 'This fixture workflow can no longer be changed.'
+        : isTeamFixture
+        ? 'This fixture uses a team-based workflow.'
+        : 'This fixture uses RSVP availability.';
 
     final rinks = (fixture['rinks_required'] as int?) ?? 0;
     final ppr = (fixture['players_per_rink'] as int?) ?? 4;
@@ -2493,8 +2482,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
     if (ts is Map<String, dynamic>) {
       teamSelectionStatus = ts['status']?.toString();
     } else if (ts is List && ts.isNotEmpty) {
-      teamSelectionStatus =
-          (ts.first as Map<String, dynamic>?)?['status']?.toString();
+      teamSelectionStatus = (ts.first as Map<String, dynamic>?)?['status']
+          ?.toString();
     }
 
     final isPublished = teamSelectionStatus == 'published';
@@ -2513,24 +2502,25 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
               icon: const Icon(Icons.delete_outline),
               onPressed: _confirmAndDelete, // make sure this method exists
             ),
-            IconButton(
-              tooltip: 'Send Fixture Message',
-              icon: const Icon(Icons.message),
-              onPressed: !_canEditFixtureOperationalDetails
-                  ? null
-                  : () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => FixtureMessageScreen(
-                            fixtureId: widget.fixtureId,
-                            currentMemberProfileId: _currentMemberId,
-                            senderName: _fixtureMessageSenderName ?? 'A club member',
-                          ),
+          IconButton(
+            tooltip: 'Send Fixture Message',
+            icon: const Icon(Icons.message),
+            onPressed: !_canEditFixtureOperationalDetails
+                ? null
+                : () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FixtureMessageScreen(
+                          fixtureId: widget.fixtureId,
+                          currentMemberProfileId: _currentMemberId,
+                          senderName:
+                              _fixtureMessageSenderName ?? 'A club member',
                         ),
-                      );
-                    },
-            ),                    
+                      ),
+                    );
+                  },
+          ),
         ],
       ),
       body: ListView(
@@ -2553,16 +2543,16 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                 Text(
                   lockedFixtureLabel,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: fixtureTypeFg,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: fixtureTypeFg,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   '${DateFormat('EEEE d MMMM yyyy').format(when)} · ${DateFormat('HH:mm').format(when)}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: fixtureTypeFg,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: fixtureTypeFg),
                 ),
               ],
             ),
@@ -2572,9 +2562,9 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
           Text(
             matchHeader,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
 
           const SizedBox(height: 10),
@@ -2601,11 +2591,12 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
 
               if (!isEventStyleFixture && showOrientation)
                 AppBadge(
-                  text: 'ORIENTATION: ${(orientation ?? 'NOT SET').replaceAll('_', ' ').toUpperCase()}',
+                  text:
+                      'ORIENTATION: ${(orientation ?? 'NOT SET').replaceAll('_', ' ').toUpperCase()}',
                 ),
             ],
           ),
-          
+
           if (isEventStyleFixture) ...[
             const SizedBox(height: 20),
 
@@ -2617,8 +2608,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                   subtitle: Text(venue.isEmpty ? 'No venue set' : venue),
                 ),
               ),
-            ],      
-      
+            ],
+
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -2628,8 +2619,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                     Text(
                       'Event information',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
@@ -2644,7 +2635,7 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
           ],
           const SizedBox(height: 20),
 
-          if (!isEventStyleFixture) ...[          
+          if (!isEventStyleFixture) ...[
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -2654,8 +2645,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                     Text(
                       'Fixture workflow',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
@@ -2712,22 +2703,29 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                   try {
                                     if (isTeamFixture) {
                                       if (_selectedTeamId == null) {
-                                        throw Exception('Please select a team.');
+                                        throw Exception(
+                                          'Please select a team.',
+                                        );
                                       }
 
                                       final selectedTeam = _teams.firstWhere(
-                                        (t) => t['id'].toString() == _selectedTeamId,
+                                        (t) =>
+                                            t['id'].toString() ==
+                                            _selectedTeamId,
                                         orElse: () => <String, dynamic>{},
                                       );
 
                                       final selectedTeamName =
-                                          (selectedTeam['name'] ?? '').toString().trim();
+                                          (selectedTeam['name'] ?? '')
+                                              .toString()
+                                              .trim();
 
                                       await Supabase.instance.client
                                           .from('fixtures')
                                           .update({
                                             'team_id': _selectedTeamId,
-                                            'team_name': selectedTeamName.isEmpty
+                                            'team_name':
+                                                selectedTeamName.isEmpty
                                                 ? null
                                                 : selectedTeamName,
                                           })
@@ -2738,7 +2736,9 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                           .from('fixtures')
                                           .update({
                                             'team_id': null,
-                                            'team_name': lbl.isEmpty ? null : lbl,
+                                            'team_name': lbl.isEmpty
+                                                ? null
+                                                : lbl,
                                           })
                                           .eq('id', widget.fixtureId);
                                     }
@@ -2748,17 +2748,22 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                                   } catch (e) {
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Failed to save: $e')),
+                                      SnackBar(
+                                        content: Text('Failed to save: $e'),
+                                      ),
                                     );
                                   } finally {
-                                    if (mounted) setState(() => _savingTeam = false);
+                                    if (mounted)
+                                      setState(() => _savingTeam = false);
                                   }
                                 },
                           child: _savingTeam
                               ? const SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Text('Save'),
                         ),
@@ -2779,8 +2784,8 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                   Text(
                     'Fixture timing',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Row(
@@ -2839,24 +2844,20 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
           if (!isEventStyleFixture) ...[
             Text(
               'Captain & vice-captain',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
-            SetCaptainSection(
-              fixture: fixture,
-              readOnly: !_canAssignCaptaincy,
-            ),
-          
+            SetCaptainSection(fixture: fixture, readOnly: !_canAssignCaptaincy),
 
             if (!isOpenSessionFixture && canRespondToTeamSelection) ...[
               const SizedBox(height: 20),
               Text(
                 'Team selection',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               Card(
@@ -2872,11 +2873,12 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
                         children: [
                           Text(
                             'Current response: ',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
                           ),
-                          Text(_teamSelectionStatusLabel(_myTeamSelectionStatus)),
+                          Text(
+                            _teamSelectionStatusLabel(_myTeamSelectionStatus),
+                          ),
                         ],
                       ),
 
@@ -2906,7 +2908,10 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
             const SizedBox(height: 16),
             if (showRsvpControls) ...[
               const SizedBox(height: 16),
-              Text('Your availability', style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'Your availability for this Fixture',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 12,
@@ -2934,7 +2939,6 @@ debugPrint('RINK AVAILABILITY RPC type=${rows.runtimeType}');
             if (isRsvpFixture && !isPublished) ...[
               CaptainViewSection(fixture: fixture),
             ],
-
 
             if (!_usesSimpleBookingWorkflow &&
                 isHome &&

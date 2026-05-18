@@ -13,10 +13,7 @@ class TeamSheetBuildResult {
   final TeamSheetData data;
   final Map<String, dynamic> header;
 
-  TeamSheetBuildResult({
-    required this.data,
-    required this.header,
-  });
+  TeamSheetBuildResult({required this.data, required this.header});
 }
 
 class RinkAssignmentsScreen extends StatefulWidget {
@@ -31,13 +28,12 @@ class RinkAssignmentsScreen extends StatefulWidget {
     required this.teamSelectionId,
     this.readOnly = false,
   });
-  
+
   @override
   State<RinkAssignmentsScreen> createState() => _RinkAssignmentsScreenState();
 }
 
 class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
-
   bool _loading = true;
   bool _changed = false;
 
@@ -63,9 +59,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   List<Map<String, dynamic>> _pool = [];
 
   Set<String> _assignedMemberIds = {};
-  
+
   Map<String, Map<int, Map<String, dynamic>>> _assignmentsByRink = {};
-  
+
   Future<Map<String, dynamic>> _loadFixtureHeader(String fixtureId) async {
     final row = await Supabase.instance.client
         .from('fixtures')
@@ -262,20 +258,23 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
       if (myMemberProfileId != null && myMemberProfileId.isNotEmpty) {
         isFixtureCaptain =
-            fixtureCaptainId.isNotEmpty && fixtureCaptainId == myMemberProfileId;
+            fixtureCaptainId.isNotEmpty &&
+            fixtureCaptainId == myMemberProfileId;
         isFixtureViceCaptain =
             fixtureViceCaptainId.isNotEmpty &&
             fixtureViceCaptainId == myMemberProfileId;
       }
 
-      final canAssignRinks = !widget.readOnly &&
+      final canAssignRinks =
+          !widget.readOnly &&
           (isSuperuser ||
               isClubAdmin ||
               isSelector ||
               isFixtureCaptain ||
               isFixtureViceCaptain);
 
-      final canPublishTeamSheet = !widget.readOnly &&
+      final canPublishTeamSheet =
+          !widget.readOnly &&
           (isSuperuser ||
               isClubAdmin ||
               isSelector ||
@@ -375,14 +374,19 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     final safeOpponentName = opponentName.trim();
 
     final startAt =
-        DateTime.tryParse(header['start_at']?.toString() ?? '') ?? DateTime.now();
+        DateTime.tryParse(header['start_at']?.toString() ?? '') ??
+        DateTime.now();
     final section = header['section']?.toString() ?? '';
 
     final captain = asMap(header['captain']);
     final vice = asMap(header['vice_captain']);
 
-    debugPrint('TEAM_SHEET captain_member_profile_id=${header['captain_member_profile_id']}');
-    debugPrint('TEAM_SHEET vice_captain_member_profile_id=${header['vice_captain_member_profile_id']}');
+    debugPrint(
+      'TEAM_SHEET captain_member_profile_id=${header['captain_member_profile_id']}',
+    );
+    debugPrint(
+      'TEAM_SHEET vice_captain_member_profile_id=${header['vice_captain_member_profile_id']}',
+    );
     debugPrint('TEAM_SHEET captain raw=$captain');
     debugPrint('TEAM_SHEET vice raw=$vice');
 
@@ -397,13 +401,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     final isInternal = competitionType?['is_internal'] as bool?;
     final selectionMode = competitionType?['selection_mode']?.toString().trim();
 
-    final fixtureTypeBgColor = parseColor(
-      colourScheme?['background_hex'],
-    );
+    final fixtureTypeBgColor = parseColor(colourScheme?['background_hex']);
 
-    final fixtureTypeFgColor = parseColor(
-      colourScheme?['foreground_hex'],
-    );
+    final fixtureTypeFgColor = parseColor(colourScheme?['foreground_hex']);
 
     bool isPreselectInternalFixture() {
       final mode = (selectionMode ?? '').toLowerCase().trim();
@@ -445,7 +445,8 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           final playerName =
               playerAsn?['member_profiles']?['display_name']?.toString() ?? '';
           final opponentName =
-              opponentAsn?['member_profiles']?['display_name']?.toString() ?? '';
+              opponentAsn?['member_profiles']?['display_name']?.toString() ??
+              '';
 
           players.add(playerName);
           opponents.add(opponentName);
@@ -492,7 +493,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     debugPrint('TEAM_SHEET captainPhone=${_phoneFromProfile(captain)}');
     debugPrint('TEAM_SHEET viceName=${_displayNameFromProfile(vice)}');
     debugPrint('TEAM_SHEET viceEmail=${_emailFromProfile(vice)}');
-    debugPrint('TEAM_SHEET vicePhone=${_phoneFromProfile(vice)}');    
+    debugPrint('TEAM_SHEET vicePhone=${_phoneFromProfile(vice)}');
 
     for (final r in rinks) {
       debugPrint(
@@ -529,10 +530,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       selectionMode: selectionMode,
     );
 
-    return TeamSheetBuildResult(
-      data: data,
-      header: header,
-    );
+    return TeamSheetBuildResult(data: data, header: header);
   }
 
   Future<void> _emailTeamSheet({required bool isResend}) async {
@@ -666,7 +664,10 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       final when =
           '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
       final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
-      final safeOpp = data.opponentName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
+      final safeOpp = data.opponentName.replaceAll(
+        RegExp(r'[<>:"/\\|?*]'),
+        '-',
+      );
       final filename = '$safeClub v $safeOpp - $when.pdf';
 
       final res = await Supabase.instance.client.functions.invoke(
@@ -700,9 +701,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     } catch (e) {
       debugPrint('Team sheet email failed: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Email failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Email failed: $e')));
     }
   }
 
@@ -713,18 +714,16 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     });
 
     try {
-
       _currentMemberProfileId = await _myMemberProfileId();
 
       final header = await _loadFixtureHeader(widget.fixtureId);
 
       final competitionType =
           header['competition_type'] as Map<String, dynamic>?;
-      final selectionMode =
-          (competitionType?['selection_mode'] ?? '')
-              .toString()
-              .toLowerCase()
-              .trim();
+      final selectionMode = (competitionType?['selection_mode'] ?? '')
+          .toString()
+          .toLowerCase()
+          .trim();
 
       final isPreselect = selectionMode == 'preselect';
       final isInternal = competitionType?['is_internal'] == true;
@@ -736,7 +735,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       // 1) Load rinks for this fixture
       final rinks = await client
           .from('fixture_rinks')
-          .select('id, fixture_rink_no, format, players_per_rink, home_rink_label')
+          .select(
+            'id, fixture_rink_no, format, players_per_rink, home_rink_label',
+          )
           .eq('fixture_id', widget.fixtureId);
 
       final rinkList = List<Map<String, dynamic>>.from(rinks);
@@ -764,10 +765,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       });
 
       // 2) Load pool (players + reserves) from published team selection
-      final allowedRoles =
-          (isPreselect && isInternal)
-              ? ['player', 'opponent', 'marker']
-              : ['player', 'reserve'];
+      final allowedRoles = (isPreselect && isInternal)
+          ? ['player', 'opponent', 'marker']
+          : ['player', 'reserve'];
 
       final poolRows = await client
           .from('team_selection_members')
@@ -776,6 +776,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
             'member_profiles!team_selection_members_member_profile_id_fkey(display_name, email_address)',
           )
           .eq('team_selection_id', widget.teamSelectionId)
+          .eq('is_selected', true)
           .inFilter('role', allowedRoles);
 
       for (final r in List<Map<String, dynamic>>.from(poolRows)) {
@@ -789,7 +790,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       // 3) Load assignments
       final asnRows = await client
           .from('fixture_rink_assignments')
-          .select('fixture_rink_id, position, member_profile_id, member_profiles(display_name)')
+          .select(
+            'fixture_rink_id, position, member_profile_id, member_profiles(display_name)',
+          )
           .eq('fixture_id', widget.fixtureId);
 
       // Build lookup: rinkId -> position -> assignment row
@@ -822,7 +825,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
-        _loading = false;       
+        _loading = false;
       });
     }
   }
@@ -846,8 +849,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     } catch (e) {
       debugPrint('RinkAssignments load error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Clear failed: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Clear failed: $e')));
       }
     }
   }
@@ -864,10 +868,24 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       // Check current selection role from source of truth
       final existing = await client
           .from('team_selection_members')
-          .select('role')
+          .select('role, is_selected')
           .eq('team_selection_id', widget.teamSelectionId)
           .eq('member_profile_id', memberProfileId)
+          .eq('is_selected', true)
           .maybeSingle();
+
+      if (existing == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'This member is no longer active in the team selection.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
 
       final oldRole = (existing?['role'] ?? '').toString().toLowerCase().trim();
 
@@ -881,11 +899,11 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         final profile = memberRow?['member_profiles'] as Map<String, dynamic>?;
         final playerName =
             profile?['display_name']?.toString().trim().isNotEmpty == true
-                ? profile!['display_name'].toString().trim()
-                : [
-                    profile?['first_name']?.toString().trim() ?? '',
-                    profile?['last_name']?.toString().trim() ?? '',
-                  ].where((s) => s.isNotEmpty).join(' ');
+            ? profile!['display_name'].toString().trim()
+            : [
+                profile?['first_name']?.toString().trim() ?? '',
+                profile?['last_name']?.toString().trim() ?? '',
+              ].where((s) => s.isNotEmpty).join(' ');
 
         final confirmed = await showDialog<bool>(
           context: context,
@@ -911,7 +929,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
         if (confirmed != true) return;
 
-        debugPrint('RINK_ASSIGN oldRole=$oldRole memberProfileId=$memberProfileId');
+        debugPrint(
+          'RINK_ASSIGN oldRole=$oldRole memberProfileId=$memberProfileId',
+        );
         debugPrint('RINK_ASSIGN promoting reserve to player...');
 
         // Promote reserve -> player
@@ -922,7 +942,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
             .eq('member_profile_id', memberProfileId);
 
         debugPrint('RINK_ASSIGN promotion update complete');
-        
+
         // Queue notification
         final header = await _loadFixtureHeader(widget.fixtureId);
 
@@ -947,8 +967,8 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
         final fixtureLabel =
             (header['clubs']?['name']?.toString().trim().isNotEmpty ?? false)
-                ? '${header['clubs']['name']} v ${venueName.isNotEmpty ? venueName : 'Opponent'}'
-                : 'Fixture';
+            ? '${header['clubs']['name']} v ${venueName.isNotEmpty ? venueName : 'Opponent'}'
+            : 'Fixture';
 
         await client.from('notification_queue').insert({
           'event_type': 'reserve_promoted',
@@ -997,8 +1017,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     } catch (e) {
       debugPrint('RinkAssignments assign error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Assign failed: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Assign failed: $e')));
       }
     }
   }
@@ -1067,33 +1088,34 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       final when =
           '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
       final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
-      final safeOpp = data.opponentName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
+      final safeOpp = data.opponentName.replaceAll(
+        RegExp(r'[<>:"/\\|?*]'),
+        '-',
+      );
 
       final path = await shareTeamSheetPdf(
         pdfBytes,
-        message: '${data.clubName} v ${data.opponentName} — ${data.startAt.toLocal()}',
+        message:
+            '${data.clubName} v ${data.opponentName} — ${data.startAt.toLocal()}',
         filename: '$safeClub v $safeOpp - $when.pdf',
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('PDF saved: $path')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('PDF saved: $path')));
     } catch (e) {
       debugPrint('Share team sheet failed: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Share failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Share failed: $e')));
     }
   }
 
   List<DropdownMenuItem<String?>> _poolItems() {
     final items = <DropdownMenuItem<String?>>[
-      const DropdownMenuItem<String?>(
-        value: null,
-        child: Text('—'),
-      ),
+      const DropdownMenuItem<String?>(value: null, child: Text('—')),
     ];
 
     // Sort pool by name
@@ -1114,8 +1136,8 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       final suffix = acc == 'accepted'
           ? ' ✅'
           : acc == 'declined'
-              ? ' ❌'
-              : ' ⏳';
+          ? ' ❌'
+          : ' ⏳';
 
       final roleTag = role == 'reserve' ? ' (R)' : '';
 
@@ -1142,12 +1164,11 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     return items;
   }
 
-  List<DropdownMenuItem<String?>> _poolItemsFiltered(List<String> allowedRoles) {
+  List<DropdownMenuItem<String?>> _poolItemsFiltered(
+    List<String> allowedRoles,
+  ) {
     final items = <DropdownMenuItem<String?>>[
-      const DropdownMenuItem<String?>(
-        value: null,
-        child: Text('—'),
-      ),
+      const DropdownMenuItem<String?>(value: null, child: Text('—')),
     ];
 
     final filtered = _pool.where((p) {
@@ -1170,8 +1191,8 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       final suffix = acc == 'accepted'
           ? ' ✅'
           : acc == 'declined'
-              ? ' ❌'
-              : ' ⏳';
+          ? ' ❌'
+          : ' ⏳';
 
       items.add(
         DropdownMenuItem<String?>(
@@ -1220,7 +1241,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
               label: const Text('Save / Share Team Sheet PDF'),
             ),
             ElevatedButton.icon(
-              onPressed: _canPublishTeamSheet ? _publishAndEmailTeamSheet : null,
+              onPressed: _canPublishTeamSheet
+                  ? _publishAndEmailTeamSheet
+                  : null,
               icon: const Icon(Icons.publish),
               label: const Text('Publish & Email Team Sheet'),
             ),
@@ -1286,10 +1309,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     );
   }
 
-  Widget _matchupRow({
-    required String rinkId,
-    required int lineNo,
-  }) {
+  Widget _matchupRow({required String rinkId, required int lineNo}) {
     final playerPos = _playerPosition(lineNo);
     final opponentPos = _opponentPosition(lineNo);
 
@@ -1310,17 +1330,15 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
               child: DropdownButtonFormField<String?>(
                 value: selectedPlayerId,
                 isDense: true,
-                decoration: const InputDecoration(
-                  labelText: 'Player',
-                ),
+                decoration: const InputDecoration(labelText: 'Player'),
                 items: _poolItemsFiltered(['player']),
                 onChanged: widget.readOnly || !_canAssignRinks
                     ? null
                     : (v) => _assignOrClear(
-                          rinkId: rinkId,
-                          position: playerPos,
-                          memberProfileId: v,
-                        ),
+                        rinkId: rinkId,
+                        position: playerPos,
+                        memberProfileId: v,
+                      ),
               ),
             ),
             const SizedBox(width: 8),
@@ -1330,17 +1348,15 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
               child: DropdownButtonFormField<String?>(
                 value: selectedOpponentId,
                 isDense: true,
-                decoration: const InputDecoration(
-                  labelText: 'Opponent',
-                ),
+                decoration: const InputDecoration(labelText: 'Opponent'),
                 items: _poolItemsFiltered(['opponent']),
                 onChanged: widget.readOnly || !_canAssignRinks
                     ? null
                     : (v) => _assignOrClear(
-                          rinkId: rinkId,
-                          position: opponentPos,
-                          memberProfileId: v,
-                        ),
+                        rinkId: rinkId,
+                        position: opponentPos,
+                        memberProfileId: v,
+                      ),
               ),
             ),
           ],
@@ -1349,26 +1365,22 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     );
   }
 
-  Widget _markerRow({
-    required String rinkId,
-  }) {
+  Widget _markerRow({required String rinkId}) {
     final asn = _assignmentsByRink[rinkId]?[_markerPosition];
     final selectedId = asn?['member_profile_id']?.toString();
 
     return DropdownButtonFormField<String?>(
       value: selectedId,
       isDense: true,
-      decoration: const InputDecoration(
-        labelText: 'Marker (optional)',
-      ),
+      decoration: const InputDecoration(labelText: 'Marker (optional)'),
       items: _poolItemsFiltered(['marker']),
       onChanged: widget.readOnly || !_canAssignRinks
           ? null
           : (v) => _assignOrClear(
-                rinkId: rinkId,
-                position: _markerPosition,
-                memberProfileId: v,
-              ),
+              rinkId: rinkId,
+              position: _markerPosition,
+              memberProfileId: v,
+            ),
     );
   }
 
@@ -1386,78 +1398,78 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           onPressed: () => Navigator.pop(context, _changed),
         ),
         actions: [
-          IconButton(
-            onPressed: _loadAll,
-            icon: const Icon(Icons.refresh),
-          ),
+          IconButton(onPressed: _loadAll, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    _buildTeamSheetActions(),
-                    const SizedBox(height: 16),
-                    if (_rinks.isEmpty)
-                      const Text('No teams created yet. Go back and set up teams first.')
-                    else
-                      ..._rinks.map((r) {
-                        final rinkId = r['id'].toString();
-                        final order = r['fixture_rink_no'] as int;
-                        final fmt = r['format'].toString();
-                        final ppr = (r['players_per_rink'] is num)
-                            ? (r['players_per_rink'] as num).toInt()
-                            : int.tryParse(r['players_per_rink']?.toString() ?? '') ?? 0;
-                        final label = (r['home_rink_label'] as String?) ?? '';
+          ? Center(child: Text('Error: $_error'))
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _buildTeamSheetActions(),
+                const SizedBox(height: 16),
+                if (_rinks.isEmpty)
+                  const Text(
+                    'No teams created yet. Go back and set up teams first.',
+                  )
+                else
+                  ..._rinks.map((r) {
+                    final rinkId = r['id'].toString();
+                    final order = r['fixture_rink_no'] as int;
+                    final fmt = r['format'].toString();
+                    final ppr = (r['players_per_rink'] is num)
+                        ? (r['players_per_rink'] as num).toInt()
+                        : int.tryParse(
+                                r['players_per_rink']?.toString() ?? '',
+                              ) ??
+                              0;
+                    final label = (r['home_rink_label'] as String?) ?? '';
 
-                        final heading = 'Team $order • ${_formatLabel(fmt)}'
-                            '${label.isNotEmpty ? ' • $label' : ''}';
+                    final heading =
+                        'Team $order • ${_formatLabel(fmt)}'
+                        '${label.isNotEmpty ? ' • $label' : ''}';
 
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  heading,
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              heading,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+
+                            //if (_isPreselectFixture && _isInternalFixture && ppr == 2) ...[
+                            if (_isPreselectFixture && _isInternalFixture) ...[
+                              for (int lineNo = 1; lineNo <= ppr; lineNo++) ...[
+                                _matchupRow(rinkId: rinkId, lineNo: lineNo),
+                                const SizedBox(height: 12),
+                              ],
+                              _markerRow(rinkId: rinkId),
+                            ] else ...[
+                              for (int pos = 1; pos <= ppr; pos++) ...[
+                                _slotRow(
+                                  rinkId: rinkId,
+                                  position: pos,
+                                  playersPerRink: ppr,
                                 ),
                                 const SizedBox(height: 8),
-
-                                //if (_isPreselectFixture && _isInternalFixture && ppr == 2) ...[
-                                if (_isPreselectFixture && _isInternalFixture) ...[
-                                  for (int lineNo = 1; lineNo <= ppr; lineNo++) ...[
-                                    _matchupRow(
-                                      rinkId: rinkId,
-                                      lineNo: lineNo,
-                                    ),
-                                    const SizedBox(height: 12),
-                                  ],
-                                  _markerRow(
-                                    rinkId: rinkId,
-                                  ),
-                                ] else ...[
-                                  for (int pos = 1; pos <= ppr; pos++) ...[
-                                    _slotRow(
-                                      rinkId: rinkId,
-                                      position: pos,
-                                      playersPerRink: ppr,
-                                    ),
-                                    const SizedBox(height: 8),
-                                  ],
-                                ],
                               ],
-                            ),
-                          ),
-                        );
-                      }),
-                  ],
-                ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+              ],
+            ),
     );
   }
 }

@@ -94,13 +94,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final firstName = (m['first_name'] ?? '').toString().toLowerCase();
       final lastName = (m['last_name'] ?? '').toString().toLowerCase();
       final email = (m['email_address'] ?? '').toString().toLowerCase();
-      final preferred = (m['preferred_position'] ?? '').toString().toLowerCase();
 
       return displayName.contains(q) ||
           firstName.contains(q) ||
           lastName.contains(q) ||
-          email.contains(q) ||
-          preferred.contains(q);
+          email.contains(q);
     }).toList();
   }
 
@@ -142,52 +140,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return (memberProfile?['preferred_position'] ?? '').toString().trim();
   }
 
-  String _fallbackDisplayName(Map<String, dynamic>? memberProfile) {
-    final displayName = (memberProfile?['display_name'] ?? '').toString().trim();
-    if (displayName.isNotEmpty) return displayName;
-
-    final firstName = (memberProfile?['first_name'] ?? '').toString().trim();
-    final lastName = (memberProfile?['last_name'] ?? '').toString().trim();
-    final combined = ('$firstName $lastName').trim();
-
-    return combined.isEmpty ? '(no name)' : combined;
-  }
-
   String _displayNameWithPreferredPosition(
     Map<String, dynamic>? memberProfile,
   ) {
-    final name = _fallbackDisplayName(memberProfile);
+    final name = (memberProfile?['display_name'] ?? '').toString().trim();
     final preferred = _preferredPosition(memberProfile);
 
-    if (preferred.isEmpty) return name;
+    final safeName = name.isEmpty ? '(no name)' : name;
 
-    return '$name ($preferred)';
-  }
+    if (preferred.isEmpty) return safeName;
 
-  String _memberSortKey(Map<String, dynamic>? memberProfile) {
-    final firstName = (memberProfile?['first_name'] ?? '').toString().trim();
-    final lastName = (memberProfile?['last_name'] ?? '').toString().trim();
-    final displayName = _fallbackDisplayName(memberProfile);
-
-    if (lastName.isNotEmpty || firstName.isNotEmpty) {
-      return '${lastName.toLowerCase()}|${firstName.toLowerCase()}|${displayName.toLowerCase()}';
-    }
-
-    final parts = displayName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2) {
-      final inferredLast = parts.last;
-      final inferredFirst = parts.take(parts.length - 1).join(' ');
-      return '${inferredLast.toLowerCase()}|${inferredFirst.toLowerCase()}|${displayName.toLowerCase()}';
-    }
-
-    return 'zzzz|zzzz|${displayName.toLowerCase()}';
-  }
-
-  int _compareMemberProfiles(
-    Map<String, dynamic>? a,
-    Map<String, dynamic>? b,
-  ) {
-    return _memberSortKey(a).compareTo(_memberSortKey(b));
+    return '$safeName ($preferred)';
   }
 
   String _buildPublishedTeamMessage() {
@@ -314,7 +277,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         final rows = await client
             .from('team_members')
             .select(
-              'member_profile_id, member_profiles(id, display_name, first_name, last_name, phone, preferred_position)',
+              'member_profile_id, member_profiles(id, display_name, phone, preferred_position)',
             )
             .eq('team_id', teamId!) // 👈 THIS
             .eq('is_active', true);
@@ -326,7 +289,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         final rows = await client
             .from('fixture_rsvps')
             .select(
-              'member_profile_id, status, member_profiles(id, display_name, first_name, last_name, phone, preferred_position)',
+              'member_profile_id, status, member_profiles(id, display_name, phone, preferred_position)',
             )
             .eq('fixture_id', fixtureId)
             .inFilter('status', ['yes', 'maybe']);
@@ -374,7 +337,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         final rows = await client
             .from('club_memberships')
             .select(
-              'member_profile_id, member_profiles(id, display_name, first_name, last_name, phone, preferred_position)',
+              'member_profile_id, member_profiles(id, display_name, phone, preferred_position)',
             )
             .eq('club_id', clubId)
             .eq('is_active', true);
@@ -419,7 +382,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .from('team_selection_members')
           .select(
             'member_profile_id, role, acceptance, responded_at, acceptance_by, is_selected, '
-            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, first_name, last_name, phone, preferred_position), '
+            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, phone, preferred_position), '
             'accepted_by_profile:member_profiles!team_selection_members_acceptance_by_fkey(display_name)',
           )
           .eq('team_selection_id', _selectionId!)
@@ -465,10 +428,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           return ar.compareTo(br);
         }
 
-        final amp = a['member_profiles'] as Map<String, dynamic>?;
-        final bmp = b['member_profiles'] as Map<String, dynamic>?;
+        final an = (a['member_profiles']?['display_name'] as String?) ?? '';
+        final bn = (b['member_profiles']?['display_name'] as String?) ?? '';
 
-        return _compareMemberProfiles(amp, bmp);
+        return an.compareTo(bn);
       });
 
       setState(() => _loading = false);
@@ -673,7 +636,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     final rows = await _client
         .from('club_memberships')
-        .select('member_profile_id, member_profiles(first_name, last_name, display_name, email_address, preferred_position)')
+        .select('member_profile_id, member_profiles(first_name,last_name)')
         .eq('club_id', clubId);
 
     final members = <Map<String, dynamic>>[];
@@ -683,23 +646,31 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final last = (mp?['last_name'] ?? '').toString().trim();
       final name = ('$first $last').trim();
 
-      final display = (mp?['display_name'] ?? '').toString().trim();
-      final preferred = (mp?['preferred_position'] ?? '').toString().trim();
-      final email = (mp?['email_address'] ?? '').toString().trim();
-
       members.add({
         'member_profile_id': r['member_profile_id']?.toString(),
         'first_name': first,
         'last_name': last,
-        'display_name': display.isNotEmpty
-            ? display
-            : (name.isEmpty ? (r['member_profile_id']?.toString() ?? '') : name),
-        'preferred_position': preferred,
-        'email_address': email,
+        'display_name': name.isEmpty
+            ? (r['member_profile_id']?.toString() ?? '')
+            : name,
       });
     }
 
-    members.sort((a, b) => _compareMemberProfiles(a, b));
+    members.sort((a, b) {
+      final lastA = (a['last_name'] ?? '').toString().toLowerCase();
+      final lastB = (b['last_name'] ?? '').toString().toLowerCase();
+      final lastCmp = lastA.compareTo(lastB);
+      if (lastCmp != 0) return lastCmp;
+
+      final firstA = (a['first_name'] ?? '').toString().toLowerCase();
+      final firstB = (b['first_name'] ?? '').toString().toLowerCase();
+      final firstCmp = firstA.compareTo(firstB);
+      if (firstCmp != 0) return firstCmp;
+
+      final nameA = (a['display_name'] ?? '').toString().toLowerCase();
+      final nameB = (b['display_name'] ?? '').toString().toLowerCase();
+      return nameA.compareTo(nameB);
+    });
 
     if (mounted) {
       setState(() => _clubMembers = members);
@@ -889,21 +860,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     return pool.where((r) {
       final mp = r['member_profiles'] as Map<String, dynamic>?;
-      final displayName = _displayNameWithPreferredPosition(mp).toLowerCase();
-      final firstName = (mp?['first_name'] ?? '').toString().toLowerCase();
-      final lastName = (mp?['last_name'] ?? '').toString().toLowerCase();
+      final displayName = (mp?['display_name'] ?? '').toString().toLowerCase();
       final phone = (mp?['phone'] ?? '').toString().toLowerCase();
-      final preferred = (mp?['preferred_position'] ?? '').toString().toLowerCase();
       final status = (r['rsvp_status'] ?? r['status'] ?? '')
           .toString()
           .toLowerCase();
 
-      return displayName.contains(q) ||
-          firstName.contains(q) ||
-          lastName.contains(q) ||
-          phone.contains(q) ||
-          preferred.contains(q) ||
-          status.contains(q);
+      return displayName.contains(q) || phone.contains(q) || status.contains(q);
     }).toList();
   }
 

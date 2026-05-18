@@ -2636,11 +2636,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   @override
   Widget build(BuildContext context) {
     final startLabel = _startAtLocal == null
-        ? 'Select date & time'
+        ? 'Start Date & Time'
         : formatWhenLocal(_startAtLocal!.toUtc().toIso8601String());
 
     final endLabel = _endAtLocal == null
-        ? 'Select end date & time'
+        ? 'End Date & Time'
         : formatWhenLocal(_endAtLocal!.toUtc().toIso8601String());
 
     final selectedGreen = _selectedGreenArea;

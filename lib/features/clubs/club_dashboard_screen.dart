@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 
@@ -36,22 +37,28 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
   bool _isSelector = false;
-  bool _isFixtureCreator = false; // keep false for now unless you already have this
+  bool _isFixtureCreator =
+      false; // keep false for now unless you already have this
   String? _currentMemberId;
 
-  bool _loadingPermissions = true;  
-  
+  bool _loadingPermissions = true;
+
   bool _loading = true;
 
-  int _unreadNotificationCount = 0; 
+  int _unreadNotificationCount = 0;
 
   Timer? _notificationTimer;
 
   String? _error;
   String _myClubName = '';
-  
+
   Map<String, String> _myAvailabilityByFixtureId = {};
-    
+
+  Map<String, dynamic>? _nextMatch;
+  Map<String, dynamic>? _secondMatch;
+
+  bool _shownNextFixturePopup = false;
+
   List<Map<String, dynamic>> _toRsvp = [];
   List<Map<String, dynamic>> _awaitingSelection = [];
   List<Map<String, dynamic>> _needsAcceptance = [];
@@ -63,12 +70,14 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   // Map<String, Map<String, String>> _formatById = {};
   Map<String, String> _venueNameById = {};
   Map<String, String> _greenNameById = {};
-  
+
   DashboardFixtureFilter _filter = const DashboardFixtureFilter();
 
   Color? _fixtureTypeBackgroundColor(Map<String, dynamic> fixture) {
-    final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
-    final colourScheme = competitionType?['colour_scheme'] as Map<String, dynamic>?;
+    final competitionType =
+        fixture['competition_type'] as Map<String, dynamic>?;
+    final colourScheme =
+        competitionType?['colour_scheme'] as Map<String, dynamic>?;
 
     if (colourScheme == null) return null;
 
@@ -79,8 +88,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   Color? _fixtureTypeForegroundColor(Map<String, dynamic> fixture) {
-    final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
-    final colourScheme = competitionType?['colour_scheme'] as Map<String, dynamic>?;
+    final competitionType =
+        fixture['competition_type'] as Map<String, dynamic>?;
+    final colourScheme =
+        competitionType?['colour_scheme'] as Map<String, dynamic>?;
 
     if (colourScheme == null) return null;
 
@@ -91,16 +102,49 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   String _fixtureTypeName(Map<String, dynamic> fixture) {
-    final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
+    final competitionType =
+        fixture['competition_type'] as Map<String, dynamic>?;
     return (competitionType?['name'] ?? '').toString().trim();
   }
 
+  bool _shouldShowFixtureTypeLine({
+    required String title,
+    required String fixtureTypeName,
+  }) {
+    final t = title.trim().toLowerCase();
+    final ft = fixtureTypeName.trim().toLowerCase();
+
+    if (ft.isEmpty) return false;
+    if (t == ft) return false;
+    if (t == 'home - $ft') return false;
+    if (t == 'home — $ft') return false;
+    if (t == 'away - $ft') return false;
+    if (t == 'away — $ft') return false;
+
+    return true;
+  }
+
   String _selectionMode(Map<String, dynamic> fixture) {
-    final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
+    final competitionType =
+        fixture['competition_type'] as Map<String, dynamic>?;
     return (competitionType?['selection_mode'] ?? '')
         .toString()
         .toLowerCase()
         .trim();
+  }
+
+  String _timeUntilFixture(String isoUtc) {
+    final start = DateTime.parse(isoUtc).toLocal();
+    final diff = start.difference(DateTime.now());
+
+    if (diff.inDays >= 2) return '${diff.inDays} days time';
+    if (diff.inDays == 1) return '1 day time';
+
+    final hours = diff.inHours;
+    final mins = diff.inMinutes.remainder(60);
+
+    if (hours > 0) return '$hours hours $mins mins time';
+    return '$mins mins time';
   }
 
   bool _isOpenSessionFixture(Map<String, dynamic> fixture) {
@@ -108,7 +152,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   bool _usesRinks(Map<String, dynamic> fixture) {
-    final competitionType = fixture['competition_type'] as Map<String, dynamic>?;
+    final competitionType =
+        fixture['competition_type'] as Map<String, dynamic>?;
     final raw = competitionType?['uses_rinks'];
 
     if (raw == null) return true;
@@ -219,7 +264,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
 
     return true;
-  }  
+  }
 
   List<String> _activeFilterLabels() {
     final labels = <String>[];
@@ -296,6 +341,34 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     return labels;
   }
 
+  Widget _buildVenueMapPreview({
+    required String venueName,
+    required String address,
+    required Color? foregroundColor,
+  }) {
+    final query = [
+      venueName,
+      address,
+    ].where((v) => v.trim().isNotEmpty).join(', ');
+
+    if (query.isEmpty) return const SizedBox.shrink();
+
+    return OutlinedButton.icon(
+      onPressed: () => _openVenueMap(query),
+      icon: Icon(Icons.map_outlined, color: foregroundColor),
+      label: Text(
+        'Open Google Maps',
+        style: TextStyle(color: foregroundColor, fontWeight: FontWeight.w600),
+      ),
+      style: OutlinedButton.styleFrom(
+        side: BorderSide(
+          color: foregroundColor?.withOpacity(0.45) ?? Colors.black26,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+    );
+  }
+
   Widget _buildActiveFilterSummary() {
     if (_filter.isDefault) return const SizedBox.shrink();
 
@@ -334,8 +407,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
     _initDashboard();
 
-    _notificationTimer =
-        Timer.periodic(const Duration(seconds: 30), (_) {
+    _notificationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _loadUnreadNotificationCount();
     });
   }
@@ -438,8 +510,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         _filter = loaded.isDefault ? DashboardFixtureFilter.empty : loaded;
 
         debugPrint('Loaded dashboard filter: $_filter');
-        debugPrint('Loaded dashboard filter isDefault: ${_filter.isDefault}');        
-
+        debugPrint('Loaded dashboard filter isDefault: ${_filter.isDefault}');
       } else {
         _filter = DashboardFixtureFilter.empty;
       }
@@ -539,6 +610,17 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
   }
 
+  Future<void> _openVenueMap(String query) async {
+    final encoded = Uri.encodeComponent(query);
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$encoded',
+    );
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -555,11 +637,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .eq('member_profile_id', myId)
           .eq('is_active', true);
 
-      final myTeamIds = List<Map<String, dynamic>>.from(myTeamRows)
-          .map((r) => r['team_id']?.toString())
-          .whereType<String>()
-          .toSet();
-          
+      final myTeamIds = List<Map<String, dynamic>>.from(
+        myTeamRows,
+      ).map((r) => r['team_id']?.toString()).whereType<String>().toSet();
+
       final myAvailabilityRows = await client
           .from('fixture_rsvps')
           .select('fixture_id, status')
@@ -572,7 +653,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         if (fixtureId != null && status != null) {
           myAvailabilityByFixtureId[fixtureId] = status;
         }
-      }      
+      }
 
       // 1) Load my club name
       final clubRow = await client
@@ -611,23 +692,25 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
             'requires_rsvp, team_id, team_name, '
             'venue_id, opponent_venue_id, green_area_id, '
-            'venue:venues!fixtures_venue_id_fkey(name), '
+            'venue:venues!fixtures_venue_id_fkey(name, address_line1, address_line2, town_city, postcode), '
             'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
             'team:teams(name), '
             'green_areas(name, discipline, orientation_mode), '
             'ts:team_selections(status), '
             'competition_type_id, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
-              'id, name, is_internal, selection_mode, uses_rinks, tags, '
-              'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex))'
-          )            
+            'id, name, is_internal, selection_mode, uses_rinks, tags, '
+            'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex))',
+          )
           .eq('club_id', widget.clubId)
           .gte('start_at', DateTime.now().toUtc().toIso8601String())
           .order('start_at', ascending: true);
-          
+
       final allFixtures = List<Map<String, dynamic>>.from(fixturesRows);
 
-      debugPrint('DASH sample: ${allFixtures.isNotEmpty ? allFixtures.first : "none"}');
+      debugPrint(
+        'DASH sample: ${allFixtures.isNotEmpty ? allFixtures.first : "none"}',
+      );
 
       bool isPublished(Map<String, dynamic> f) {
         final ts = f['ts'];
@@ -657,7 +740,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       final canManagePreselect = _isSuperuser || _isClubAdmin || _isSelector;
 
       final awaitingSelection = allFixtures.where((f) {
-
         final requiresRsvp = f['requires_rsvp'] == true;
         if (requiresRsvp) return false;
 
@@ -692,25 +774,25 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
       // Needs my acceptance (published team + pending) for this club only
       final needsRows = await client
-        .from('team_selection_members')
-        .select(
-          'acceptance, role, team_selections(status, fixture:fixtures('
-          'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-          'requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
-          'competition_type_id, '
-          'competition_type:competition_types!fixtures_competition_type_id_fkey('
+          .from('team_selection_members')
+          .select(
+            'acceptance, role, team_selections(status, fixture:fixtures('
+            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+            'requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
+            'competition_type_id, '
+            'competition_type:competition_types!fixtures_competition_type_id_fkey('
             'id, name, is_internal, selection_mode, uses_rinks, tags, '
             'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
-          'venue:venues!fixtures_venue_id_fkey(name), '
-          'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
-          'team:teams(name), '
-          'green_areas(name, discipline, orientation_mode)'
-          '))'
-        )
-        .eq('member_profile_id', myId)
-        .eq('is_selected', true)
-        .eq('acceptance', 'pending');
-        
+            'venue:venues!fixtures_venue_id_fkey(name, address_line1, address_line2, town_city, postcode), '
+            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+            'team:teams(name), '
+            'green_areas(name, discipline, orientation_mode)'
+            '))',
+          )
+          .eq('member_profile_id', myId)
+          .eq('is_selected', true)
+          .eq('acceptance', 'pending');
+
       final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
 
       final needsAcceptance = rawNeeds.where((r) {
@@ -726,35 +808,37 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
       // Accepted & upcoming (published + I'm selected + accepted)
       final acceptedRows = await client
-        .from('team_selection_members')
-        .select(
-          'team_selections!inner('
-          '  status, '
-          '  fixture:fixtures!inner('
-          '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-          '    requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
-          '    competition_type_id, '
-          '    competition_type:competition_types!fixtures_competition_type_id_fkey('
-          '      id, name, is_internal, selection_mode, '
-          '      colour_scheme:fixture_colour_schemes('
-          '      id, name, background_hex, foreground_hex)'
-          '    ), '          
-          '    venue:venues!fixtures_venue_id_fkey(name), '
-          '    opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
-          '    team:teams(name), '
-          '    green_areas(name, discipline, orientation_mode)'
-          '  )'
-          ')'
-        )
-        .eq('member_profile_id', myId)
-        .eq('acceptance', 'accepted')
-        .eq('is_selected', true)
-        .eq('team_selections.status', 'published')
-        .eq('team_selections.fixture.club_id', widget.clubId);
+          .from('team_selection_members')
+          .select(
+            'team_selections!inner('
+            '  status, '
+            '  fixture:fixtures!inner('
+            '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+            '    requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
+            '    competition_type_id, '
+            '    competition_type:competition_types!fixtures_competition_type_id_fkey('
+            '      id, name, is_internal, selection_mode, '
+            '      colour_scheme:fixture_colour_schemes('
+            '      id, name, background_hex, foreground_hex)'
+            '    ), '
+            '    venue:venues!fixtures_venue_id_fkey(name, address_line1, address_line2, town_city, postcode), '
+            '    opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+            '    team:teams(name), '
+            '    green_areas(name, discipline, orientation_mode)'
+            '  )'
+            ')',
+          )
+          .eq('member_profile_id', myId)
+          .eq('acceptance', 'accepted')
+          .eq('is_selected', true)
+          .eq('team_selections.status', 'published')
+          .eq('team_selections.fixture.club_id', widget.clubId);
 
       final nowUtcIso = DateTime.now().toUtc().toIso8601String();
 
+      final upcomingAcceptedAll = <Map<String, dynamic>>[];
       final upcomingAccepted = <Map<String, dynamic>>[];
+
       for (final r in List<Map<String, dynamic>>.from(acceptedRows)) {
         final ts = r['team_selections'] as Map<String, dynamic>?;
         final fx = ts?['fixture'] as Map<String, dynamic>?;
@@ -763,15 +847,40 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         final startAt = fx['start_at']?.toString() ?? '';
         if (startAt.compareTo(nowUtcIso) < 0) continue;
 
-        if (!_matchesFilter(fx)) continue;
+        // Unfiltered list for next match popup
+        upcomingAcceptedAll.add(fx);
 
-        upcomingAccepted.add(fx);
+        // Filtered list for dashboard section
+        if (_matchesFilter(fx)) {
+          upcomingAccepted.add(fx);
+        }
       }
 
       // sort ascending by start_at
+      upcomingAcceptedAll.sort(
+        (a, b) => (a['start_at'] as String).compareTo(b['start_at'] as String),
+      );
+
       upcomingAccepted.sort(
         (a, b) => (a['start_at'] as String).compareTo(b['start_at'] as String),
       );
+
+      final nextMatch = upcomingAcceptedAll.isNotEmpty
+          ? upcomingAcceptedAll.first
+          : null;
+
+      Map<String, dynamic>? secondMatch;
+      if (upcomingAcceptedAll.length > 1) {
+        final candidate = upcomingAcceptedAll[1];
+        final startAt = DateTime.parse(
+          candidate['start_at'].toString(),
+        ).toLocal();
+        final diff = startAt.difference(DateTime.now());
+
+        if (!diff.isNegative && diff.inDays < 3) {
+          secondMatch = candidate;
+        }
+      }
 
       debugPrint(
         'DASH counts: '
@@ -795,11 +904,20 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         _needsAcceptance = needsAcceptance;
         _upcomingAccepted = upcomingAccepted;
 
+        _nextMatch = nextMatch;
+        _secondMatch = secondMatch;
+
         _openSessionsAndEvents = openSessionsAndEvents;
 
         _myAvailabilityByFixtureId = myAvailabilityByFixtureId;
-        
+
         _loading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_shownNextFixturePopup && mounted) {
+          _shownNextFixturePopup = true;
+          _showNextFixturePopup();
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -817,7 +935,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         .from('fixtures')
         .select(
           'id, club_id, captain_member_profile_id, vice_captain_member_profile_id, start_at, is_home, section, rinks_required, players_per_rink, orientation, '
-          'venue:venues!fixtures_venue_id_fkey(name), '
+          'venue:venues!fixtures_venue_id_fkey(name, address_line1, address_line2, town_city, postcode), '
           'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
           'green_areas(name, discipline, orientation_mode)',
         )
@@ -830,7 +948,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => FixtureDetailsPage(fixtureId: row['id'].toString()),
-      )
+      ),
     );
 
     await _load();
@@ -841,14 +959,11 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       final client = Supabase.instance.client;
       final myId = (await client.rpc('my_member_profile_id')).toString();
 
-      await client.from('fixture_rsvps').upsert(
-        {
-          'fixture_id': fixtureId,
-          'member_profile_id': myId,
-          'status': status,
-        },
-        onConflict: 'fixture_id,member_profile_id',
-      );
+      await client.from('fixture_rsvps').upsert({
+        'fixture_id': fixtureId,
+        'member_profile_id': myId,
+        'status': status,
+      }, onConflict: 'fixture_id,member_profile_id');
 
       await _load();
     } catch (e) {
@@ -884,21 +999,193 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleMedium,
+  Future<void> _showNextFixturePopup() async {
+    if (!mounted) return;
+
+    final fixture = _nextMatch;
+
+    if (fixture == null) {
+      if (_toRsvp.isEmpty) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Fixtures available'),
+          content: Text(
+            'You have ${_toRsvp.length} fixture(s) available to RSVP to.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final bg = _fixtureTypeBackgroundColor(fixture) ?? Colors.white;
+    final fg = _fixtureTypeForegroundColor(fixture) ?? Colors.black87;
+
+    final title = fixtureTitleUnified(fixture, myClubName: _myClubName);
+
+    final startsIn = _timeUntilFixture(fixture['start_at'].toString());
+
+    final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
+
+    final formattedStart = DateFormat(
+      'EEEE d MMMM yyyy • HH:mm',
+    ).format(startAt);
+
+    final venue = fixture['venue'] as Map<String, dynamic>?;
+    final venueName = (venue?['name'] ?? '').toString();
+
+    final address = [
+      venue?['address_line1'],
+      venue?['address_line2'],
+      venue?['town_city'],
+      venue?['postcode'],
+    ].where((e) => e != null && e.toString().trim().isNotEmpty).join(', ');
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Material(
+              color: bg,
+              borderRadius: BorderRadius.circular(28),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Your next match is in $startsIn',
+                      style: TextStyle(
+                        color: fg,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 26,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: fg,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 18,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(formattedStart, style: TextStyle(color: fg)),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Special instructions: none at the moment',
+                      style: TextStyle(color: fg),
+                    ),
+                    if (venueName.isNotEmpty || address.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        'Location',
+                        style: TextStyle(
+                          color: fg,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _buildVenueMapPreview(
+                        venueName: venueName,
+                        address: address,
+                        foregroundColor: fg,
+                      ),
+                      const SizedBox(height: 10),
+                      if (venueName.isNotEmpty)
+                        Text(venueName, style: TextStyle(color: fg)),
+                      if (address.isNotEmpty)
+                        Text(address, style: TextStyle(color: fg)),
+                    ],
+                    const SizedBox(height: 18),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('OK', style: TextStyle(color: fg)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            if (_secondMatch != null) ...[
+              _buildSecondMatchPopupCard(_secondMatch!),
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildEmptyState(String message) {
-    return Text(
-      message,
-      style: Theme.of(context).textTheme.bodyMedium,
+  Widget _buildSecondMatchPopupCard(Map<String, dynamic> fixture) {
+    final bg = _fixtureTypeBackgroundColor(fixture) ?? Colors.grey.shade100;
+    final fg = _fixtureTypeForegroundColor(fixture) ?? Colors.black87;
+
+    final title = fixtureTitleUnified(fixture, myClubName: _myClubName);
+    final startsIn = _timeUntilFixture(fixture['start_at'].toString());
+
+    final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
+    final formattedStart = DateFormat(
+      'EEEE d MMMM yyyy • HH:mm',
+    ).format(startAt);
+
+    return SizedBox(
+      width: double.infinity,
+      child: Card(
+        color: bg,
+        elevation: 4,
+        margin: const EdgeInsets.only(top: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Also coming up in $startsIn',
+                style: TextStyle(
+                  color: fg,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: TextStyle(color: fg, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(formattedStart, style: TextStyle(color: fg)),
+            ],
+          ),
+        ),
+      ),
     );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+    );
+  }
+
+  Widget _buildEmptyState(String message) {
+    return Text(message, style: Theme.of(context).textTheme.bodyMedium);
   }
 
   Widget _buildFixtureCard({
@@ -918,15 +1205,18 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (fixtureTypeName.isNotEmpty) ...[
+              if (_shouldShowFixtureTypeLine(
+                title: title,
+                fixtureTypeName: fixtureTypeName,
+              )) ...[
                 Text(
                   fixtureTypeName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: foregroundColor,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: foregroundColor,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
               ],
@@ -948,9 +1238,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: foregroundColor,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: foregroundColor,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
               ],
@@ -966,9 +1256,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: foregroundColor,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: foregroundColor,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           );
@@ -983,17 +1273,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: foregroundColor,
-            fontWeight: FontWeight.w600,
-          ),
+          style: TextStyle(color: foregroundColor, fontWeight: FontWeight.w600),
         ),
         subtitle: subtitleWidget,
-        trailing: trailing ??
-            Icon(
-              Icons.chevron_right,
-              color: foregroundColor,
-            ),
+        trailing: trailing ?? Icon(Icons.chevron_right, color: foregroundColor),
         onTap: onTap,
       ),
     );
@@ -1022,19 +1305,21 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  InkWell(
-                    onTap: onTap,
-                    child: Row(
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
                         Expanded(
                           child: Text(
                             title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
                                   color: foregroundColor,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -1044,58 +1329,59 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                         Icon(Icons.chevron_right, color: foregroundColor),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (fixtureTypeName.isNotEmpty) ...[
-                    Text(
-                      fixtureTypeName,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: foregroundColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                  ],
-                  Text(
-                    subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: foregroundColor),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
+                    const SizedBox(height: 4),
+                    if (fixtureTypeName.isNotEmpty) ...[
                       Text(
-                        'Availability:',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: foregroundColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _buildAvailabilityButton(
-                              label: 'Available',
-                              isSelected: myStatus == 'yes',
-                              selectedColor: Colors.green,
-                              onTap: onAvailableTap,
-                            ),
-                            _buildAvailabilityButton(
-                              label: 'Not available',
-                              isSelected: myStatus == 'no',
-                              selectedColor: Colors.red,
-                              onTap: onNotAvailableTap,
-                            ),
-                          ],
+                        fixtureTypeName,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: foregroundColor,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
+                      const SizedBox(height: 2),
                     ],
-                  ),
-                ],
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: foregroundColor),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text(
+                          'Availability:',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: foregroundColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _buildAvailabilityButton(
+                                label: 'Available',
+                                isSelected: myStatus == 'yes',
+                                selectedColor: Colors.green,
+                                onTap: onAvailableTap,
+                              ),
+                              _buildAvailabilityButton(
+                                label: 'Not available',
+                                isSelected: myStatus == 'no',
+                                selectedColor: Colors.red,
+                                onTap: onNotAvailableTap,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             if (trailing != null) ...[
@@ -1119,9 +1405,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       style: OutlinedButton.styleFrom(
         backgroundColor: isSelected ? selectedColor : null,
         foregroundColor: isSelected ? Colors.white : null,
-        side: BorderSide(
-          color: isSelected ? selectedColor : Colors.grey,
-        ),
+        side: BorderSide(color: isSelected ? selectedColor : Colors.grey),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       child: Text(label),
@@ -1153,16 +1437,14 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loadingPermissions) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final canAccessAdmin =
         _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
 
-//    debugPrint('Dashboard build filter: $_filter');
-//    debugPrint('Dashboard build filter isDefault: ${_filter.isDefault}');
+    //    debugPrint('Dashboard build filter: $_filter');
+    //    debugPrint('Dashboard build filter isDefault: ${_filter.isDefault}');
 
     return Scaffold(
       floatingActionButton: GestureDetector(
@@ -1173,7 +1455,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           label: Text(_filter.isDefault ? 'Filter' : 'Filtered'),
           onPressed: _openFilter,
         ),
-      ),   
+      ),
       appBar: AppBar(
         title: Text(widget.clubName),
         actions: [
@@ -1183,9 +1465,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => PlayerHelpScreen(
-                    showAdminGuide: _isClubAdmin,
-                  ),
+                  builder: (_) =>
+                      PlayerHelpScreen(showAdminGuide: _isClubAdmin),
                 ),
               );
             },
@@ -1204,6 +1485,11 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                 ),
               );
             },
+          ),
+          IconButton(
+            tooltip: 'Next match',
+            icon: const Icon(Icons.info_outline),
+            onPressed: _showNextFixturePopup,
           ),
           IconButton(
             tooltip: 'My fixture bookings',
@@ -1241,12 +1527,11 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               },
             ),
           IconButton(
-            tooltip: 'Notifications',            onPressed: () async {
+            tooltip: 'Notifications',
+            onPressed: () async {
               await Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const NotificationsPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const NotificationsPage()),
               );
               await _loadUnreadNotificationCount();
             },
@@ -1259,7 +1544,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                     right: -6,
                     top: -4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.red,
                         borderRadius: BorderRadius.circular(10),
@@ -1290,201 +1578,224 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
-                  children: [
-                    _buildActiveFilterSummary(),
-                    _buildSectionHeader('Fixture Needing your Acceptance:'),
-                    const SizedBox(height: 6),
-                    if (_needsAcceptance.isEmpty)
-                      _buildEmptyState('   Nothing waiting for you.')
-                    else
-                      ..._needsAcceptance.map((r) {
-                        final ts = r['team_selections'] as Map<String, dynamic>?;
-                        final fx = ts?['fixture'] as Map<String, dynamic>?;
+          ? Center(child: Text('Error: $_error'))
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+              children: [
+                _buildActiveFilterSummary(),
+                _buildSectionHeader('Fixture Needing your Acceptance:'),
+                const SizedBox(height: 6),
+                if (_needsAcceptance.isEmpty)
+                  _buildEmptyState('   Nothing waiting for you.')
+                else
+                  ..._needsAcceptance.map((r) {
+                    final ts = r['team_selections'] as Map<String, dynamic>?;
+                    final fx = ts?['fixture'] as Map<String, dynamic>?;
 
-                        if (fx == null) return const SizedBox.shrink();
+                    if (fx == null) return const SizedBox.shrink();
 
-                        final acceptance =
-                            (r['acceptance'] ?? '').toString().trim().toLowerCase();
+                    final acceptance = (r['acceptance'] ?? '')
+                        .toString()
+                        .trim()
+                        .toLowerCase();
 
-                        Widget trailing;
-                        if (acceptance == 'accepted') {
-                          trailing = _buildResponsePill(
-                            label: 'Accepted',
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                          );
-                        } else if (acceptance == 'declined') {
-                          trailing = _buildResponsePill(
-                            label: 'Declined',
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                          );
-                        } else {
-                          trailing = _buildResponsePill(
-                            label: 'Pending',
-                            backgroundColor: Colors.orange.shade100,
-                            foregroundColor: Colors.orange.shade900,
-                          );
-                        }
+                    Widget trailing;
+                    if (acceptance == 'accepted') {
+                      trailing = _buildResponsePill(
+                        label: 'Accepted',
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      );
+                    } else if (acceptance == 'declined') {
+                      trailing = _buildResponsePill(
+                        label: 'Declined',
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      );
+                    } else {
+                      trailing = _buildResponsePill(
+                        label: 'Pending',
+                        backgroundColor: Colors.orange.shade100,
+                        foregroundColor: Colors.orange.shade900,
+                      );
+                    }
 
-                        final title = fixtureTitleUnified(fx, myClubName: _myClubName);
-                        final subtitle = fixtureSubtitleUnified(fx);
+                    final title = fixtureTitleUnified(
+                      fx,
+                      myClubName: _myClubName,
+                    );
+                    final subtitle = fixtureSubtitleUnified(fx);
 
-                        return _buildFixtureCard(
-                          fixture: fx,
-                          title: title,
-                          subtitle: subtitle,
-                          actionHint: 'Tap to accept or decline',
-                          trailing: trailing,
-                          onTap: () => _openFixtureById(fx['id']?.toString() ?? ''),
-                        );
-                      }),
+                    return _buildFixtureCard(
+                      fixture: fx,
+                      title: title,
+                      subtitle: subtitle,
+                      actionHint: 'Tap to accept or decline',
+                      trailing: trailing,
+                      onTap: () => _openFixtureById(fx['id']?.toString() ?? ''),
+                    );
+                  }),
 
-                    const SizedBox(height: 12),
-                    _buildSectionHeader('Fixtures you can RSVP to:'),
-                    const SizedBox(height: 6),
-                    if (_toRsvp.isEmpty)
-                      _buildEmptyState('   No upcoming fixtures to RSVP.')
-                    else
-                      ..._toRsvp.map((f) {
-                        final title = fixtureTitleUnified(f, myClubName: _myClubName);
-                        final subtitle = fixtureSubtitleUnified(f);
-                        final fixtureId = f['id']?.toString() ?? '';
-                        final myStatus = _myAvailabilityByFixtureId[fixtureId];
+                const SizedBox(height: 12),
+                _buildSectionHeader('Fixtures you can RSVP to:'),
+                const SizedBox(height: 6),
+                if (_toRsvp.isEmpty)
+                  _buildEmptyState('   No upcoming fixtures to RSVP.')
+                else
+                  ..._toRsvp.map((f) {
+                    final title = fixtureTitleUnified(
+                      f,
+                      myClubName: _myClubName,
+                    );
+                    final subtitle = fixtureSubtitleUnified(f);
+                    final fixtureId = f['id']?.toString() ?? '';
+                    final myStatus = _myAvailabilityByFixtureId[fixtureId];
 
-                        Widget trailing;
-                        if (myStatus == 'yes') {
-                          trailing = _buildResponsePill(
-                            label: 'Yes',
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                          );
-                        } else if (myStatus == 'maybe') {
-                          trailing = _buildResponsePill(
-                            label: 'Maybe',
-                            backgroundColor: Colors.amber,
-                            foregroundColor: Colors.black87,
-                          );
-                        } else if (myStatus == 'no') {
-                          trailing = _buildResponsePill(
-                            label: 'No',
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                          );
-                        } else {
-                          trailing = _buildResponsePill(
-                            label: 'Pending',
-                            backgroundColor: Colors.grey.shade300,
-                            foregroundColor: Colors.black87,
-                          );
-                        }
-                        return _buildFixtureCard(
-                          fixture: f,
-                          title: title,
-                          subtitle: subtitle,
-                          actionHint: 'Tap to RSVP',
-                          trailing: trailing,
-                          onTap: () => _openFixtureById(fixtureId),
-                        );
-                      }),
+                    Widget trailing;
+                    if (myStatus == 'yes') {
+                      trailing = _buildResponsePill(
+                        label: 'Yes',
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      );
+                    } else if (myStatus == 'maybe') {
+                      trailing = _buildResponsePill(
+                        label: 'Maybe',
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black87,
+                      );
+                    } else if (myStatus == 'no') {
+                      trailing = _buildResponsePill(
+                        label: 'No',
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      );
+                    } else {
+                      trailing = _buildResponsePill(
+                        label: 'Pending',
+                        backgroundColor: Colors.grey.shade300,
+                        foregroundColor: Colors.black87,
+                      );
+                    }
+                    return _buildFixtureCard(
+                      fixture: f,
+                      title: title,
+                      subtitle: subtitle,
+                      actionHint: 'Tap to RSVP',
+                      trailing: trailing,
+                      onTap: () => _openFixtureById(fixtureId),
+                    );
+                  }),
 
+                const SizedBox(height: 12),
+                _buildSectionHeader('Fixtures Awaiting Team Selection'),
+                const SizedBox(height: 6),
+
+                if (_awaitingSelection.isEmpty)
+                  _buildEmptyState(
+                    '   No upcoming Fixtures awaiting Team Selection.',
+                  )
+                else
+                  ..._awaitingSelection.map((f) {
+                    final title = fixtureTitleUnified(
+                      f,
+                      myClubName: _myClubName,
+                    );
+                    final subtitle = fixtureSubtitleUnified(f);
+                    final fixtureId = f['id']?.toString() ?? '';
+
+                    final competitionType =
+                        f['competition_type'] as Map<String, dynamic>?;
+                    final selectionMode =
+                        (competitionType?['selection_mode'] ?? '')
+                            .toString()
+                            .toLowerCase()
+                            .trim();
+
+                    final myStatus = _myAvailabilityByFixtureId[fixtureId];
+
+                    Widget trailing;
+                    if (myStatus == 'yes') {
+                      trailing = _buildResponsePill(
+                        label: 'Available',
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      );
+                    } else if (myStatus == 'no') {
+                      trailing = _buildResponsePill(
+                        label: 'Not available',
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      );
+                    } else {
+                      trailing = _buildResponsePill(
+                        label: 'No reply',
+                        backgroundColor: Colors.grey.shade300,
+                        foregroundColor: Colors.black87,
+                      );
+                    }
+
+                    return _buildAvailabilityFixtureCard(
+                      fixture: f,
+                      title: title,
+                      subtitle: subtitle,
+                      myStatus: myStatus,
+                      trailing: trailing,
+                      onTap: () => _openFixtureById(fixtureId),
+                      onAvailableTap: () =>
+                          _setTeamAvailability(fixtureId, 'yes'),
+                      onNotAvailableTap: () =>
+                          _setTeamAvailability(fixtureId, 'no'),
+                    );
+                  }),
+
+                const SizedBox(height: 12),
+                _buildSectionHeader('Fixtures you have Accepted (upcoming)'),
+                const SizedBox(height: 6),
+
+                if (_upcomingAccepted.isEmpty)
+                  _buildEmptyState('   No upcoming accepted fixtures.')
+                else
+                  ..._upcomingAccepted.map((f) {
+                    final title = fixtureTitleUnified(
+                      f,
+                      myClubName: _myClubName,
+                    );
+                    final subtitle = fixtureSubtitleUnified(f);
+
+                    return _buildFixtureCard(
+                      fixture: f,
+                      title: title,
+                      subtitle: subtitle,
+                      onTap: () => _openFixtureById(f['id']?.toString() ?? ''),
+                    );
+                  }),
+
+                if (_openSessionsAndEvents.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  _buildSectionHeader('Fixtures Awaiting Team Selection'),
+                  _buildSectionHeader('Open Sessions and Events'),
                   const SizedBox(height: 6),
 
-                  if (_awaitingSelection.isEmpty)
-                    _buildEmptyState('   No upcoming Fixtures awaiting Team Selection.')
-                  else
-                    ..._awaitingSelection.map((f) {
-                      final title = fixtureTitleUnified(f, myClubName: _myClubName);
-                      final subtitle = fixtureSubtitleUnified(f);
-                      final fixtureId = f['id']?.toString() ?? '';
+                  ..._openSessionsAndEvents.map((f) {
+                    final title = fixtureTitleUnified(
+                      f,
+                      myClubName: _myClubName,
+                    );
+                    final subtitle = fixtureSubtitleUnified(f);
+                    final fixtureId = f['id']?.toString() ?? '';
 
-                      final competitionType = f['competition_type'] as Map<String, dynamic>?;
-                      final selectionMode =
-                          (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
-
-                      final myStatus = _myAvailabilityByFixtureId[fixtureId];
-
-                      Widget trailing;
-                      if (myStatus == 'yes') {
-                        trailing = _buildResponsePill(
-                          label: 'Available',
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        );
-                      } else if (myStatus == 'no') {
-                        trailing = _buildResponsePill(
-                          label: 'Not available',
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                        );
-                      } else {
-                        trailing = _buildResponsePill(
-                          label: 'No reply',
-                          backgroundColor: Colors.grey.shade300,
-                          foregroundColor: Colors.black87,
-                        );
-                      }
-
-                      return _buildAvailabilityFixtureCard(
-                        fixture: f,
-                        title: title,
-                        subtitle: subtitle,
-                        myStatus: myStatus,
-                        trailing: trailing,
-                        onTap: () => _openFixtureById(fixtureId),
-                        onAvailableTap: () => _setTeamAvailability(fixtureId, 'yes'),
-                        onNotAvailableTap: () => _setTeamAvailability(fixtureId, 'no'),
-                      );
-                    }),
-
-                    const SizedBox(height: 12),
-                    _buildSectionHeader('Fixtures you have Accepted (upcoming)'),
-                    const SizedBox(height: 6),
-
-                    if (_upcomingAccepted.isEmpty)
-                      _buildEmptyState('   No upcoming accepted fixtures.')
-                    else
-                      ..._upcomingAccepted.map((f) {
-                        final title = fixtureTitleUnified(f, myClubName: _myClubName);
-                        final subtitle = fixtureSubtitleUnified(f);
-
-                        return _buildFixtureCard(
-                          fixture: f,
-                          title: title,
-                          subtitle: subtitle,
-                          onTap: () => _openFixtureById(f['id']?.toString() ?? ''),
-                        );
-                      }),
-
-                      if (_openSessionsAndEvents.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        _buildSectionHeader('Open Sessions and Events'),
-                        const SizedBox(height: 6),
-
-                        ..._openSessionsAndEvents.map((f) {
-                          final title = fixtureTitleUnified(f, myClubName: _myClubName);
-                          final subtitle = fixtureSubtitleUnified(f);
-                          final fixtureId = f['id']?.toString() ?? '';
-
-                          return _buildFixtureCard(
-                            fixture: f,
-                            title: title,
-                            subtitle: subtitle,
-                            actionHint: 'Tap to view details',
-                            trailing: null,
-                            onTap: () => _openFixtureById(fixtureId),
-                          );
-                        }),
-                      ],
-                  ],
-                ),
+                    return _buildFixtureCard(
+                      fixture: f,
+                      title: title,
+                      subtitle: subtitle,
+                      actionHint: 'Tap to view details',
+                      trailing: null,
+                      onTap: () => _openFixtureById(fixtureId),
+                    );
+                  }),
+                ],
+              ],
+            ),
     );
   }
 }
-
-
