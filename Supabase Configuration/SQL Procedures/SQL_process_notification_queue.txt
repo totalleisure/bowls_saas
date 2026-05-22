@@ -14,6 +14,8 @@ declare
   v_home_away text;
   v_venue_name text;
   v_start_at timestamptz;
+  v_created_text text;
+  v_source text;
 begin
   for r in
     select *
@@ -50,8 +52,14 @@ begin
         else ''
       end;
 
+      v_created_text := to_char(
+        r.created_at,
+        'DD-Mon-YYYY HH24:MI'
+      );
+
       if r.event_type = 'team_acceptance_changed' then
-        v_title := 'Team update';
+        v_source := 'Team Update';
+        v_title := v_source || ' : ' || v_created_text;        
 
         if (r.payload->>'new_acceptance') = 'accepted' then
           v_body := v_player_name || ' has accepted selection for ' || v_fixture_label;
@@ -70,6 +78,65 @@ begin
             || case when v_home_away <> '' then ' ' || v_home_away else '' end
             || case when v_venue_name <> '' then ' at ' || v_venue_name else '' end
             || '.';
+        end if;
+      elsif r.event_type = 'reserve_promoted' then
+        v_source := 'Team Selection Changed';
+        v_title := v_source || ' : ' || v_created_text;
+
+        v_body := 'You have been promoted from reserve to player for ' || v_fixture_label;
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || ' on ' || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' or v_venue_name <> '' then
+          v_body := v_body
+            || case when v_home_away <> '' then '. ' || v_home_away else '' end
+            || case when v_venue_name <> '' then ' at ' || v_venue_name else '' end;
+        end if;
+
+        v_body := v_body || '. Please check the fixture details.';
+
+      elsif r.event_type = 'fixture_message' then
+        v_source := coalesce(
+          nullif(r.payload->>'title', ''),
+          'Fixture Message'
+        );
+
+        v_title := v_source || ' : ' || v_created_text;
+
+        v_body := coalesce(nullif(r.payload->>'message', ''), 'You have a new fixture message.');
+
+        if v_fixture_label <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'Fixture: ' || v_fixture_label;
+        end if;
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' then
+          v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
+        end if;
+
+        if v_venue_name <> '' then
+          v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
+        end if;
+
+        if coalesce(nullif(r.payload->>'opponent_name', ''), '') <> '' then
+          v_body := v_body || chr(10) || 'Opponent: ' || (r.payload->>'opponent_name');
+        end if;
+
+        if coalesce(nullif(r.payload->>'captain_name', ''), '') <> '' then
+          v_body := v_body || chr(10) || 'Captain: ' || (r.payload->>'captain_name');
+        end if;
+
+        if coalesce(nullif(r.payload->>'vice_captain_name', ''), '') <> '' then
+          v_body := v_body || chr(10) || 'Vice-Captain: ' || (r.payload->>'vice_captain_name');
+        end if;
+
+        if coalesce(nullif(r.payload->>'sender_name', ''), '') <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'From: ' || (r.payload->>'sender_name');
         end if;
       else
         v_title := 'Update';
@@ -96,7 +163,11 @@ begin
       );
 /*
       -- Optional email queue for important notifications
-      if r.event_type in ('team_acceptance_changed', 'reserve_promoted') then
+      if r.event_type in (
+        'team_acceptance_changed',
+        'reserve_promoted',
+        'guest_membership_request'
+      ) then
         insert into public.email_queue (
           member_profile_id,
           event_type,

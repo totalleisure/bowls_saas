@@ -1,0 +1,508 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function queueGuestRegistrationNotification(
+  supabaseAdmin: any,
+  club_id: string,
+  club_name: string,
+  memberProfileId: string,
+  member_name: string,
+  member_email: string,
+  member_phone: string | null,
+) {
+  const { data: homeVenue } = await supabaseAdmin
+    .from("venues")
+    .select("club_officers")
+    .eq("club_id", club_id)
+    .eq("is_home_venue", true)
+    .maybeSingle();
+
+  const officers =
+    (homeVenue?.club_officers as Record<string, any> | null) ?? {};
+
+  const membershipSecretary =
+    officers["membership_secretary"] ??
+    officers["club_secretary"];
+
+  const secretaryEmail =
+    membershipSecretary?.email?.toString()?.trim() ?? "";
+
+  if (!secretaryEmail) return;
+
+  const { data: secretaryProfile } = await supabaseAdmin
+    .from("member_profiles")
+    .select("id")
+    .ilike("email_address", secretaryEmail)
+    .maybeSingle();
+
+  if (!secretaryProfile?.id) return;
+
+  await supabaseAdmin
+    .from("notification_queue")
+    .insert({
+      event_type: "guest_membership_request",
+      member_profile_id: memberProfileId,
+      target_member_profile_id: secretaryProfile.id,
+      payload: {
+        club_id,
+        club_name,
+        member_name,
+        member_email,
+        member_phone: member_phone ?? "",
+      },
+      status: "pending",
+    });
+}
+
+serve(async (req) => {
+  try {
+    const body = await req.json();
+
+    const email = body.email?.toString().trim().toLowerCase();
+    const first_name = body.first_name?.toString().trim();
+    const last_name = body.surname?.toString().trim();
+    const password = body.password?.toString();
+    const club_id = body.club_id?.toString();
+
+    const address_line1 = body.address_line1?.toString().trim() || null;
+    const address_line2 = body.address_line2?.toString().trim() || null;
+    const town_city = body.town_city?.toString().trim() || null;
+    const county = body.county?.toString().trim() || null;
+    const postcode = body.postcode?.toString().trim() || null;
+    const phone = body.phone?.toString().trim() || null;
+    const gender = body.gender?.toString().trim() || null;
+    const sex_at_birth = gender;
+
+    if (!email || !password || !first_name || !last_name || !club_id) {
+      return jsonResponse({
+        success: false,
+        code: "MISSING_REQUIRED_FIELDS",
+        error: "Please complete all required fields.",
+      }, 400);
+    }
+
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    const { data: club, error: clubError } = await supabaseAdmin
+      .from("clubs")
+      .select("id, name")
+      .eq("id", club_id)
+      .single();
+
+    if (clubError || !club) {
+      return jsonResponse({
+        success: false,
+        code: "CLUB_NOT_FOUND",
+        error: "The selected club could not be found.",
+      }, 404);
+    }
+
+    const profileUpdate = {
+      first_name,
+      last_name,
+      display_name: `${first_name} ${last_name}`,
+      address_line1,
+      address_line2,
+      town_city,
+      county,
+      postcode,
+      phone,
+      email_address: email,
+      gender,
+      sex_at_birth,
+    };
+
+    // ----------------------------------------------------
+    // 1. Look for existing member profile by email
+    // ----------------------------------------------------
+
+    const { data: existingProfile, error: profileLookupError } =
+      await supabaseAdmin
+        .from("member_profiles")
+        .select("id, user_id, display_name")
+        .eq("email_address", email)
+        .maybeSingle();
+
+    if (profileLookupError) {
+      return jsonResponse({
+        success: false,
+        code: "PROFILE_LOOKUP_FAILED",
+        error: profileLookupError.message,
+      }, 400);
+    }
+
+    // ----------------------------------------------------
+    // 2. Existing profile WITH auth user
+    // ----------------------------------------------------
+
+    if (existingProfile?.user_id) {
+      const { data: existingMembership, error: membershipLookupError } =
+        await supabaseAdmin
+          .from("club_memberships")
+          .select("id, role")
+          .eq("club_id", club_id)
+          .eq("member_profile_id", existingProfile.id)
+          .maybeSingle();
+
+      if (membershipLookupError) {
+        return jsonResponse({
+          success: false,
+          code: "MEMBERSHIP_LOOKUP_FAILED",
+          error: membershipLookupError.message,
+        }, 400);
+      }
+
+      if (existingMembership) {
+        return jsonResponse({
+          success: false,
+          code: "ALREADY_REGISTERED_WITH_CLUB",
+          error:
+            `You are already registered with ${club.name}. Please sign in, or use Forgotten Password if you need to reset access.`,
+        }, 400);
+      }
+
+      const { error: membershipCreateError } = await supabaseAdmin
+        .from("club_memberships")
+        .insert({
+          club_id,
+          member_profile_id: existingProfile.id,
+          role: "guest",
+        });
+
+      if (membershipCreateError) {
+        return jsonResponse({
+          success: false,
+          code: "MEMBERSHIP_CREATE_FAILED",
+          error: membershipCreateError.message,
+        }, 400);
+      }
+
+      await queueGuestRegistrationNotification(
+        supabaseAdmin,
+        club_id,
+        club.name,
+        memberProfileId,
+        `${first_name} ${last_name}`,
+        email,
+        phone,
+      );
+      return jsonResponse({
+        success: true,
+        code: "GUEST_MEMBERSHIP_CREATED_FOR_EXISTING_USER",
+        member_name: existingProfile.display_name ?? `${first_name} ${last_name}`,
+        club_name: club.name,
+      });
+    }
+
+    // ----------------------------------------------------
+    // 3. Existing profile WITHOUT auth user
+    // ----------------------------------------------------
+
+    if (existingProfile && !existingProfile.user_id) {
+      const { data: authData, error: authError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            first_name,
+            last_name,
+            display_name: `${first_name} ${last_name}`,
+            phone,
+          },
+        });
+
+      if (authError || !authData.user) {
+        return jsonResponse({
+          success: false,
+          code: "AUTH_CREATE_FAILED",
+          error: authError?.message ?? "Failed to create auth user.",
+        }, 400);
+      }
+
+      const authUserId = authData.user.id;
+
+      // Remove trigger-created duplicate profile if it appeared.
+      await supabaseAdmin
+        .from("member_profiles")
+        .delete()
+        .eq("user_id", authUserId)
+        .neq("id", existingProfile.id);
+
+      const { data: updatedProfile, error: updateError } = await supabaseAdmin
+        .from("member_profiles")
+        .update({
+          ...profileUpdate,
+          user_id: authUserId,
+        })
+        .eq("id", existingProfile.id)
+        .select("id, display_name")
+        .single();
+
+      if (updateError || !updatedProfile) {
+        await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+        return jsonResponse({
+          success: false,
+          code: "PROFILE_ATTACH_FAILED",
+          error: updateError?.message ?? "Failed to attach profile.",
+        }, 400);
+      }
+
+      const { data: existingMembership, error: membershipLookupError } =
+        await supabaseAdmin
+          .from("club_memberships")
+          .select("id")
+          .eq("club_id", club_id)
+          .eq("member_profile_id", existingProfile.id)
+          .maybeSingle();
+
+      if (membershipLookupError) {
+        await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+        return jsonResponse({
+          success: false,
+          code: "MEMBERSHIP_LOOKUP_FAILED",
+          error: membershipLookupError.message,
+        }, 400);
+      }
+
+      if (existingMembership) {
+        const { error: membershipUpdateError } = await supabaseAdmin
+          .from("club_memberships")
+          .update({ role: "guest" })
+          .eq("id", existingMembership.id);
+
+        if (membershipUpdateError) {
+          await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+          return jsonResponse({
+            success: false,
+            code: "MEMBERSHIP_UPDATE_FAILED",
+            error: membershipUpdateError.message,
+          }, 400);
+        }
+      } else {
+        const { error: membershipCreateError } = await supabaseAdmin
+          .from("club_memberships")
+          .insert({
+            club_id,
+            member_profile_id: existingProfile.id,
+            role: "guest",
+          });
+
+        if (membershipCreateError) {
+          await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+          return jsonResponse({
+            success: false,
+            code: "MEMBERSHIP_CREATE_FAILED",
+            error: membershipCreateError.message,
+          }, 400);
+        }
+      }
+
+      await queueGuestRegistrationNotification(
+        supabaseAdmin,
+        club_id,
+        club.name,
+        memberProfileId,
+        `${first_name} ${last_name}`,
+        email,
+        phone,
+      );
+      return jsonResponse({
+        success: true,
+        code: "ORPHAN_PROFILE_CLAIMED",
+        member_name: `${first_name} ${last_name}`,
+        club_name: club.name,
+      });
+    }
+
+    // ----------------------------------------------------
+    // 4. Completely new user
+    // ----------------------------------------------------
+
+    const { data: authUsers, error: authLookupError } =
+      await supabaseAdmin.auth.admin.listUsers();
+
+    if (authLookupError) {
+      return jsonResponse({
+        success: false,
+        code: "AUTH_LOOKUP_FAILED",
+        error: authLookupError.message,
+      }, 400);
+    }
+
+    const existingAuthUser = authUsers.users.find(
+      (u) => u.email?.toLowerCase() === email,
+    );
+
+    if (existingAuthUser) {
+      const { data: rebuiltProfile, error: rebuildProfileError } =
+        await supabaseAdmin
+          .from("member_profiles")
+          .insert({
+            user_id: existingAuthUser.id,
+            ...profileUpdate,
+          })
+          .select("id")
+          .single();
+
+      if (rebuildProfileError || !rebuiltProfile) {
+        return jsonResponse({
+          success: false,
+          code: "PROFILE_REBUILD_FAILED",
+          error:
+            rebuildProfileError?.message ??
+            "We found your sign-in account, but could not rebuild your member profile.",
+        }, 400);
+      }
+
+      const { error: membershipCreateError } = await supabaseAdmin
+        .from("club_memberships")
+        .insert({
+          club_id,
+          member_profile_id: rebuiltProfile.id,
+          role: "guest",
+        });
+
+      if (membershipCreateError) {
+        return jsonResponse({
+          success: false,
+          code: "MEMBERSHIP_CREATE_FAILED",
+          error: membershipCreateError.message,
+        }, 400);
+      }
+
+      await queueGuestRegistrationNotification(
+        supabaseAdmin,
+        club_id,
+        club.name,
+        memberProfileId,
+        `${first_name} ${last_name}`,
+        email,
+        phone,
+      );
+      return jsonResponse({
+        success: true,
+        code: "PROFILE_REBUILT_AND_GUEST_MEMBERSHIP_CREATED",
+        member_name: `${first_name} ${last_name}`,
+        club_name: club.name,
+      });
+    }
+
+    const { data: authData, error: authError } =
+      await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          first_name,
+          last_name,
+          display_name: `${first_name} ${last_name}`,
+          phone,
+        },
+      });
+
+    if (authError || !authData.user) {
+      return jsonResponse({
+        success: false,
+        code: "AUTH_CREATE_FAILED",
+        error: authError?.message ?? "Failed to create auth user.",
+      }, 400);
+    }
+
+    const authUserId = authData.user.id;
+
+    const { data: createdProfile, error: createdProfileLookupError } =
+      await supabaseAdmin
+        .from("member_profiles")
+        .select("id")
+        .eq("user_id", authUserId)
+        .maybeSingle();
+
+    if (createdProfileLookupError || !createdProfile) {
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+      return jsonResponse({
+        success: false,
+        code: "PROFILE_TRIGGER_FAILED",
+        error:
+          createdProfileLookupError?.message ??
+          "The member profile was not created automatically.",
+      }, 400);
+    }
+
+    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      .from("member_profiles")
+      .update(profileUpdate)
+      .eq("id", createdProfile.id)
+      .select("id")
+      .single();
+
+    if (updateError || !updatedProfile) {
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+      return jsonResponse({
+        success: false,
+        code: "PROFILE_UPDATE_FAILED",
+        error: updateError?.message ?? "Failed to update member profile.",
+      }, 400);
+    }
+
+    const { error: membershipCreateError } = await supabaseAdmin
+      .from("club_memberships")
+      .insert({
+        club_id,
+        member_profile_id: updatedProfile.id,
+        role: "guest",
+      });
+
+    if (membershipCreateError) {
+      await supabaseAdmin.from("member_profiles").delete().eq(
+        "id",
+        updatedProfile.id,
+      );
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+
+      return jsonResponse({
+        success: false,
+        code: "MEMBERSHIP_CREATE_FAILED",
+        error: membershipCreateError.message,
+      }, 400);
+    }
+
+    await queueGuestRegistrationNotification(
+      supabaseAdmin,
+      club_id,
+      club.name,
+      memberProfileId,
+      `${first_name} ${last_name}`,
+      email,
+      phone,
+    );
+    return jsonResponse({
+      success: true,
+      code: "REGISTRATION_CREATED",
+      member_name: `${first_name} ${last_name}`,
+      club_name: club.name,
+    });
+  } catch (err) {
+    return jsonResponse({
+      success: false,
+      code: "UNEXPECTED_ERROR",
+      error: String(err),
+    }, 500);
+  }
+});

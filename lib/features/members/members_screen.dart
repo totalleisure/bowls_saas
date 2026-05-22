@@ -583,12 +583,63 @@ class _MembersScreenState extends State<MembersScreen> {
                                       ),
                                   ],
                                 ),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => _openMemberEdit(
-                                  memberProfileId: memberProfileId,
-                                  memberProfile: mp,
-                                  role: role,
-                                  active: active,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if ((mp['sex_at_birth'] ?? '')
+                                        .toString()
+                                        .isEmpty) ...[
+                                      SizedBox(
+                                        height: 32,
+                                        child: FilledButton(
+                                          onPressed: () async {
+                                            await _client
+                                                .from('member_profiles')
+                                                .update({
+                                                  'sex_at_birth': 'male',
+                                                  'gender': 'male',
+                                                })
+                                                .eq('id', memberProfileId);
+
+                                            await _load();
+                                          },
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
+                                            minimumSize: const Size(36, 32),
+                                          ),
+                                          child: const Text('M'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      SizedBox(
+                                        height: 32,
+                                        child: FilledButton(
+                                          onPressed: () async {
+                                            await _client
+                                                .from('member_profiles')
+                                                .update({
+                                                  'sex_at_birth': 'female',
+                                                  'gender': 'female',
+                                                })
+                                                .eq('id', memberProfileId);
+
+                                            await _load();
+                                          },
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
+                                            minimumSize: const Size(36, 32),
+                                          ),
+                                          child: const Text('F'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    const Icon(Icons.chevron_right),
+                                  ],
                                 ),
                               ),
                             );

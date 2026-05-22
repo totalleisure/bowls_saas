@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../help/player_help_screen.dart';
 
 import '../clubs/my_clubs_screen.dart';
 import '../../core/utils/date_format.dart';
+
+import 'register_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -17,15 +19,17 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
+  static const bool kShowDebugQuickLogins = bool.fromEnvironment(
+    'QUICK_LOGINS',
+    defaultValue: false,
+  );
 
-  static const bool kShowDebugQuickLogins =
-      bool.fromEnvironment('QUICK_LOGINS', defaultValue: false);
-   
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _loading = false;
   String _version = '';
   String _buildNumber = '';
+  int _brandingSetNo = 0;
 
   List<Map<String, dynamic>> _debugUsers = [];
   bool _loadingDebugUsers = false;
@@ -40,21 +44,34 @@ class _AuthScreenState extends State<AuthScreen> {
     final width = size.width;
     final shortestSide = size.shortestSide;
 
-    final String path;
+    final requested = _brandingSetNo;
+
+    String fileName;
 
     if (width >= 1000) {
-      path = 'assets/images/auth_bg_desktop_2.png';
+      fileName = 'auth_bg_desktop_$requested.png';
     } else if (shortestSide >= 600) {
-      path = 'assets/images/auth_bg_tablet_2.png';
+      fileName = 'auth_bg_tablet_$requested.png';
     } else {
-      path = 'assets/images/auth_bg_phone_2.png';
+      fileName = 'auth_bg_phone_$requested.png';
     }
 
-    debugPrint(
-      'AUTH BG -> size=$size width=$width shortestSide=$shortestSide path=$path',
-    );
+    final assetPath = 'assets/images/$fileName';
 
-    return path;
+    // TEMPORARY FALLBACKS
+    const existingBrandingSets = {0, 2};
+
+    if (!existingBrandingSets.contains(requested)) {
+      if (width >= 1000) {
+        return 'assets/images/auth_bg_desktop_0.png';
+      } else if (shortestSide >= 600) {
+        return 'assets/images/auth_bg_tablet_0.png';
+      } else {
+        return 'assets/images/auth_bg_phone_0.png';
+      }
+    }
+
+    return assetPath;
   }
 
   Widget _buildOverlayField({
@@ -82,27 +99,21 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
           filled: true,
           fillColor: Colors.white.withOpacity(0.92),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 14,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0xFFBFD8F7),
-              width: 2,
-            ),
+            borderSide: const BorderSide(color: Color(0xFFBFD8F7), width: 2),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0xFFBFD8F7),
-              width: 2,
-            ),
+            borderSide: const BorderSide(color: Color(0xFFBFD8F7), width: 2),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(
-              color: Color(0xFF1565C0),
-              width: 2,
-            ),
+            borderSide: const BorderSide(color: Color(0xFF1565C0), width: 2),
           ),
         ),
       ),
@@ -165,7 +176,10 @@ class _AuthScreenState extends State<AuthScreen> {
         keyboardType: keyboardType,
         decoration: InputDecoration(
           hintText: hintText,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 16,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
             borderSide: BorderSide.none,
@@ -237,9 +251,10 @@ class _AuthScreenState extends State<AuthScreen> {
   void initState() {
     super.initState();
     _loadAppInfo();
-//    debugPrint('kDebugMode: $kDebugMode');
-//    debugPrint('kProfileMode: $kProfileMode');
-//    debugPrint('kReleaseMode: $kReleaseMode');    
+    _loadRememberedBranding();
+    //    debugPrint('kDebugMode: $kDebugMode');
+    //    debugPrint('kProfileMode: $kProfileMode');
+    //    debugPrint('kReleaseMode: $kReleaseMode');
     if (!kShowDebugQuickLogins) return;
     _loadDebugUsers();
   }
@@ -256,6 +271,18 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() {
       _version = info.version;
       _buildNumber = info.buildNumber;
+    });
+  }
+
+  Future<void> _loadRememberedBranding() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final brandingSetNo = prefs.getInt('last_branding_set_no') ?? 0;
+
+    if (!mounted) return;
+
+    setState(() {
+      _brandingSetNo = brandingSetNo;
     });
   }
 
@@ -301,9 +328,9 @@ class _AuthScreenState extends State<AuthScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Quick sign in error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Quick sign in error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -325,9 +352,9 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign up error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sign up error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -343,9 +370,9 @@ class _AuthScreenState extends State<AuthScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign in error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Sign in error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -437,7 +464,7 @@ class _AuthScreenState extends State<AuthScreen> {
     final size = MediaQuery.of(context).size;
     final width = size.width;
     final height = size.height;
-  
+
     final isDesktop = width >= 1000;
     final isTablet = width >= 600 && width < 1000;
 
@@ -446,18 +473,16 @@ class _AuthScreenState extends State<AuthScreen> {
     final contentWidth = isDesktop
         ? width * 0.28
         : isTablet
-            ? width * 0.62
-            : width * 0.82;
+        ? width * 0.62
+        : width * 0.82;
 
     final topOffset = isDesktop
         ? height * 0.58
         : isTablet
-            ? height * 0.49
-            : height * 0.58;
+        ? height * 0.49
+        : height * 0.58;
 
-    final leftOffset = isDesktop
-        ? width * 0.60
-        : (width - contentWidth) / 2;
+    final leftOffset = isDesktop ? width * 0.60 : (width - contentWidth) / 2;
 
     final fieldHeight = isDesktop ? 54.0 : 50.0;
     final buttonHeight = isDesktop ? 56.0 : 52.0;
@@ -478,7 +503,10 @@ class _AuthScreenState extends State<AuthScreen> {
             right: 12,
             child: SafeArea(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.28),
                   borderRadius: BorderRadius.circular(14),
@@ -539,7 +567,16 @@ class _AuthScreenState extends State<AuthScreen> {
                               Expanded(
                                 child: _buildOverlayButton(
                                   label: 'Register',
-                                  onTap: _loading ? null : _signUp,
+                                  onTap: _loading
+                                      ? null
+                                      : () {
+                                          Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const RegisterScreen(),
+                                            ),
+                                          );
+                                        },
                                   backgroundColor: const Color(0xFFF2B600),
                                   textColor: Colors.white,
                                   borderColor: const Color(0xFFFFD54A),
@@ -554,7 +591,9 @@ class _AuthScreenState extends State<AuthScreen> {
                               onPressed: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    builder: (_) => const PlayerHelpScreen(showAdminGuide: false),
+                                    builder: (_) => const PlayerHelpScreen(
+                                      showAdminGuide: false,
+                                    ),
                                   ),
                                 );
                               },
