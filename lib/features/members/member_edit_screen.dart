@@ -429,6 +429,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                     label: 'Role',
                     value: _role,
                     items: const [
+                      DropdownMenuItem(value: 'guest', child: Text('Guest')),
                       DropdownMenuItem(value: 'member', child: Text('Member')),
                       DropdownMenuItem(
                         value: 'captain',

@@ -641,6 +641,12 @@ class _MembersScreenState extends State<MembersScreen> {
                                     const Icon(Icons.chevron_right),
                                   ],
                                 ),
+                                onTap: () => _openMemberEdit(
+                                  memberProfileId: memberProfileId,
+                                  memberProfile: mp,
+                                  role: role,
+                                  active: active,
+                                ),
                               ),
                             );
                           },

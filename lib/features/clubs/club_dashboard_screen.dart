@@ -39,7 +39,12 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   bool _isSelector = false;
   bool _isFixtureCreator =
       false; // keep false for now unless you already have this
+
+  bool _hasClubMembership = false;
+  bool _isGuest = false;
+
   String? _currentMemberId;
+  String? _mySexAtBirth;
 
   bool _loadingPermissions = true;
 
@@ -242,6 +247,33 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
 
     return true;
+  }
+
+  bool get _canRsvpFromDashboard {
+    return _hasClubMembership && !_isGuest;
+  }
+
+  bool _isEligibleForFixtureSection(Map<String, dynamic> fixture) {
+    final section = (fixture['section'] ?? '').toString().trim().toLowerCase();
+
+    if (section.isEmpty || section == 'mixed' || section == 'open') {
+      return true;
+    }
+
+    final sex = (_mySexAtBirth ?? '').trim().toLowerCase();
+
+    final isMale = sex == 'male' || sex == 'm';
+    final isFemale = sex == 'female' || sex == 'f';
+
+    if (section == 'mens' || section == 'men' || section == 'male') {
+      return isMale;
+    }
+
+    if (section == 'ladies' || section == 'women' || section == 'female') {
+      return isFemale;
+    }
+
+    return false;
   }
 
   bool _matchesPeriod(DateTime date) {
@@ -572,14 +604,25 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         .eq('club_id', widget.clubId)
         .maybeSingle();
 
+    final profile = await supabase
+        .from('member_profiles')
+        .select('sex_at_birth')
+        .eq('id', myProfileId)
+        .maybeSingle();
+
+    _mySexAtBirth = profile?['sex_at_birth']?.toString().trim().toLowerCase();
+
     debugPrint('AUTH user.id       = ${user.id}');
     debugPrint('PROFILE myProfileId = $myProfileId');
     debugPrint('MEMBERSHIP row      = $membership');
 
     if (membership != null) {
+      _hasClubMembership = true;
       _currentMemberId = myProfileId;
 
       final role = (membership['role'] ?? '').toString().trim().toLowerCase();
+
+      _isGuest = role == 'guest';
 
       debugPrint('MEMBERSHIP role raw = ${membership['role']}');
       debugPrint('MEMBERSHIP role norm= $role');
@@ -593,6 +636,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       _isClubAdmin = false;
       _isSelector = false;
       _isFixtureCreator = _isSuperuser;
+      _hasClubMembership = false;
+      _isGuest = false;
     }
 
     debugPrint(
@@ -727,12 +772,19 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       }
 
       final toRsvp = allFixtures.where((f) {
+        if (!_canRsvpFromDashboard) return false;
+
         if (_isOpenSessionOrEvent(f)) return false;
 
         final requiresRsvp = f['requires_rsvp'] == true;
         if (!requiresRsvp) return false;
 
+        // RSVP is only open before the team is published.
         if (isPublished(f)) return false;
+
+        // Men should not see Ladies RSVP.
+        // Ladies should not see Mens RSVP.
+        if (!_isEligibleForFixtureSection(f)) return false;
 
         return _matchesFilter(f);
       }).toList();

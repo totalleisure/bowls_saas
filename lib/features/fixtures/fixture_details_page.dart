@@ -51,6 +51,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _isSelector = false;
   bool _isFixtureCreator = false;
 
+  bool _hasClubMembership = false;
+  bool _isGuest = false;
+  String? _mySexAtBirth;
+
   bool _loadingPermissions = true;
 
   bool _isAdmin = false;
@@ -238,6 +242,29 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return false;
   }
 
+  bool _isEligibleForFixtureSection(Map<String, dynamic> fixture) {
+    final section = (fixture['section'] ?? '').toString().trim().toLowerCase();
+
+    if (section.isEmpty || section == 'mixed' || section == 'open') {
+      return true;
+    }
+
+    final sex = (_mySexAtBirth ?? '').trim().toLowerCase();
+
+    final isMale = sex == 'male' || sex == 'm';
+    final isFemale = sex == 'female' || sex == 'f';
+
+    if (section == 'mens' || section == 'men' || section == 'male') {
+      return isMale;
+    }
+
+    if (section == 'ladies' || section == 'women' || section == 'female') {
+      return isFemale;
+    }
+
+    return false;
+  }
+
   bool _canSwapBookedRinks(
     Map<String, dynamic> selected,
     Map<String, dynamic> clicked,
@@ -264,6 +291,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     return false;
+  }
+
+  bool get _canRsvpToFixture {
+    return _hasClubMembership && !_isGuest;
+  }
+
+  bool get _canEditFixtureLabel {
+    return _isSuperuser ||
+        _isClubAdmin ||
+        _isSelector ||
+        _isFixtureCaptain ||
+        _isFixtureViceCaptain;
   }
 
   void _handleRinkTap(Map<String, dynamic> rink) {
@@ -804,6 +843,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       'FIXTURE vice    = ${_fixture?['vice_captain_member_profile_id']}',
     );
 
+    final profile = await supabase
+        .from('member_profiles')
+        .select('sex_at_birth')
+        .eq('id', myProfileId)
+        .maybeSingle();
+
+    _mySexAtBirth = profile?['sex_at_birth']?.toString().trim().toLowerCase();
+
     // 1) Global superuser
     final superuserRow = await supabase
         .from('app_superusers')
@@ -826,9 +873,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     debugPrint('MEMBERSHIP row      = $membership');
 
     if (membership != null) {
+      _hasClubMembership = true;
       _currentMemberId = myProfileId;
 
       final role = (membership['role'] ?? '').toString().trim().toLowerCase();
+
+      _isGuest = role == 'guest';
 
       debugPrint('MEMBERSHIP role raw = ${membership['role']}');
       debugPrint('MEMBERSHIP role norm= $role');
@@ -843,6 +893,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       final viceCaptainId = _fixture?['vice_captain_member_profile_id']
           ?.toString();
     } else {
+      _hasClubMembership = false;
+      _isGuest = false;
       _currentMemberId = myProfileId;
       _isClubAdmin = false;
       _isSelector = false;
@@ -2685,6 +2737,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         const SizedBox(height: 8),
                         TextField(
                           controller: _teamNameCtrl,
+                          enabled: _canEditFixtureLabel,
                           decoration: const InputDecoration(
                             hintText: 'Enter fixture details (optional)',
                             border: OutlineInputBorder(),
@@ -2693,81 +2746,84 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                       ],
 
                       const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: ElevatedButton(
-                          onPressed: _savingTeam
-                              ? null
-                              : () async {
-                                  setState(() => _savingTeam = true);
-                                  try {
-                                    if (isTeamFixture) {
-                                      if (_selectedTeamId == null) {
-                                        throw Exception(
-                                          'Please select a team.',
+                      if (_canEditFixtureLabel)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: ElevatedButton(
+                            onPressed: _savingTeam
+                                ? null
+                                : () async {
+                                    setState(() => _savingTeam = true);
+                                    try {
+                                      if (isTeamFixture) {
+                                        if (_selectedTeamId == null) {
+                                          throw Exception(
+                                            'Please select a team.',
+                                          );
+                                        }
+
+                                        final selectedTeam = _teams.firstWhere(
+                                          (t) =>
+                                              t['id'].toString() ==
+                                              _selectedTeamId,
+                                          orElse: () => <String, dynamic>{},
                                         );
+
+                                        final selectedTeamName =
+                                            (selectedTeam['name'] ?? '')
+                                                .toString()
+                                                .trim();
+
+                                        await Supabase.instance.client
+                                            .from('fixtures')
+                                            .update({
+                                              'team_id': _selectedTeamId,
+                                              'team_name':
+                                                  selectedTeamName.isEmpty
+                                                  ? null
+                                                  : selectedTeamName,
+                                            })
+                                            .eq('id', widget.fixtureId);
+                                      } else {
+                                        final lbl = _teamNameCtrl.text.trim();
+                                        await Supabase.instance.client
+                                            .from('fixtures')
+                                            .update({
+                                              'team_id': null,
+                                              'team_name': lbl.isEmpty
+                                                  ? null
+                                                  : lbl,
+                                            })
+                                            .eq('id', widget.fixtureId);
                                       }
 
-                                      final selectedTeam = _teams.firstWhere(
-                                        (t) =>
-                                            t['id'].toString() ==
-                                            _selectedTeamId,
-                                        orElse: () => <String, dynamic>{},
+                                      _didChangeFixture = true;
+                                      await _reloadPreservingScroll();
+                                    } catch (e) {
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Failed to save: $e'),
+                                        ),
                                       );
-
-                                      final selectedTeamName =
-                                          (selectedTeam['name'] ?? '')
-                                              .toString()
-                                              .trim();
-
-                                      await Supabase.instance.client
-                                          .from('fixtures')
-                                          .update({
-                                            'team_id': _selectedTeamId,
-                                            'team_name':
-                                                selectedTeamName.isEmpty
-                                                ? null
-                                                : selectedTeamName,
-                                          })
-                                          .eq('id', widget.fixtureId);
-                                    } else {
-                                      final lbl = _teamNameCtrl.text.trim();
-                                      await Supabase.instance.client
-                                          .from('fixtures')
-                                          .update({
-                                            'team_id': null,
-                                            'team_name': lbl.isEmpty
-                                                ? null
-                                                : lbl,
-                                          })
-                                          .eq('id', widget.fixtureId);
+                                    } finally {
+                                      if (mounted)
+                                        setState(() => _savingTeam = false);
                                     }
-
-                                    _didChangeFixture = true;
-                                    await _reloadPreservingScroll();
-                                  } catch (e) {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Failed to save: $e'),
-                                      ),
-                                    );
-                                  } finally {
-                                    if (mounted)
-                                      setState(() => _savingTeam = false);
-                                  }
-                                },
-                          child: _savingTeam
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text('Save'),
+                                  },
+                            child: _savingTeam
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Save'),
+                          ),
                         ),
-                      ),
                     ],
                   ],
                 ),
@@ -2906,7 +2962,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ],
 
             const SizedBox(height: 16),
-            if (showRsvpControls) ...[
+            if (showRsvpControls &&
+                _canRsvpToFixture &&
+                _isEligibleForFixtureSection(fixture)) ...[
               const SizedBox(height: 16),
               Text(
                 'Your availability for this Fixture',
