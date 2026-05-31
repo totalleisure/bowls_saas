@@ -40,13 +40,19 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser!;
 
-      final superuserRow = await client
-          .from('app_superusers')
-          .select('user_id')
-          .eq('user_id', user.id)
-          .maybeSingle();
+      try {
+        final superuserRow = await client
+            .from('app_superusers')
+            .select('user_id')
+            .eq('user_id', user.id)
+            .maybeSingle()
+            .timeout(const Duration(seconds: 10));
 
-      _isSuperuser = superuserRow != null;
+        _isSuperuser = superuserRow != null;
+      } catch (e) {
+        debugPrint('Superuser check failed: $e');
+        _isSuperuser = false;
+      }
 
       final profile = await client
           .from('member_profiles')

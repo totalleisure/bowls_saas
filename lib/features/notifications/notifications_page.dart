@@ -79,48 +79,76 @@ class _NotificationsPageState extends State<NotificationsPage> {
     _load();
   }
 
+  String _formatNotificationCreatedAt(dynamic value) {
+    if (value == null) return '';
+
+    final dt = DateTime.tryParse(value.toString());
+    if (dt == null) return '';
+
+    final local = dt.toLocal();
+
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final year = local.year.toString();
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+
+    return '$day/$month/$year $hour:$minute';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _load,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _rows.isEmpty
-              ? const Center(child: Text('No notifications'))
-              : ListView.separated(
-                  itemCount: _rows.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final r = _rows[i];
-                    final isRead = r['is_read'] == true;
+          ? const Center(child: Text('No notifications'))
+          : ListView.separated(
+              itemCount: _rows.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final r = _rows[i];
+                final isRead = r['is_read'] == true;
 
-                    return ListTile(
-                      title: Text(
-                        r['title'] ?? '',
-                        style: TextStyle(
-                          fontWeight:
-                              isRead ? FontWeight.normal : FontWeight.bold,
+                return ListTile(
+                  title: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          r['title'] ?? '',
+                          style: TextStyle(
+                            fontWeight: isRead
+                                ? FontWeight.normal
+                                : FontWeight.bold,
+                          ),
                         ),
                       ),
-                      subtitle: Text(r['body'] ?? ''),
-                      trailing: isRead
-                          ? null
-                          : const Icon(Icons.circle, size: 10),
-                      onTap: () async {
-                        await _markRead(r['id']);
-                      },
-                    );
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatNotificationCreatedAt(r['created_at']),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                  subtitle: Text(r['body'] ?? ''),
+                  trailing: isRead ? null : const Icon(Icons.circle, size: 10),
+                  onTap: () async {
+                    await _markRead(r['id']);
                   },
-                ),
+                );
+              },
+            ),
     );
   }
 }

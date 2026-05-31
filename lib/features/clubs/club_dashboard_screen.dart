@@ -945,6 +945,29 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
       if (!mounted) return;
 
+      final hasDashboardContent =
+          needsAcceptance.isNotEmpty ||
+          toRsvp.isNotEmpty ||
+          awaitingSelection.isNotEmpty ||
+          upcomingAccepted.isNotEmpty ||
+          openSessionsAndEvents.isNotEmpty;
+
+      if (_isGuest && !hasDashboardContent) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => MonthOverviewScreen(
+                clubId: widget.clubId,
+                clubName: widget.clubName ?? 'Club Diary',
+                initialDate: DateTime.now(),
+              ),
+            ),
+          );
+        });
+      }
+
       setState(() {
         _myClubName = myClubName;
 

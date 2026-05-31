@@ -32,9 +32,11 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
   bool _isLoading = true;
   String? _loadError;
 
+  double _monthZoom = 1.0;
+
   List<_MonthDiaryItem> _items = [];
 
-String? _myProfileId;
+  String? _myProfileId;
 
   @override
   void initState() {
@@ -190,9 +192,7 @@ String? _myProfileId;
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_loadError != null) {
@@ -245,6 +245,7 @@ String? _myProfileId;
                     items: _items,
                     onFixtureTap: _openFixture,
                     onDayTap: _openDay,
+                    zoom: _monthZoom,
                   ),
                 ),
               ),
@@ -341,14 +342,8 @@ class _MonthHeader extends StatelessWidget {
             onPressed: onPrevious,
             icon: const Icon(Icons.chevron_left),
           ),
-          IconButton(
-            onPressed: onNext,
-            icon: const Icon(Icons.chevron_right),
-          ),
-          TextButton(
-            onPressed: onToday,
-            child: const Text('Today'),
-          ),
+          IconButton(onPressed: onNext, icon: const Icon(Icons.chevron_right)),
+          TextButton(onPressed: onToday, child: const Text('Today')),
         ],
       ),
     );
@@ -356,10 +351,7 @@ class _MonthHeader extends StatelessWidget {
 }
 
 class _ViewSwitcher extends StatelessWidget {
-  const _ViewSwitcher({
-    required this.selected,
-    required this.onSelected,
-  });
+  const _ViewSwitcher({required this.selected, required this.onSelected});
 
   final DiaryViewMode selected;
   final ValueChanged<DiaryViewMode> onSelected;
@@ -388,12 +380,14 @@ class _MonthGrid extends StatelessWidget {
     required this.items,
     required this.onFixtureTap,
     required this.onDayTap,
+    required this.zoom,
   });
 
   final DateTime month;
   final List<_MonthDiaryItem> items;
   final ValueChanged<String> onFixtureTap;
   final ValueChanged<DateTime> onDayTap;
+  final double zoom;
 
   @override
   Widget build(BuildContext context) {
@@ -415,35 +409,60 @@ class _MonthGrid extends StatelessWidget {
           ],
         ),
         Expanded(
-          child: GridView.builder(
-            physics: const ClampingScrollPhysics(),
-            itemCount: 42,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              childAspectRatio: 1.05,
-            ),
-            itemBuilder: (context, index) {
-              final date = gridStart.add(Duration(days: index));
-              final dayItems = items
-                  .where((i) =>
-                      i.startAt.year == date.year &&
-                      i.startAt.month == date.month &&
-                      i.startAt.day == date.day)
-                  .toList()
-                ..sort((a, b) {
-                  final timeCompare = a.startAt.compareTo(b.startAt);
-                  if (timeCompare != 0) return timeCompare;
-                  return a.label.compareTo(b.label);
-                });
+          child: GestureDetector(
+            onScaleUpdate: (details) {
+              final state = context
+                  .findAncestorStateOfType<_MonthOverviewScreenState>();
 
-              return _MonthDayCell(
-                date: date,
-                isCurrentMonth: date.month == month.month,
-                items: dayItems,
-                onFixtureTap: onFixtureTap,
-                onDayTap: onDayTap,
-              );
+              if (state == null) return;
+
+              double nextZoom = state._monthZoom;
+
+              if (details.scale > 1.02) {
+                nextZoom = (state._monthZoom + 0.02).clamp(0.75, 1.6);
+              } else if (details.scale < 0.98) {
+                nextZoom = (state._monthZoom - 0.02).clamp(0.75, 1.6);
+              }
+
+              if (nextZoom != state._monthZoom) {
+                state.setState(() {
+                  state._monthZoom = nextZoom;
+                });
+              }
             },
+            child: GridView.builder(
+              physics: const ClampingScrollPhysics(),
+              itemCount: 42,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 7,
+                childAspectRatio: 1.05 / zoom,
+              ),
+              itemBuilder: (context, index) {
+                final date = gridStart.add(Duration(days: index));
+                final dayItems =
+                    items
+                        .where(
+                          (i) =>
+                              i.startAt.year == date.year &&
+                              i.startAt.month == date.month &&
+                              i.startAt.day == date.day,
+                        )
+                        .toList()
+                      ..sort((a, b) {
+                        final timeCompare = a.startAt.compareTo(b.startAt);
+                        if (timeCompare != 0) return timeCompare;
+                        return a.label.compareTo(b.label);
+                      });
+
+                return _MonthDayCell(
+                  date: date,
+                  isCurrentMonth: date.month == month.month,
+                  items: dayItems,
+                  onFixtureTap: onFixtureTap,
+                  onDayTap: onDayTap,
+                );
+              },
+            ),
           ),
         ),
       ],
@@ -470,10 +489,7 @@ class _WeekdayHeader extends StatelessWidget {
             right: BorderSide(color: Color(0xFFE5E7EB)),
           ),
         ),
-        child: Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
       ),
     );
   }
@@ -498,7 +514,9 @@ class _MonthDayCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final today = DateTime.now();
     final isToday =
-        date.year == today.year && date.month == today.month && date.day == today.day;
+        date.year == today.year &&
+        date.month == today.month &&
+        date.day == today.day;
 
     final visibleItems = items.take(4).toList();
     final hiddenCount = items.length - visibleItems.length;
@@ -523,7 +541,9 @@ class _MonthDayCell extends StatelessWidget {
                 '${date.day}',
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
-                  color: isCurrentMonth ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                  color: isCurrentMonth
+                      ? const Color(0xFF111827)
+                      : const Color(0xFF9CA3AF),
                 ),
               ),
             ),
@@ -555,10 +575,7 @@ class _MonthDayCell extends StatelessWidget {
 }
 
 class _MonthFixtureChip extends StatelessWidget {
-  const _MonthFixtureChip({
-    required this.item,
-    required this.onTap,
-  });
+  const _MonthFixtureChip({required this.item, required this.onTap});
 
   final _MonthDiaryItem item;
   final VoidCallback onTap;
@@ -597,11 +614,7 @@ class _MonthFixtureChip extends StatelessWidget {
               ),
               if (item.isMine) ...[
                 const SizedBox(width: 2),
-                Icon(
-                  Icons.person,
-                  size: 11,
-                  color: item.foregroundColor,
-                ),
+                Icon(Icons.person, size: 11, color: item.foregroundColor),
               ],
             ],
           ),

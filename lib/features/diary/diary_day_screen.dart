@@ -104,19 +104,21 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
 
       final rows = List<Map<String, dynamic>>.from(res);
 
-debugPrint('DIARY DAY ${_date.toIso8601String()} rows=${rows.length}');
-for (final r in rows) {
-  debugPrint('DIARY ROW id=${r['id']} start=${r['start_at']} team=${r['team_name']}');
-}
+      debugPrint('DIARY DAY ${_date.toIso8601String()} rows=${rows.length}');
+      for (final r in rows) {
+        debugPrint(
+          'DIARY ROW id=${r['id']} start=${r['start_at']} team=${r['team_name']}',
+        );
+      }
 
-debugPrint('DIARY DAY date=$_date rows=${rows.length}');
+      debugPrint('DIARY DAY date=$_date rows=${rows.length}');
 
-for (final r in rows) {
-  debugPrint(
-    'DIARY ROW id=${r['id']} start=${r['start_at']} '
-    'team=${r['team_name']} type=${r['competition_type']}',
-  );
-}
+      for (final r in rows) {
+        debugPrint(
+          'DIARY ROW id=${r['id']} start=${r['start_at']} '
+          'team=${r['team_name']} type=${r['competition_type']}',
+        );
+      }
 
       final items = rows.map(_mapFixture).toList()
         ..sort((a, b) {
@@ -125,7 +127,7 @@ for (final r in rows) {
           return a.title.compareTo(b.title);
         });
 
-debugPrint('DIARY ITEMS mapped=${items.length}');
+      debugPrint('DIARY ITEMS mapped=${items.length}');
 
       if (!mounted) return;
       setState(() {
@@ -175,7 +177,7 @@ debugPrint('DIARY ITEMS mapped=${items.length}');
       colourScheme?['foreground_hex']?.toString(),
       const Color(0xFF1E3A8A),
     );
-  
+
     final usesRinksRaw = type?['uses_rinks'];
     final usesRinks = usesRinksRaw == null ? true : usesRinksRaw == true;
 
@@ -186,7 +188,8 @@ debugPrint('DIARY ITEMS mapped=${items.length}');
         .where((label) => label.isNotEmpty)
         .toList();
 
-    final isMine = _myProfileId != null &&
+    final isMine =
+        _myProfileId != null &&
         rinks.any((rink) {
           final assignments = List<Map<String, dynamic>>.from(
             rink['fixture_rink_assignments'] ?? [],
@@ -286,19 +289,29 @@ debugPrint('DIARY ITEMS mapped=${items.length}');
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(_error!),
-                )
-              : _DiaryDayColumn(
-                  clubName: widget.clubName,
-                  date: _date,
-                  items: _items,
-                  onItemTap: _openFixture,
-                ),
+
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+
+          if (velocity < -300) {
+            _moveDay(1);
+          } else if (velocity > 300) {
+            _moveDay(-1);
+          }
+        },
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Padding(padding: const EdgeInsets.all(16), child: Text(_error!))
+            : _DiaryDayColumn(
+                clubName: widget.clubName,
+                date: _date,
+                items: _items,
+                onItemTap: _openFixture,
+              ),
+      ),
     );
   }
 
@@ -329,11 +342,7 @@ class _DiaryDayColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _DayHeader(
-          clubName: clubName,
-          date: date,
-          itemCount: items.length,
-        ),
+        _DayHeader(clubName: clubName, date: date, itemCount: items.length),
         Expanded(
           child: items.isEmpty
               ? const Center(
@@ -428,19 +437,13 @@ class _HeaderPill extends StatelessWidget {
         color: const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        text,
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
 }
 
 class _DiaryItemTile extends StatelessWidget {
-  const _DiaryItemTile({
-    required this.item,
-    required this.onTap,
-  });
+  const _DiaryItemTile({required this.item, required this.onTap});
 
   final _DiaryItem item;
   final VoidCallback onTap;
@@ -451,24 +454,24 @@ class _DiaryItemTile extends StatelessWidget {
     final rinkText = hasRinks
         ? 'Rinks ${item.rinkLabels.join(', ')}'
         : item.usesRinks && item.rinksRequired > 0
-            ? '${item.rinksRequired} rink${item.rinksRequired == 1 ? '' : 's'} needed'
-            : item.venueName;
+        ? '${item.rinksRequired} rink${item.rinksRequired == 1 ? '' : 's'} needed'
+        : item.venueName;
 
     return Container(
-        decoration: item.isMine
-            ? BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: item.backgroundColor.withOpacity(0.35),
-                    blurRadius: 16,
-                    spreadRadius: 1,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              )
-            : null,
-        child: Card(
+      decoration: item.isMine
+          ? BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: item.backgroundColor.withOpacity(0.35),
+                  blurRadius: 16,
+                  spreadRadius: 1,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            )
+          : null,
+      child: Card(
         elevation: item.isMine ? 4 : 2,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
@@ -497,7 +500,10 @@ class _DiaryItemTile extends StatelessWidget {
                       left: Radius.circular(16),
                     ),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 6,
+                  ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -529,9 +535,9 @@ class _DiaryItemTile extends StatelessWidget {
                 ),
                 Expanded(
                   child: Container(
-                  color: _isLightColor(item.foregroundColor)
-                      ? item.backgroundColor.withOpacity(0.72)
-                      : item.backgroundColor.withOpacity(0.10),
+                    color: _isLightColor(item.foregroundColor)
+                        ? item.backgroundColor.withOpacity(0.72)
+                        : item.backgroundColor.withOpacity(0.10),
                     padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -592,13 +598,17 @@ class _DiaryItemTile extends StatelessWidget {
                           runSpacing: 6,
                           children: [
                             _MiniChip(
-                              icon: item.isHome ? Icons.home : Icons.directions_bus,
+                              icon: item.isHome
+                                  ? Icons.home
+                                  : Icons.directions_bus,
                               text: item.isHome ? 'Home' : 'Away',
                               color: item.foregroundColor,
                             ),
                             if (rinkText.isNotEmpty)
                               _MiniChip(
-                                icon: item.usesRinks ? Icons.view_timeline : Icons.place,
+                                icon: item.usesRinks
+                                    ? Icons.view_timeline
+                                    : Icons.place,
                                 text: rinkText,
                                 color: item.foregroundColor,
                               ),
@@ -624,7 +634,7 @@ class _DiaryItemTile extends StatelessWidget {
             ),
           ),
         ),
-      )  
+      ),
     );
   }
 }
@@ -741,4 +751,3 @@ String _prettyDate(DateTime dt) {
 bool _isLightColor(Color color) {
   return color.computeLuminance() > 0.65;
 }
-  

@@ -60,7 +60,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedDate = DateTime(widget.date.year, widget.date.month, widget.date.day);
+    _selectedDate = DateTime(
+      widget.date.year,
+      widget.date.month,
+      widget.date.day,
+    );
 
     _horizontalBodyController.addListener(_syncHorizontalFromBody);
     _horizontalHeaderController.addListener(_syncHorizontalFromHeader);
@@ -81,13 +85,16 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   void _syncHorizontalFromBody() {
     if (mounted) {
       setState(() {
-        _horizontalOffset =
-            _horizontalBodyController.hasClients ? _horizontalBodyController.offset : 0;
+        _horizontalOffset = _horizontalBodyController.hasClients
+            ? _horizontalBodyController.offset
+            : 0;
       });
     }
 
     if (!_horizontalHeaderController.hasClients) return;
-    if ((_horizontalHeaderController.offset - _horizontalBodyController.offset).abs() < 1) {
+    if ((_horizontalHeaderController.offset - _horizontalBodyController.offset)
+            .abs() <
+        1) {
       return;
     }
     _horizontalHeaderController.jumpTo(_horizontalBodyController.offset);
@@ -95,7 +102,10 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
   void _syncHorizontalFromHeader() {
     if (!_horizontalBodyController.hasClients) return;
-    if ((_horizontalBodyController.offset - _horizontalHeaderController.offset).abs() < 1) return;
+    if ((_horizontalBodyController.offset - _horizontalHeaderController.offset)
+            .abs() <
+        1)
+      return;
     _horizontalBodyController.jumpTo(_horizontalHeaderController.offset);
   }
 
@@ -104,6 +114,36 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
       _selectedDate = _selectedDate.add(Duration(days: delta));
     });
     _loadDay();
+  }
+
+  int _maxConcurrentAssignments(
+    List<RinkAssignmentBlock> assignments,
+    RinkBlockStatus status,
+  ) {
+    final events = <MapEntry<DateTime, int>>[];
+
+    for (final a in assignments.where((x) => x.status == status)) {
+      events.add(MapEntry(a.startAt, 1));
+      events.add(MapEntry(a.endAt, -1));
+    }
+
+    events.sort((a, b) {
+      final t = a.key.compareTo(b.key);
+      if (t != 0) return t;
+
+      // End before start so 10:00-12:00 and 12:00-14:00 don't overlap.
+      return a.value.compareTo(b.value);
+    });
+
+    var current = 0;
+    var maxCount = 0;
+
+    for (final e in events) {
+      current += e.value;
+      if (current > maxCount) maxCount = current;
+    }
+
+    return maxCount;
   }
 
   Future<void> _loadDay() async {
@@ -154,6 +194,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         _unassigned = unassigned;
         _isLoading = false;
       });
+
+      _scrollToFirstActivity(assignments: assignments, unassigned: unassigned);
     } catch (e) {
       if (!mounted) return;
 
@@ -162,6 +204,49 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  double _leftForTime(DateTime startAt) {
+    final startMinutes = ((startAt.hour - kDayStartHour) * 60) + startAt.minute;
+
+    final clamped = startMinutes.clamp(0, kDayMinutes);
+
+    return (clamped / 60.0) * kHourWidth;
+  }
+
+  void _scrollToFirstActivity({
+    required List<RinkAssignmentBlock> assignments,
+    required List<UnassignedRinkNeed> unassigned,
+  }) {
+    DateTime? earliest;
+
+    for (final block in assignments) {
+      if (earliest == null || block.startAt.isBefore(earliest)) {
+        earliest = block.startAt;
+      }
+    }
+
+    for (final item in unassigned) {
+      if (earliest == null || item.startAt.isBefore(earliest)) {
+        earliest = item.startAt;
+      }
+    }
+
+    if (earliest == null) return;
+
+    final targetOffset = (_leftForTime(earliest) - 24).clamp(
+      0.0,
+      _timelineWidth,
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_horizontalBodyController.hasClients) return;
+
+      final maxOffset = _horizontalBodyController.position.maxScrollExtent;
+
+      _horizontalBodyController.jumpTo(targetOffset.clamp(0.0, maxOffset));
+    });
   }
 
   Future<Map<String, dynamic>> _loadHomeGreen() async {
@@ -210,10 +295,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
     return List.generate(rinkCount, (i) {
       final num = (i + 1).toString().padLeft(padding, '0');
-      return RinkLane(
-        id: '${i + 1}',
-        label: '$prefix$num',
-      );
+      return RinkLane(id: '${i + 1}', label: '$prefix$num');
     });
   }
 
@@ -275,8 +357,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     }
 
     // ✅ NON-INTERNAL → show opponent
-    final opponentName =
-        (fixture['opponent_name'] ?? '').toString().trim();
+    final opponentName = (fixture['opponent_name'] ?? '').toString().trim();
 
     if (opponentName.isNotEmpty) {
       return opponentName;
@@ -304,8 +385,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     final blocks = <RinkAssignmentBlock>[];
 
     for (final fixture in fixtures) {
-      final startAt =
-          DateTime.parse(fixture['start_at'].toString()).toLocal();
+      final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
       final endAt = fixture['end_at'] != null
           ? DateTime.parse(fixture['end_at'].toString()).toLocal()
           : startAt.add(const Duration(hours: 3));
@@ -326,21 +406,22 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
       final title = _fixtureBlockTitle(fixture);
 
-      final rinks =
-          List<Map<String, dynamic>>.from(fixture['fixture_rinks'] ?? []);
+      final rinks = List<Map<String, dynamic>>.from(
+        fixture['fixture_rinks'] ?? [],
+      );
 
       for (final rink in rinks) {
         final rinkAssignments = List<Map<String, dynamic>>.from(
           rink['fixture_rink_assignments'] ?? [],
         );
 
-        final isMine = _myProfileId != null &&
+        final isMine =
+            _myProfileId != null &&
             rinkAssignments.any(
               (a) => a['member_profile_id']?.toString() == _myProfileId,
             );
 
-        final rinkLabel =
-            (rink['home_rink_label'] ?? '').toString().trim();
+        final rinkLabel = (rink['home_rink_label'] ?? '').toString().trim();
 
         if (rinkLabel.isEmpty) continue;
 
@@ -364,26 +445,25 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     return blocks;
   }
 
-  List<UnassignedRinkNeed> _mapUnassigned(
-    List<Map<String, dynamic>> fixtures,
-  ) {
+  List<UnassignedRinkNeed> _mapUnassigned(List<Map<String, dynamic>> fixtures) {
     final items = <UnassignedRinkNeed>[];
 
     for (final fixture in fixtures) {
-      final rinks =
-          List<Map<String, dynamic>>.from(fixture['fixture_rinks'] ?? []);
+      final rinks = List<Map<String, dynamic>>.from(
+        fixture['fixture_rinks'] ?? [],
+      );
       final rinksRequired = (fixture['rinks_required'] ?? 0) as int;
 
       if (rinks.isNotEmpty || rinksRequired <= 0) continue;
 
-      final startAt =
-          DateTime.parse(fixture['start_at'].toString()).toLocal();
+      final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
 
       final endAt = fixture['end_at'] != null
           ? DateTime.parse(fixture['end_at'].toString()).toLocal()
           : startAt.add(const Duration(hours: 3));
 
-      final competitionType = fixture['competition_types'] as Map<String, dynamic>?;
+      final competitionType =
+          fixture['competition_types'] as Map<String, dynamic>?;
       final colourScheme =
           competitionType?['colour_scheme'] as Map<String, dynamic>?;
 
@@ -396,7 +476,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         UnassignedRinkNeed(
           id: fixture['id'].toString(),
           title: _fixtureBlockTitle(fixture),
-          subtitle: '$rinksRequired rink${rinksRequired == 1 ? '' : 's'} needed',
+          subtitle:
+              '$rinksRequired rink${rinksRequired == 1 ? '' : 's'} needed',
           startAt: startAt,
           endAt: endAt,
           rinksRequired: rinksRequired,
@@ -417,9 +498,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     final isWide = MediaQuery.of(context).size.width >= 900;
 
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_loadError != null) {
@@ -439,26 +518,46 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         toolbarHeight: 0,
         elevation: 0,
       ),
-      body: Column(
-        children: [
-          _RinksHeader(
-            clubName: widget.clubName,
-            date: _selectedDate,
-            onPrevious: () => _moveDay(-1),
-            onNext: () => _moveDay(1),
-          ),
-          _SummaryBar(
-            totalRinks: rinks.length,
-            assignedCount: assignments.where((a) => a.status == RinkBlockStatus.confirmed).length,
-            provisionalCount: assignments.where((a) => a.status == RinkBlockStatus.provisional).length + unassigned.length,
-            conflictCount: 0,
-          ),
-          Expanded(
-            child: isWide
-                ? _buildDesktopLayout(context, rinks, assignments, unassigned)
-                : _buildMobileLayout(context, rinks, assignments, unassigned),
-          ),
-        ],
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+
+          if (velocity < -300) {
+            _moveDay(1);
+          } else if (velocity > 300) {
+            _moveDay(-1);
+          }
+        },
+        child: Column(
+          children: [
+            _RinksHeader(
+              clubName: widget.clubName,
+              date: _selectedDate,
+              onPrevious: () => _moveDay(-1),
+              onNext: () => _moveDay(1),
+            ),
+            _SummaryBar(
+              totalRinks: rinks.length,
+              assignedCount: _maxConcurrentAssignments(
+                assignments,
+                RinkBlockStatus.confirmed,
+              ),
+              provisionalCount:
+                  _maxConcurrentAssignments(
+                    assignments,
+                    RinkBlockStatus.provisional,
+                  ) +
+                  unassigned.length,
+              conflictCount: 0,
+            ),
+            Expanded(
+              child: isWide
+                  ? _buildDesktopLayout(context, rinks, assignments, unassigned)
+                  : _buildMobileLayout(context, rinks, assignments, unassigned),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -470,7 +569,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     List<UnassignedRinkNeed> unassigned,
   ) {
     return Column(
-      children: [        
+      children: [
         _buildTimeHeader(context, assignments, rinks.length),
         Expanded(
           child: Row(
@@ -479,8 +578,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                 width: kRinkLabelWidth,
                 child: Column(
                   children: [
-                    for (final rink in rinks)
-                      _RinkLabelCell(label: rink.label),
+                    for (final rink in rinks) _RinkLabelCell(label: rink.label),
                   ],
                 ),
               ),
@@ -501,18 +599,23 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                           itemCount: rinks.length,
                           itemBuilder: (context, index) {
                             final rink = rinks[index];
-                            final blocks = assignments.where((a) => a.rinkLabel == rink.label).toList();
+                            final blocks = assignments
+                                .where((a) => a.rinkLabel == rink.label)
+                                .toList();
                             return LayoutBuilder(
-                              builder: (context, constraints) => _RinkTimelineRow(
-                                rink: rink,
-                                blocks: blocks,
-                                timelineWidth: _timelineWidth,
-                                onBlockTap: _openBlock,
-                                isAlternate: index.isOdd,
-                                horizontalOffset: _horizontalOffset,
-                                viewportWidth: constraints.maxWidth,
-                                hasFutureActivity: assignments.isNotEmpty || unassigned.isNotEmpty,
-                              ),
+                              builder: (context, constraints) =>
+                                  _RinkTimelineRow(
+                                    rink: rink,
+                                    blocks: blocks,
+                                    timelineWidth: _timelineWidth,
+                                    onBlockTap: _openBlock,
+                                    isAlternate: index.isOdd,
+                                    horizontalOffset: _horizontalOffset,
+                                    viewportWidth: constraints.maxWidth,
+                                    hasFutureActivity:
+                                        assignments.isNotEmpty ||
+                                        unassigned.isNotEmpty,
+                                  ),
                             );
                           },
                         ),
@@ -525,10 +628,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
           ),
         ),
         if (unassigned.isNotEmpty)
-          _UnassignedNeedsPanel(
-            items: unassigned,
-            onTap: (item) {},
-          ),
+          _UnassignedNeedsPanel(items: unassigned, onTap: (item) {}),
       ],
     );
   }
@@ -539,8 +639,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     List<RinkAssignmentBlock> assignments,
     List<UnassignedRinkNeed> unassigned,
   ) {
-    final hasFutureActivity =
-        assignments.isNotEmpty || unassigned.isNotEmpty;
+    final hasFutureActivity = assignments.isNotEmpty || unassigned.isNotEmpty;
 
     return Column(
       children: [
@@ -573,7 +672,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                             isAlternate: rinks.indexOf(rink).isOdd,
                             horizontalOffset: _horizontalOffset,
                             viewportWidth:
-                                MediaQuery.of(context).size.width - kRinkLabelWidth,
+                                MediaQuery.of(context).size.width -
+                                kRinkLabelWidth,
                             hasFutureActivity: hasFutureActivity,
                           ),
                         ),
@@ -596,13 +696,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     );
   }
 
-  List<int> _buildRinkUsagePerHour(
-    List<RinkAssignmentBlock> assignments,
-  ) {
-    final usage = List<int>.filled(
-      kDayEndHour - kDayStartHour + 1,
-      0,
-    );
+  List<int> _buildRinkUsagePerHour(List<RinkAssignmentBlock> assignments) {
+    final usage = List<int>.filled(kDayEndHour - kDayStartHour + 1, 0);
 
     for (final block in assignments) {
       final startHour = block.startAt.hour;
@@ -624,8 +719,10 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     List<RinkAssignmentBlock> assignments,
     int rinkCount,
   ) {
-    final textStyle = Theme.of(context).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700);
-    
+    final textStyle = Theme.of(
+      context,
+    ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700);
+
     final usage = _buildRinkUsagePerHour(assignments);
 
     return Row(
@@ -666,7 +763,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                           ),
                           child: Text(
                             usage[i] == 0 ? '' : usage[i].toString(),
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: usage[i] >= rinkCount
                                       ? const Color(0xFFB91C1C)
@@ -678,7 +776,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                   ),
                   Row(
                     children: [
-                      for (int hour = kDayStartHour; hour <= kDayEndHour; hour++)
+                      for (
+                        int hour = kDayStartHour;
+                        hour <= kDayEndHour;
+                        hour++
+                      )
                         Container(
                           width: kHourWidth,
                           height: kHeaderHeight,
@@ -707,19 +809,19 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   double get _timelineWidth => (kDayEndHour - kDayStartHour + 1) * kHourWidth;
 
   void _openBlock(RinkAssignmentBlock block) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(block.title)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(block.title)));
   }
 
   List<RinkLane> _mockRinks() => const [
-        RinkLane(id: '1', label: 'R1'),
-        RinkLane(id: '2', label: 'R2'),
-        RinkLane(id: '3', label: 'R3'),
-        RinkLane(id: '4', label: 'R4'),
-        RinkLane(id: '5', label: 'R5'),
-        RinkLane(id: '6', label: 'R6'),
-      ];
+    RinkLane(id: '1', label: 'R1'),
+    RinkLane(id: '2', label: 'R2'),
+    RinkLane(id: '3', label: 'R3'),
+    RinkLane(id: '4', label: 'R4'),
+    RinkLane(id: '5', label: 'R5'),
+    RinkLane(id: '6', label: 'R6'),
+  ];
 
   List<RinkAssignmentBlock> _mockAssignments(DateTime day) {
     DateTime at(int h, int m) => DateTime(day.year, day.month, day.day, h, m);
@@ -965,11 +1067,27 @@ class _SummaryBar extends StatelessWidget {
         spacing: 10,
         runSpacing: 8,
         children: [
-          _pill('${totalRinks} rinks', bg: const Color(0xFFF3F4F6), fg: const Color(0xFF111827)),
-          _pill('$assignedCount assigned', bg: const Color(0xFFDBEAFE), fg: const Color(0xFF1D4ED8)),
-          _pill('$provisionalCount provisional', bg: const Color(0xFFEDE9FE), fg: const Color(0xFF6D28D9)),
+          _pill(
+            '${totalRinks} rinks',
+            bg: const Color(0xFFF3F4F6),
+            fg: const Color(0xFF111827),
+          ),
+          _pill(
+            '$assignedCount assigned',
+            bg: const Color(0xFFDBEAFE),
+            fg: const Color(0xFF1D4ED8),
+          ),
+          _pill(
+            '$provisionalCount provisional',
+            bg: const Color(0xFFEDE9FE),
+            fg: const Color(0xFF6D28D9),
+          ),
           if (conflictCount > 0)
-            _pill('$conflictCount conflict${conflictCount == 1 ? '' : 's'}', bg: const Color(0xFFFEE2E2), fg: const Color(0xFFB91C1C)),
+            _pill(
+              '$conflictCount conflict${conflictCount == 1 ? '' : 's'}',
+              bg: const Color(0xFFFEE2E2),
+              fg: const Color(0xFFB91C1C),
+            ),
         ],
       ),
     );
@@ -1011,9 +1129,9 @@ class _RinkLabelCell extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF111827),
-            ),
+          fontWeight: FontWeight.w800,
+          color: const Color(0xFF111827),
+        ),
       ),
     );
   }
@@ -1100,7 +1218,9 @@ class _RinkTimelineRow extends StatelessWidget {
 
   bool get _hasHiddenLeft {
     if (horizontalOffset <= 4) return false;
-    return blocks.any((block) => _leftFor(block.startAt) < horizontalOffset - 2);
+    return blocks.any(
+      (block) => _leftFor(block.startAt) < horizontalOffset - 2,
+    );
   }
 
   bool get _hasHiddenRight {
@@ -1245,7 +1365,8 @@ class _TimelineBlock extends StatelessWidget {
                           block.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(
                                 color: block.textColor,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -1262,7 +1383,8 @@ class _TimelineBlock extends StatelessWidget {
                           block.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(
                                 color: block.textColor,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -1272,7 +1394,8 @@ class _TimelineBlock extends StatelessWidget {
                           '${_timeLabel(block.startAt)}–${_timeLabel(block.endAt)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
                                 color: block.textColor.withOpacity(0.85),
                                 fontWeight: FontWeight.w600,
                                 height: 1.0,
@@ -1308,7 +1431,9 @@ class _UnassignedNeedsPanel extends StatelessWidget {
           children: [
             Text(
               'Awaiting rink assignment',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
             for (final item in items)
@@ -1328,9 +1453,16 @@ class _UnassignedNeedsPanel extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(item.title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                            Text(
+                              item.title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                             const SizedBox(height: 2),
-                            Text('${item.subtitle} • ${_timeLabel(item.startAt)}–${_timeLabel(item.endAt)}'),
+                            Text(
+                              '${item.subtitle} • ${_timeLabel(item.startAt)}–${_timeLabel(item.endAt)}',
+                            ),
                           ],
                         ),
                       ),
@@ -1358,7 +1490,15 @@ String _timeLabel(DateTime dt) {
 }
 
 String _prettyDate(DateTime dt) {
-  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
   const months = [
     'January',
     'February',
@@ -1375,4 +1515,3 @@ String _prettyDate(DateTime dt) {
   ];
   return '${weekdays[dt.weekday - 1]} ${dt.day} ${months[dt.month - 1]} ${dt.year}';
 }
- 

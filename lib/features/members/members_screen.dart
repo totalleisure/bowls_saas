@@ -29,12 +29,12 @@ class _MembersScreenState extends State<MembersScreen> {
   String? _error;
 
   String _searchText = '';
+  String _roleFilter = 'all';
 
   List<Map<String, dynamic>> _rows = const [];
 
   List<Map<String, dynamic>> get _filteredRows {
     final q = _searchText.trim().toLowerCase();
-    if (q.isEmpty) return _rows;
 
     return _rows.where((row) {
       final mp =
@@ -49,13 +49,31 @@ class _MembersScreenState extends State<MembersScreen> {
       final position = (mp['preferred_position'] ?? '')
           .toString()
           .toLowerCase();
-      return first.contains(q) ||
+
+      final active = row['is_active'] == true;
+      final isCoach = row['is_coach'] == true;
+      final coachingAward = (row['coaching_award'] ?? '')
+          .toString()
+          .toLowerCase();
+
+      final matchesSearch =
+          q.isEmpty ||
+          first.contains(q) ||
           last.contains(q) ||
           displayName.contains(q) ||
           email.contains(q) ||
           phone.contains(q) ||
           role.contains(q) ||
-          position.contains(q);
+          position.contains(q) ||
+          coachingAward.contains(q);
+
+      final matchesFilter =
+          _roleFilter == 'all' ||
+          (_roleFilter == 'inactive' && !active) ||
+          (_roleFilter == 'coach' && isCoach) ||
+          role == _roleFilter;
+
+      return matchesSearch && matchesFilter;
     }).toList();
   }
 
@@ -132,7 +150,7 @@ class _MembersScreenState extends State<MembersScreen> {
       final res = await _client
           .from('club_memberships')
           .select(
-            'member_profile_id, role, is_active, '
+            'member_profile_id, role, is_active, is_coach, coaching_award, '
             'member_profiles('
             'email_address, first_name, last_name, display_name, phone, '
             'address_line1, address_line2, town_city, county, postcode, '
@@ -377,6 +395,8 @@ class _MembersScreenState extends State<MembersScreen> {
     required Map<String, dynamic> memberProfile,
     required String role,
     required bool active,
+    required bool isCoach,
+    String? coachingAward,
   }) async {
     _savedScrollOffset = _scrollController.hasClients
         ? _scrollController.offset
@@ -392,6 +412,8 @@ class _MembersScreenState extends State<MembersScreen> {
           initialRole: role,
           initialActive: active,
           canManageMembers: _canManageMembers,
+          initialIsCoach: isCoach,
+          initialCoachingAward: coachingAward,
         ),
       ),
     );
@@ -408,6 +430,18 @@ class _MembersScreenState extends State<MembersScreen> {
         _scrollController.jumpTo(target);
       });
     }
+  }
+
+  Widget _filterChip(String value, String label) {
+    return FilterChip(
+      label: Text(label),
+      selected: _roleFilter == value,
+      onSelected: (_) {
+        setState(() {
+          _roleFilter = value;
+        });
+      },
+    );
   }
 
   @override
@@ -462,6 +496,27 @@ class _MembersScreenState extends State<MembersScreen> {
                     },
                   ),
                 ),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      _filterChip('all', 'All'),
+                      _filterChip('member', 'Members'),
+                      _filterChip('guest', 'Guests'),
+                      _filterChip('captain', 'Captains'),
+                      _filterChip('selector', 'Selectors'),
+                      _filterChip('admin', 'Admins'),
+                      _filterChip('coach', 'Coaches'),
+                      _filterChip('inactive', 'Inactive'),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: Align(
@@ -646,6 +701,9 @@ class _MembersScreenState extends State<MembersScreen> {
                                   memberProfile: mp,
                                   role: role,
                                   active: active,
+                                  isCoach: row['is_coach'] == true,
+                                  coachingAward: row['coaching_award']
+                                      ?.toString(),
                                 ),
                               ),
                             );

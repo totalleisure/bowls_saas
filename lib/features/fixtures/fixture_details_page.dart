@@ -293,6 +293,29 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return false;
   }
 
+  bool _canUnassignBookedRink(Map<String, dynamic> rink) {
+    if (!_canMaintainFixtureRinks) return false;
+
+    final bookedFixtureId = rink['booked_fixture_id']?.toString();
+    final isBookedByThisFixture =
+        bookedFixtureId != null && bookedFixtureId == widget.fixtureId;
+
+    // Admin / superuser: can unassign any booked rink
+    if (_isAdmin || _isSuper) return true;
+
+    // Captain / vice: only this fixture's rinks
+    if ((_isFixtureCaptain || _isFixtureViceCaptain) && isBookedByThisFixture) {
+      return true;
+    }
+
+    // Member pre-select maintainer: only this fixture's rinks
+    if (_canMaintainMemberPreselectFixture && isBookedByThisFixture) {
+      return true;
+    }
+
+    return false;
+  }
+
   bool get _canRsvpToFixture {
     return _hasClubMembership && !_isGuest;
   }
@@ -1030,6 +1053,24 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return 'Rinks';
   }
 
+  String _friendlyFixtureUpdateError(Object e) {
+    final raw = e.toString();
+
+    if (raw.contains('Not enough rinks available')) {
+      return 'There are not enough rinks available for the new date/time.\n\n'
+          'Please choose another date/time or reduce the number of rinks required.';
+    }
+
+    if (raw.contains('fixtures_no_overlap') ||
+        raw.contains('overlap') ||
+        raw.contains('conflict')) {
+      return 'The new date/time conflicts with an existing fixture or rink booking.\n\n'
+          'Please choose another date/time.';
+    }
+
+    return 'The fixture could not be updated.\n\n$raw';
+  }
+
   String _memberLabel(Map<String, dynamic> m) {
     final first = (m['first_name'] ?? '').toString().trim();
     final last = (m['last_name'] ?? '').toString().trim();
@@ -1382,17 +1423,69 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     if (newStart.isAtSameMomentAs(startLocal)) return;
 
-    await Supabase.instance.client
-        .from('fixtures')
-        .update({
-          'start_at': newStart.toUtc().toIso8601String(),
-          'end_at': newEnd.toUtc().toIso8601String(),
-        })
-        .eq('id', widget.fixtureId);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Change fixture date/time?'),
+        content: Text(
+          'Change fixture to:\n'
+          '${_formatLocalDateTime(newStart)} – ${DateFormat('HH:mm').format(newEnd)}\n\n'
+          'Any physical rink assignments will be cleared. '
+          'Teams and player assignments will remain unchanged.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Change'),
+          ),
+        ],
+      ),
+    );
 
-    _didChangeFixture = true;
+    if (confirmed != true || !mounted) return;
 
-    await _reloadRinksPreservingScroll();
+    try {
+      await Supabase.instance.client
+          .from('fixtures')
+          .update({
+            'start_at': newStart.toUtc().toIso8601String(),
+            'end_at': newEnd.toUtc().toIso8601String(),
+          })
+          .eq('id', widget.fixtureId);
+
+      await _clearPhysicalRinkAssignments();
+
+      _didChangeFixture = true;
+
+      await _reloadRinksPreservingScroll();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fixture date/time updated. Rinks were unassigned.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Cannot change fixture time'),
+          content: Text(_friendlyFixtureUpdateError(e)),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Future<void> _loadRinkAvailability() async {
@@ -1527,14 +1620,74 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       return;
     }
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Change fixture end time?'),
+        content: Text(
+          'Change fixture end time to:\n'
+          '${DateFormat('HH:mm').format(newEnd)}\n\n'
+          'Any physical rink assignments will be cleared. '
+          'Teams and player assignments will remain unchanged.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Change'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await Supabase.instance.client
+          .from('fixtures')
+          .update({'end_at': newEnd.toUtc().toIso8601String()})
+          .eq('id', widget.fixtureId);
+
+      await _clearPhysicalRinkAssignments();
+
+      _didChangeFixture = true;
+
+      await _reloadRinksPreservingScroll();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fixture end time updated. Rinks were unassigned.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Cannot change fixture end time'),
+          content: Text(_friendlyFixtureUpdateError(e)),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Future<void> _clearPhysicalRinkAssignments() async {
     await Supabase.instance.client
-        .from('fixtures')
-        .update({'end_at': newEnd.toUtc().toIso8601String()})
-        .eq('id', widget.fixtureId);
-
-    _didChangeFixture = true;
-
-    await _reloadRinksPreservingScroll();
+        .from('fixture_rinks')
+        .update({'home_rink_label': null})
+        .eq('fixture_id', widget.fixtureId);
   }
 
   Widget _rsvpChoiceButton(String status, String label) {
@@ -2073,35 +2226,214 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
             if (_isHome) ...[
               const SizedBox(height: 8),
-
-              /*               const Text(
-                'Rinks',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-
-              const SizedBox(height: 12), */
-              if (_greenAreas.isEmpty) ...[
-                const InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'Green area',
-                    border: OutlineInputBorder(),
-                  ),
-                  child: Text('No greens available for this venue'),
-                ),
-              ] else ...[
-                _buildGreenAndRinkAvailabilityBlock(
-                  (_fixture?['green_areas']?['name'] ?? '').toString(),
-                ),
-              ],
+              _buildRinkAvailabilityCard(embedded: true),
             ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _showRinkBookingActions(Map<String, dynamic> rink) async {
+    final rinkLabel =
+        (rink['rink_label'] ?? rink['label'] ?? rink['name'] ?? 'Rink')
+            .toString();
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 5,
+                    margin: const EdgeInsets.only(bottom: 18),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.amber.shade700),
+                      ),
+                      child: Text(
+                        rinkLabel,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: Colors.amber.shade900,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Rink booking actions',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Choose what you want to do with this rink booking.',
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 22),
+
+                InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => Navigator.pop(context, true),
+                  child: Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.link_off,
+                          color: Colors.orange.shade900,
+                          size: 28,
+                        ),
+
+                        const SizedBox(width: 16),
+
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Unassign rink',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                  color: Colors.orange.shade900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Leave this team without a physical rink assignment.',
+                                style: TextStyle(color: Colors.orange.shade800),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(context, false),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Cancel'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      await _unassignRink(rink);
+    }
+  }
+
+  Future<void> _unassignRink(Map<String, dynamic> rink) async {
+    final fixtureRinkId = rink['fixture_rink_id']?.toString();
+
+    if (fixtureRinkId == null || fixtureRinkId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not identify the rink assignment.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      setState(() {
+        _loadingRinkAvailability = true;
+        _selectedBookedRink = null;
+      });
+
+      await Supabase.instance.client
+          .from('fixture_rinks')
+          .update({'home_rink_label': null})
+          .eq('id', fixtureRinkId);
+
+      _didChangeFixture = true;
+
+      await _load();
+      await _loadRinkAvailability();
+
+      if (!mounted) return;
+
+      setState(() {
+        _selectedBookedRink = null;
+        _loadingRinkAvailability = false;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Rink unassigned.')));
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _loadingRinkAvailability = false;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not unassign rink: $e')));
+    }
   }
 
   Widget _buildRinkAvailabilitySection() {
@@ -2207,6 +2539,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
             return InkWell(
               onTap: !_canMaintainFixtureRinks ? null : () => _handleRinkTap(r),
+              onLongPress: !_canUnassignBookedRink(r)
+                  ? null
+                  : () => _showRinkBookingActions(r),
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 width: double.infinity,
@@ -2239,7 +2574,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                       child: Text(
                         isBooked
                             ? isSelectedBooked
-                                  ? 'Selected booking — tap a free rink to move it, or another booked rink to swap'
+                                  ? 'Selected booking — tap a free rink to move it, another booked rink to swap, or long-press to unassign'
                                   : bookedText
                             : isSelected
                             ? 'Selected for Team $selectedTeamNo'
@@ -2330,6 +2665,32 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         const SizedBox(height: 8),
         _buildRinkAvailabilitySection(),
       ],
+    );
+  }
+
+  Widget _buildRinkAvailabilityCard({bool embedded = false}) {
+    if (!_isHome || _greenAreaId == null) {
+      return const SizedBox.shrink();
+    }
+
+    final rinksRequired =
+        int.tryParse((_fixture?['rinks_required'] ?? '').toString()) ?? 0;
+
+    if (rinksRequired <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final content = _buildGreenAndRinkAvailabilityBlock(
+      (_fixture?['green_areas']?['name'] ?? '').toString(),
+    );
+
+    if (embedded) {
+      return content;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(top: 8, bottom: 20),
+      child: Padding(padding: const EdgeInsets.all(14), child: content),
     );
   }
 
@@ -2998,20 +3359,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               CaptainViewSection(fixture: fixture),
             ],
 
-            if (!_usesSimpleBookingWorkflow &&
-                isHome &&
-                _greenAreaId != null &&
-                rinks > 0) ...[
+            if (!_usesSimpleBookingWorkflow) ...[
               const SizedBox(height: 12),
-              Card(
-                margin: const EdgeInsets.only(top: 8, bottom: 20),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: _buildGreenAndRinkAvailabilityBlock(
-                    (_fixture?['green_areas']?['name'] ?? '').toString(),
-                  ),
-                ),
-              ),
+              _buildRinkAvailabilityCard(),
             ],
 
             if (_canMaintainMemberPreselectFixture) ...[

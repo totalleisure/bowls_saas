@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'dart:convert';
+
+import 'package:bowls_saas/services/team_sheet_builder_service.dart';
+import 'package:bowls_saas/services/team_sheet_pdf.dart';
+
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
 import '../rinks/widgets/rink_availability_panel.dart';
@@ -705,6 +710,38 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         );
       },
     );
+  }
+
+  Future<List<Map<String, dynamic>>> _buildFixtureSheetAttachments(
+    String fixtureId,
+  ) async {
+    final builder = TeamSheetBuilderService(_client);
+    final result = await builder.buildForFixture(fixtureId);
+
+    final pdfBytes = await buildTeamSheetPdf(result.data);
+
+    final d = result.data.startAt.toLocal();
+    final when =
+        '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+
+    String safe(String value) {
+      return value.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-').trim();
+    }
+
+    final safeClub = safe(result.data.clubName);
+    final safeOpp = safe(
+      result.data.opponentName.isEmpty ? 'Fixture' : result.data.opponentName,
+    );
+
+    final filename = '$safeClub v $safeOpp - $when.pdf';
+
+    return [
+      {
+        'name': filename,
+        'contentType': 'application/pdf',
+        'contentBytes': base64Encode(pdfBytes),
+      },
+    ];
   }
 
   Future<void> _loadVenues() async {
@@ -1983,6 +2020,27 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
           if (assignments.isNotEmpty) {
             await _client.from('fixture_rink_assignments').insert(assignments);
+          }
+
+          // This is setting up the notifications for the pre-selected fixtures
+          //
+          if (_isPreselectFixture) {
+            final attachments = await _buildFixtureSheetAttachments(fixtureId);
+
+            debugPrint(
+              'FIXTURE SHEET ATTACHMENTS COUNT: ${attachments.length}',
+            );
+            debugPrint(
+              'FIXTURE SHEET ATTACHMENTS JSON: ${jsonEncode(attachments).substring(0, 80)}',
+            );
+
+            await _client.rpc(
+              'queue_fixture_selected_notifications',
+              params: {
+                'p_fixture_id': fixtureId,
+                'p_attachments': jsonDecode(jsonEncode(attachments)),
+              },
+            );
           }
 
           if (teamSelectionId != null && selectedMemberRoles.isNotEmpty) {

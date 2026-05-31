@@ -10,6 +10,9 @@ class MemberEditScreen extends StatefulWidget {
   final bool initialActive;
   final bool canManageMembers;
 
+  final bool initialIsCoach;
+  final String? initialCoachingAward;
+
   const MemberEditScreen({
     super.key,
     required this.memberProfileId,
@@ -18,6 +21,8 @@ class MemberEditScreen extends StatefulWidget {
     required this.initialRole,
     required this.initialActive,
     required this.canManageMembers,
+    required this.initialIsCoach,
+    this.initialCoachingAward,
   });
 
   @override
@@ -37,6 +42,10 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   late final TextEditingController _postcode;
 
   late final TextEditingController _genderSelfDescribed;
+
+  late bool _isCoach;
+  late final TextEditingController _coachingAward;
+
   String? _gender;
   String? _sexAtBirth;
   String? _preferredPosition;
@@ -47,6 +56,8 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   bool _saving = false;
 
   bool _hasUnsavedChanges = false;
+
+  String? _originalRole;
 
   void _markDirty() {
     if (_hasUnsavedChanges) return;
@@ -77,7 +88,12 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       text: (i['gender_self_described'] ?? '').toString(),
     );
     _role = widget.initialRole;
+    _originalRole = _role;
     _active = widget.initialActive;
+    _isCoach = widget.initialIsCoach;
+    _coachingAward = TextEditingController(
+      text: widget.initialCoachingAward ?? '',
+    );
   }
 
   @override
@@ -92,6 +108,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     _county.dispose();
     _postcode.dispose();
     _genderSelfDescribed.dispose();
+    _coachingAward.dispose();
     super.dispose();
   }
 
@@ -166,9 +183,58 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       if (widget.canManageMembers) {
         await client
             .from('club_memberships')
-            .update({'role': _role, 'is_active': _active})
+            .update({
+              'role': _role,
+              'is_active': _active,
+              'is_coach': _isCoach,
+              'coaching_award': _coachingAward.text.trim().isEmpty
+                  ? null
+                  : _coachingAward.text.trim(),
+            })
             .eq('club_id', widget.clubId)
             .eq('member_profile_id', widget.memberProfileId);
+
+        final promotedGuestToMember =
+            (_originalRole ?? '').toLowerCase() == 'guest' &&
+            (_role ?? '').toLowerCase() == 'member';
+
+        if (promotedGuestToMember) {
+          // Club name
+          final clubRow = await client
+              .from('clubs')
+              .select('name')
+              .eq('id', widget.clubId)
+              .single();
+
+          final clubName = (clubRow['name'] ?? 'the club').toString();
+
+          // Current admin profile
+          final myProfileId = (await client.rpc(
+            'my_member_profile_id',
+          )).toString();
+
+          final adminRow = await client
+              .from('member_profiles')
+              .select('display_name')
+              .eq('id', myProfileId)
+              .maybeSingle();
+
+          final adminName = (adminRow?['display_name'] ?? 'Club Administrator')
+              .toString();
+
+          // Queue notification/event
+          await client.from('notification_queue').insert({
+            'event_type': 'guest_membership_approved',
+            'member_profile_id': myProfileId,
+            'target_member_profile_id': widget.memberProfileId,
+            'payload': {
+              'club_id': widget.clubId,
+              'club_name': clubName,
+              'approved_by': adminName,
+            },
+            'status': 'pending',
+          });
+        }
       }
 
       //      debugPrint('Post-save row: $check');
@@ -311,6 +377,18 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active member'),
+                  value: _active,
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _active = value;
+                    });
+                    _markDirty();
+                  },
+                ),
                 Text(
                   'Basic details',
                   style: Theme.of(context).textTheme.titleMedium,
@@ -452,16 +530,21 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
                   CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Active member'),
-                    value: _active,
+                    title: const Text('Coach'),
+                    subtitle: const Text(
+                      'This member can act as a club coach.',
+                    ),
+                    value: _isCoach,
                     onChanged: (value) {
                       if (value == null) return;
                       setState(() {
-                        _active = value;
+                        _isCoach = value;
                       });
                       _markDirty();
                     },
                   ),
+
+                  if (_isCoach) _field('Coaching award', _coachingAward),
                 ],
               ],
             ),
