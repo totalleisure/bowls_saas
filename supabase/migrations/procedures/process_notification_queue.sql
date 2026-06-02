@@ -28,6 +28,12 @@ declare
   v_fixture_context_text text;
   v_team_lines text;
   v_marker_lines text;
+
+  v_opponent_lines text;
+
+  v_selected_position int;
+  v_selected_role text;
+  v_selected_role_text text;  
 begin
   for r in
     select *
@@ -161,6 +167,40 @@ begin
         v_team_no_int := nullif(v_team_no, '')::int;
         v_home_rink_label := coalesce(r.payload->>'home_rink_label', '');
 
+        v_selected_position := nullif(r.payload->>'position', '')::int;
+        v_selected_role := coalesce(r.payload->>'role', '');
+
+        v_selected_role_text :=
+          case
+            when v_selected_position = 201 then
+              'Marker'
+
+            when v_selected_position >= 100 then
+              'Opponent ' || (v_selected_position - 100)::text
+
+            when v_selected_position = 1 then
+              'Lead'
+
+            when v_selected_position = 2
+                 and coalesce(r.payload->>'players_per_rink', '') = '2' then
+              'Skip'
+
+            when v_selected_position = 2 then
+              'Second'
+
+            when v_selected_position = 3 then
+              'Third'
+
+            when v_selected_position = 4 then
+              'Skip'
+
+            when v_selected_position is not null then
+              'Position ' || v_selected_position::text
+
+            else
+              'Selected'
+          end;
+
         v_start_at :=
           nullif(r.payload->>'start_at', '')::timestamptz;
 
@@ -177,7 +217,11 @@ begin
         select
           case
             when coalesce(ct.is_internal, false) = true then
-              'Internal Fixture'
+              coalesce(
+                nullif(ct.name, ''),
+                nullif(f.team_name, ''),
+                'Internal Fixture'
+              )
 
             when f.is_home = true then
               'Home against '
@@ -259,6 +303,46 @@ begin
           chr(10)
           order by sort_order
         )
+        into v_opponent_lines
+        from (
+          select
+            fra.position as sort_order,
+
+            'Opponent '
+            || (fra.position - 100)::text
+            || ': '
+
+            ||
+
+            coalesce(
+              nullif(mp.display_name, ''),
+              nullif(
+                trim(
+                  coalesce(mp.first_name, '')
+                  || ' '
+                  || coalesce(mp.last_name, '')
+                ),
+                ''
+              ),
+              'Unknown'
+            ) as line_text
+
+          from public.fixture_rinks fr
+          join public.fixture_rink_assignments fra
+            on fra.fixture_rink_id = fr.id
+          left join public.member_profiles mp
+            on mp.id = fra.member_profile_id
+
+          where fr.fixture_id = r.fixture_id
+            and fr.fixture_rink_no = v_team_no_int
+            and fra.position between 101 and 199
+        ) x;
+
+        select string_agg(
+          line_text,
+          chr(10)
+          order by sort_order
+        )
         into v_marker_lines
         from (
           select
@@ -293,7 +377,14 @@ begin
         ) x;
 
         v_body :=
-          coalesce(r.payload->>'fixture_name', 'Fixture')
+          'You have been selected as '
+          || coalesce(v_selected_role_text, 'Selected')
+          || ' for '
+          || coalesce(
+               nullif(r.payload->>'fixture_label', ''),
+               nullif(r.payload->>'fixture_name', ''),
+               coalesce(v_fixture_context_text, 'this fixture')
+             )
 
           || case
                when v_fixture_date_text <> ''
@@ -314,6 +405,13 @@ begin
                'Team details unavailable'
              );
 
+        if coalesce(v_opponent_lines, '') <> '' then
+          v_body :=
+            v_body
+            || chr(10)
+            || v_opponent_lines;
+        end if;
+
         if coalesce(v_marker_lines, '') <> '' then
           v_body :=
             v_body
@@ -329,6 +427,42 @@ begin
             || 'Home Rink: '
             || v_home_rink_label;
         end if;
+      elsif r.event_type = 'fixture_moved' then
+        v_source := 'Fixture Moved';
+        v_title := v_source;
+
+        v_body :=
+          coalesce(r.payload->>'fixture_name', 'Fixture')
+          || chr(10)
+          || chr(10)
+          || 'This fixture has been moved.'
+          || chr(10)
+          || chr(10)
+          || 'Old: '
+          || to_char(
+               (r.payload->>'old_start_at')::timestamptz at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             )
+          || chr(10)
+          || 'New: '
+          || to_char(
+               (r.payload->>'new_start_at')::timestamptz at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             );
+
+        if coalesce(r.payload->>'is_home', '') = 'true' then
+          v_body := v_body
+            || chr(10)
+            || chr(10)
+            || 'Home against '
+            || coalesce(r.payload->>'opponent_name', 'Opponent not set');
+        else
+          v_body := v_body
+            || chr(10)
+            || chr(10)
+            || 'Away at '
+            || coalesce(r.payload->>'venue_name', 'Venue not set');
+        end if;        
       elsif r.event_type = 'fixture_message' then
         v_source := coalesce(
           nullif(r.payload->>'title', ''),
@@ -400,7 +534,8 @@ begin
         'reserve_promoted',
         'guest_membership_request',
         'guest_membership_approved',
-        'fixture_selected'
+        'fixture_selected',
+        'fixture_moved'
       ) then
         insert into public.email_queue (
           member_profile_id,

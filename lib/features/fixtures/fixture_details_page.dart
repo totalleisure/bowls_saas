@@ -620,6 +620,48 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     await _loadMemberPreselectData();
   }
 
+  Future<void> _enqueueFixtureSelectedNotification({
+    required String memberProfileId,
+    required String fixtureRinkId,
+    required int position,
+  }) async {
+    final rink = _memberPreselectRinks.firstWhere(
+      (r) => r['id'].toString() == fixtureRinkId,
+      orElse: () => <String, dynamic>{},
+    );
+
+    final teamNo = rink['fixture_rink_no']?.toString();
+    final homeRinkLabel = (rink['home_rink_label'] ?? '').toString();
+    final playersPerRink = rink['players_per_rink']?.toString();
+    final roleLabel = position == 201
+        ? 'marker'
+        : position >= 100
+        ? 'opponent'
+        : 'player';
+
+    await _client.from('notification_queue').insert({
+      'event_type': 'fixture_selected',
+      'member_profile_id': _currentMemberId ?? memberProfileId,
+      'target_member_profile_id': memberProfileId,
+      'fixture_id': widget.fixtureId,
+      'team_selection_id': await _teamSelectionIdForFixture(),
+      'payload': {
+        'fixture_label': fixtureTitleUnified(
+          _fixture!,
+          myClubName: (_fixture?['opponent_venue']?['name'] ?? '').toString(),
+        ),
+        'start_at': _fixture?['start_at']?.toString(),
+        'fixture_rink_id': fixtureRinkId,
+        'team_no': teamNo,
+        'home_rink_label': homeRinkLabel,
+        'players_per_rink': playersPerRink,
+        'position': position,
+        'role': roleLabel,
+      },
+      'status': 'pending',
+    });
+  }
+
   Future<void> _showSaveErrorDialog(String message) async {
     if (!mounted) return;
 
@@ -1294,12 +1336,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _confirmAndDelete() async {
     if (!_canDeleteFixture) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete fixture?'),
         content: const Text(
-          'This will delete the fixture and all associated data (RSVPs, rinks, assignments, selections).\n\n'
+          'This will delete the fixture and all associated data '
+          '(RSVPs, rinks, assignments, selections).\n\n'
           'You cannot delete a fixture if any player has accepted selection.',
         ),
         actions: [
@@ -1326,13 +1370,135 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       );
 
       if (!mounted) return;
-      Navigator.pop(context, true); // tell previous screen to refresh
+      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
+
       setState(() => _loading = false);
+
+      if (!_isSuperuser) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+        return;
+      }
+
+      final forceConfirmed = await _confirmForceDeleteFixture(
+        originalError: e.toString(),
+      );
+
+      if (forceConfirmed != true) return;
+
+      await _forceDeleteFixture();
+    }
+  }
+
+  Future<bool?> _confirmForceDeleteFixture({
+    required String originalError,
+  }) async {
+    final controller = TextEditingController();
+
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        var canForceDelete = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Force delete fixture?'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'The normal delete failed. As a superuser, you can force '
+                    'delete this fixture and all linked records.',
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'This will permanently delete linked RSVPs, rinks, rink '
+                    'assignments, team selections, diary links, notifications '
+                    'and email logs where linked.',
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'This cannot be undone.',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Original error:\n$originalError',
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Type DELETE FIXTURE to confirm:'),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'DELETE FIXTURE',
+                    ),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        canForceDelete = value.trim() == 'DELETE FIXTURE';
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: canForceDelete
+                      ? () => Navigator.pop(ctx, true)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Force delete'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).whenComplete(controller.dispose);
+  }
+
+  Future<void> _forceDeleteFixture() async {
+    setState(() => _loading = true);
+
+    try {
+      final result = await _client.rpc(
+        'admin_force_delete_fixture',
+        params: {
+          'p_fixture_id': widget.fixtureId,
+          'p_confirm': 'DELETE FIXTURE',
+        },
+      );
+
+      if (!mounted) return;
+
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      ).showSnackBar(const SnackBar(content: Text('Fixture force deleted')));
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Force delete failed: $e')));
     }
   }
 
@@ -1456,6 +1622,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             'end_at': newEnd.toUtc().toIso8601String(),
           })
           .eq('id', widget.fixtureId);
+
+      await Supabase.instance.client.rpc(
+        'queue_fixture_moved_notifications',
+        params: {
+          'p_fixture_id': widget.fixtureId,
+          'p_old_start_at': startLocal.toUtc().toIso8601String(),
+          'p_old_end_at': endLocal.toUtc().toIso8601String(),
+        },
+      );
 
       await _clearPhysicalRinkAssignments();
 
@@ -2017,9 +2192,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       memberProfileId: newMemberProfileId,
     );
 
-    // If new member selected, mark selected
+    // If new member selected, mark selected and notify if this is a new/replaced selection
     if (newMemberProfileId != null && newMemberProfileId.isNotEmpty) {
       await _markTeamSelectionMemberSelected(newMemberProfileId);
+
+      if (newMemberProfileId != oldMemberProfileId) {
+        await _enqueueFixtureSelectedNotification(
+          memberProfileId: newMemberProfileId,
+          fixtureRinkId: fixtureRinkId,
+          position: position,
+        );
+      }
     }
   }
 

@@ -104,6 +104,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   // Defaults requested
   int _rinksRequired = 6;
   int _playersPerRink = 4; // 4 = rinks, 3 = triples, 2 = pairs
+  int _rinksRequiredFieldVersion = 0;
 
   // Fixture types
   List<Map<String, dynamic>> _fixtureTypes = [];
@@ -687,6 +688,66 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     _hasUnsavedChanges = false;
     Navigator.pop(context, true);
+  }
+
+  int _asInt(dynamic value, int fallback) {
+    if (value is int) return value;
+    return int.tryParse((value ?? '').toString()) ?? fallback;
+  }
+
+  int? _freeCapacityFromAvailabilityRows(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return null;
+
+    final first = rows.first;
+    final totalRinks = _asInt(first['total_rinks'], rows.length);
+
+    return _asInt(first['free_capacity_rinks'], totalRinks);
+  }
+
+  Future<bool> _canAcceptRinksRequiredChange(int requestedRinks) async {
+    // Reducing the number of rinks is always safe.
+    if (requestedRinks <= _rinksRequired) return true;
+
+    // Only home fixtures using rinks need this check.
+    if (!_selectedFixtureUsesRinks || !_isHome) return true;
+
+    if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
+      return true;
+    }
+
+    try {
+      final rows = await _client.rpc(
+        'get_green_rink_availability',
+        params: {
+          'p_green_area_id': _greenAreaId,
+          'p_start_at': _startAtLocal!.toUtc().toIso8601String(),
+          'p_end_at': _endAtLocal!.toUtc().toIso8601String(),
+        },
+      );
+
+      final availability = List<Map<String, dynamic>>.from(rows);
+      final freeRinks = _freeCapacityFromAvailabilityRows(availability);
+
+      if (!mounted) return false;
+
+      // Refresh the visible availability display while we are here.
+      setState(() {
+        _rinkAvailability = availability;
+        _rinkAvailabilityError = null;
+      });
+
+      if (freeRinks == null) return true;
+
+      return requestedRinks <= freeRinks;
+    } catch (e) {
+      if (!mounted) return false;
+
+      setState(() {
+        _rinkAvailabilityError = e.toString();
+      });
+
+      return false;
+    }
   }
 
   Future<void> _showInsufficientRinksDialog() async {
@@ -3293,6 +3354,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
                         if (!_isEventStyleFixture) ...[
                           DropdownButtonFormField<int>(
+                            key: ValueKey('rinks_$_rinksRequiredFieldVersion'),
                             value: _rinksRequired,
                             decoration: const InputDecoration(
                               labelText: 'Rinks required',
@@ -3303,10 +3365,36 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                 child: Text(n.toString()),
                               );
                             }).toList(),
-                            onChanged: (v) {
-                              setState(() => _rinksRequired = v ?? 1);
+                            onChanged: (v) async {
+                              final previousRinks = _rinksRequired;
+                              final requestedRinks = v ?? previousRinks;
+
+                              final canAccept =
+                                  await _canAcceptRinksRequiredChange(
+                                    requestedRinks,
+                                  );
+
+                              if (!mounted) return;
+
+                              if (!canAccept) {
+                                setState(() {
+                                  _rinksRequired = previousRinks;
+                                  _rinksRequiredFieldVersion++;
+                                });
+                                await Future<void>.delayed(Duration.zero);
+                                if (!mounted) return;
+                                await _showInsufficientRinksDialog();
+                                return;
+                              }
+
+                              setState(() {
+                                _rinksRequired = requestedRinks;
+                                _shownInsufficientRinksWarning = false;
+                              });
+
                               _markDirty();
-                              _loadRinkAvailability();
+
+                              await _loadRinkAvailability();
                             },
                           ),
                           const SizedBox(height: 20),

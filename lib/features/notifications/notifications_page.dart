@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../fixtures/fixture_details_page.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -145,6 +146,35 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   trailing: isRead ? null : const Icon(Icons.circle, size: 10),
                   onTap: () async {
                     await _markRead(r['id']);
+
+                    final data =
+                        (r['data'] as Map?)?.cast<String, dynamic>() ?? {};
+                    final fixtureId = data['fixture_id']?.toString();
+                    final type = (r['type'] ?? '').toString();
+
+                    if (!mounted) return;
+
+                    if (fixtureId != null && fixtureId.isNotEmpty) {
+                      final initialSection =
+                          type == 'fixture_selected' ||
+                              type == 'reserve_promoted'
+                          ? 'selection_acceptance'
+                          : 'details';
+
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              FixtureDetailsPage(fixtureId: fixtureId),
+                        ),
+                      );
+
+                      if (!mounted) return;
+                      await _load();
+                      return;
+                    }
+
+                    await _load();
                   },
                 );
               },
