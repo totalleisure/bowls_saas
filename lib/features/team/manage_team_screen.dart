@@ -11,9 +11,9 @@ import '../../core/utils/date_format.dart';
 
 import '../../Core/widgets/app_badge.dart';
 
-import 'package:bowls_saas/Services/team_sheet_pdf.dart';
-import 'package:bowls_saas/Services/team_sheet_share.dart';
-import 'package:bowls_saas/Services/team_sheet_service.dart';
+import 'package:bowls_saas/services/team_sheet_pdf.dart';
+import 'package:bowls_saas/services/team_sheet_share.dart';
+import 'package:bowls_saas/services/team_sheet_service.dart';
 
 import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
@@ -68,9 +68,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   List<Map<String, dynamic>> _clubMembers = []; // for Add Member dialog
 
   String? _currentMemberProfileId;
+  String _search = '';
+
+  String _selectedFilter = 'all';
 
   final TextEditingController _searchCtrl = TextEditingController();
-  String _search = '';
 
   final TextEditingController _clubMemberSearchController =
       TextEditingController();
@@ -94,7 +96,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final firstName = (m['first_name'] ?? '').toString().toLowerCase();
       final lastName = (m['last_name'] ?? '').toString().toLowerCase();
       final email = (m['email_address'] ?? '').toString().toLowerCase();
-      final preferred = (m['preferred_position'] ?? '').toString().toLowerCase();
+      final preferred = (m['preferred_position'] ?? '')
+          .toString()
+          .toLowerCase();
 
       return displayName.contains(q) ||
           firstName.contains(q) ||
@@ -143,7 +147,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   String _fallbackDisplayName(Map<String, dynamic>? memberProfile) {
-    final displayName = (memberProfile?['display_name'] ?? '').toString().trim();
+    final displayName = (memberProfile?['display_name'] ?? '')
+        .toString()
+        .trim();
     if (displayName.isNotEmpty) return displayName;
 
     final firstName = (memberProfile?['first_name'] ?? '').toString().trim();
@@ -173,7 +179,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       return '${lastName.toLowerCase()}|${firstName.toLowerCase()}|${displayName.toLowerCase()}';
     }
 
-    final parts = displayName.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts = displayName
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.length >= 2) {
       final inferredLast = parts.last;
       final inferredFirst = parts.take(parts.length - 1).join(' ');
@@ -183,10 +192,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return 'zzzz|zzzz|${displayName.toLowerCase()}';
   }
 
-  int _compareMemberProfiles(
-    Map<String, dynamic>? a,
-    Map<String, dynamic>? b,
-  ) {
+  int _compareMemberProfiles(Map<String, dynamic>? a, Map<String, dynamic>? b) {
     return _memberSortKey(a).compareTo(_memberSortKey(b));
   }
 
@@ -673,7 +679,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     final rows = await _client
         .from('club_memberships')
-        .select('member_profile_id, member_profiles(first_name, last_name, display_name, email_address, preferred_position)')
+        .select(
+          'member_profile_id, member_profiles(first_name, last_name, display_name, email_address, preferred_position)',
+        )
         .eq('club_id', clubId);
 
     final members = <Map<String, dynamic>>[];
@@ -693,7 +701,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         'last_name': last,
         'display_name': display.isNotEmpty
             ? display
-            : (name.isEmpty ? (r['member_profile_id']?.toString() ?? '') : name),
+            : (name.isEmpty
+                  ? (r['member_profile_id']?.toString() ?? '')
+                  : name),
         'preferred_position': preferred,
         'email_address': email,
       });
@@ -713,7 +723,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Team selection not loaded yet. Try again in a moment.'),
+          content: Text(
+            'Team selection not loaded yet. Try again in a moment.',
+          ),
         ),
       );
       return;
@@ -742,9 +754,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       await _addMembersFromPicker(selectedIds.toSet());
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to add players: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to add players: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -893,7 +905,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final firstName = (mp?['first_name'] ?? '').toString().toLowerCase();
       final lastName = (mp?['last_name'] ?? '').toString().toLowerCase();
       final phone = (mp?['phone'] ?? '').toString().toLowerCase();
-      final preferred = (mp?['preferred_position'] ?? '').toString().toLowerCase();
+      final preferred = (mp?['preferred_position'] ?? '')
+          .toString()
+          .toLowerCase();
       final status = (r['rsvp_status'] ?? r['status'] ?? '')
           .toString()
           .toLowerCase();
@@ -1203,6 +1217,96 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     );
   }
 
+  List<Map<String, dynamic>> get _filteredSelected {
+    return _selected.where((s) {
+      final role = (s['role'] ?? 'player').toString().toLowerCase();
+      final acceptance = (s['acceptance'] ?? 'pending')
+          .toString()
+          .toLowerCase();
+
+      switch (_selectedFilter) {
+        case 'players':
+          return role == 'player';
+        case 'reserves':
+          return role == 'reserve';
+        case 'opponents':
+          return role == 'opponent';
+        case 'markers':
+          return role == 'marker';
+        case 'pending':
+          return acceptance == 'pending';
+        case 'accepted':
+          return acceptance == 'accepted';
+        case 'declined':
+          return acceptance == 'declined';
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
+  Future<void> _sendAcceptanceReminders(List<Map<String, dynamic>> rows) async {
+    if (widget.readOnly || !_canEditSelection) return;
+    if (_selectionId == null) return;
+
+    final fixtureId = widget.fixture['id']?.toString();
+    if (fixtureId == null || fixtureId.isEmpty) return;
+
+    final targetIds = rows
+        .where((r) {
+          final acceptance = (r['acceptance'] ?? 'pending')
+              .toString()
+              .toLowerCase();
+          return acceptance == 'pending';
+        })
+        .map((r) => r['member_profile_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (targetIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No pending players to remind.')),
+      );
+      return;
+    }
+
+    final fixtureLabel =
+        (widget.fixture['team_name']?.toString().trim().isNotEmpty ?? false)
+        ? widget.fixture['team_name'].toString().trim()
+        : 'Fixture';
+
+    final payload = targetIds.map((targetId) {
+      return {
+        'event_type': 'acceptance_reminder',
+        'member_profile_id': _currentMemberProfileId,
+        'target_member_profile_id': targetId,
+        'fixture_id': fixtureId,
+        'team_selection_id': _selectionId,
+        'payload': {
+          'fixture_label': fixtureLabel,
+          'fixture_date': widget.fixture['start_at']?.toString(),
+          'home_away': widget.fixture['is_home'] == true ? 'Home' : 'Away',
+          'venue_name':
+              widget.fixture['venue_name']?.toString() ??
+              widget.fixture['opponent_name']?.toString() ??
+              '',
+        },
+        'status': 'pending',
+      };
+    }).toList();
+
+    await _client.from('notification_queue').insert(payload);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Reminder queued for ${targetIds.length} player(s).'),
+      ),
+    );
+  }
+
   Set<String> _memberIdsAlreadyInAddPeopleList() {
     final ids = <String>{};
 
@@ -1442,10 +1546,91 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                 ),
                 const SizedBox(height: 8),
 
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('All'),
+                      selected: _selectedFilter == 'all',
+                      onSelected: (_) =>
+                          setState(() => _selectedFilter = 'all'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Players'),
+                      selected: _selectedFilter == 'players',
+                      onSelected: (_) =>
+                          setState(() => _selectedFilter = 'players'),
+                    ),
+                    if (_isInternalFixture && _isPreselectFixture)
+                      ChoiceChip(
+                        label: const Text('Opponents'),
+                        selected: _selectedFilter == 'opponents',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'opponents'),
+                      ),
+                    if (_isInternalFixture && _isPreselectFixture)
+                      ChoiceChip(
+                        label: const Text('Markers'),
+                        selected: _selectedFilter == 'markers',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'markers'),
+                      ),
+                    if (!(_isInternalFixture && _isPreselectFixture))
+                      ChoiceChip(
+                        label: const Text('Reserves'),
+                        selected: _selectedFilter == 'reserves',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'reserves'),
+                      ),
+                    ChoiceChip(
+                      label: const Text('Pending'),
+                      selected: _selectedFilter == 'pending',
+                      onSelected: (_) =>
+                          setState(() => _selectedFilter = 'pending'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Accepted'),
+                      selected: _selectedFilter == 'accepted',
+                      onSelected: (_) =>
+                          setState(() => _selectedFilter = 'accepted'),
+                    ),
+                    ChoiceChip(
+                      label: const Text('Declined'),
+                      selected: _selectedFilter == 'declined',
+                      onSelected: (_) =>
+                          setState(() => _selectedFilter = 'declined'),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                if (_canEditSelection)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.notifications_active_outlined),
+                        label: const Text('Remind pending'),
+                        onPressed: () => _sendAcceptanceReminders(_selected),
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.filter_alt_outlined),
+                        label: const Text('Remind filtered'),
+                        onPressed: () =>
+                            _sendAcceptanceReminders(_filteredSelected),
+                      ),
+                    ],
+                  ),
+
+                const SizedBox(height: 8),
+
                 if (_selected.isEmpty)
                   const Text('No one selected yet.')
                 else
-                  ..._selected.map((s) {
+                  ..._filteredSelected.map((s) {
                     final memberId = s['member_profile_id'] as String;
                     final mp = s['member_profiles'] as Map<String, dynamic>?;
                     final name = _displayNameWithPreferredPosition(mp);
@@ -1539,6 +1724,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                     if (_canForceAccept) {
                                       await _acceptOnBehalf(memberId);
                                     }
+                                  } else if (v == 'remind') {
+                                    await _sendAcceptanceReminders([s]);
                                   }
                                 },
                                 itemBuilder: (_) => [
@@ -1547,7 +1734,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                       value: 'player',
                                       child: Text('Make player'),
                                     ),
-
                                   if (_canEditSelection &&
                                       _isInternalFixture &&
                                       _isPreselectFixture)
@@ -1555,7 +1741,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                       value: 'opponent',
                                       child: Text('Make opponent'),
                                     ),
-
                                   if (_canEditSelection &&
                                       _isInternalFixture &&
                                       _isPreselectFixture)
@@ -1563,7 +1748,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                       value: 'marker',
                                       child: Text('Make marker'),
                                     ),
-
                                   if (_canEditSelection &&
                                       !(_isInternalFixture &&
                                           _isPreselectFixture))
@@ -1571,11 +1755,15 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                       value: 'reserve',
                                       child: Text('Make reserve'),
                                     ),
-
                                   if (_canForceAccept)
                                     const PopupMenuItem(
                                       value: 'accept',
                                       child: Text('Accept'),
+                                    ),
+                                  if (_canEditSelection)
+                                    const PopupMenuItem(
+                                      value: 'remind',
+                                      child: Text('Send reminder'),
                                     ),
                                 ],
                               ),

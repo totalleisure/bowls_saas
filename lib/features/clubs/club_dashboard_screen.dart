@@ -139,7 +139,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   String _timeUntilFixture(String isoUtc) {
-    final start = DateTime.parse(isoUtc).toLocal();
+    final start = parseClubTime(isoUtc);
     final diff = start.difference(DateTime.now());
 
     if (diff.inDays >= 2) return '${diff.inDays} days time';
@@ -210,7 +210,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
 
     final startAt = DateTime.tryParse((f['start_at'] ?? '').toString());
-    if (startAt != null && !_matchesPeriod(startAt.toLocal())) {
+
+    if (startAt != null &&
+        !_matchesPeriod(parseClubTime(startAt.toIso8601String()))) {
       return false;
     }
 
@@ -847,16 +849,36 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
       final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
 
+      final nowUtcIso = DateTime.now().toUtc().toIso8601String();
       final needsAcceptance = rawNeeds.where((r) {
         final ts = r['team_selections'] as Map<String, dynamic>?;
         if (ts?['status']?.toString() != 'published') return false;
 
         final fx = ts?['fixture'] as Map<String, dynamic>?;
-        if (fx?['club_id']?.toString() != widget.clubId) return false;
         if (fx == null) return false;
+
+        if (fx['club_id']?.toString() != widget.clubId) return false;
+
+        final startAt = fx['start_at']?.toString() ?? '';
+        if (startAt.isEmpty) return false;
+        if (startAt.compareTo(nowUtcIso) < 0) return false;
 
         return _matchesFilter(fx);
       }).toList();
+
+      needsAcceptance.sort((a, b) {
+        final aFx =
+            (a['team_selections'] as Map<String, dynamic>?)?['fixture']
+                as Map<String, dynamic>?;
+        final bFx =
+            (b['team_selections'] as Map<String, dynamic>?)?['fixture']
+                as Map<String, dynamic>?;
+
+        final aStart = aFx?['start_at']?.toString() ?? '';
+        final bStart = bFx?['start_at']?.toString() ?? '';
+
+        return aStart.compareTo(bStart);
+      });
 
       // Accepted & upcoming (published + I'm selected + accepted)
       final acceptedRows = await client
@@ -885,8 +907,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .eq('is_selected', true)
           .eq('team_selections.status', 'published')
           .eq('team_selections.fixture.club_id', widget.clubId);
-
-      final nowUtcIso = DateTime.now().toUtc().toIso8601String();
 
       final upcomingAcceptedAll = <Map<String, dynamic>>[];
       final upcomingAccepted = <Map<String, dynamic>>[];
@@ -924,9 +944,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       Map<String, dynamic>? secondMatch;
       if (upcomingAcceptedAll.length > 1) {
         final candidate = upcomingAcceptedAll[1];
-        final startAt = DateTime.parse(
-          candidate['start_at'].toString(),
-        ).toLocal();
+        final startAt = parseClubTime(candidate['start_at'].toString());
         final diff = startAt.difference(DateTime.now());
 
         if (!diff.isNegative && diff.inDays < 3) {
@@ -1107,8 +1125,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
     final startsIn = _timeUntilFixture(fixture['start_at'].toString());
 
-    final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
-
+    final startAt = parseClubTime(fixture['start_at'].toString());
     final formattedStart = DateFormat(
       'EEEE d MMMM yyyy • HH:mm',
     ).format(startAt);
@@ -1213,7 +1230,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     final title = fixtureTitleUnified(fixture, myClubName: _myClubName);
     final startsIn = _timeUntilFixture(fixture['start_at'].toString());
 
-    final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
+    final startAt = parseClubTime(fixture['start_at'].toString());
     final formattedStart = DateFormat(
       'EEEE d MMMM yyyy • HH:mm',
     ).format(startAt);

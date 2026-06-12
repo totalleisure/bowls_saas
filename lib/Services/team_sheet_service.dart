@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:bowls_saas/Services/team_sheet_pdf.dart';
+import 'package:bowls_saas/services/team_sheet_pdf.dart';
 
 class TeamSheetService {
   final SupabaseClient client;
@@ -32,7 +32,9 @@ class TeamSheetService {
     // 1) Rinks for this fixture
     final rinks = await client
         .from('fixture_rinks')
-        .select('id, fixture_rink_no, format, players_per_rink, home_rink_label')
+        .select(
+          'id, fixture_rink_no, format, players_per_rink, home_rink_label',
+        )
         .eq('fixture_id', fixtureId);
 
     final rinkList = List<Map<String, dynamic>>.from(rinks);
@@ -53,7 +55,9 @@ class TeamSheetService {
     // 2) Pool (players + reserves) from team selection
     final poolRows = await client
         .from('team_selection_members')
-        .select('member_profile_id, role, acceptance, member_profiles(display_name, phone)')
+        .select(
+          'member_profile_id, role, acceptance, member_profiles(display_name, phone)',
+        )
         .eq('team_selection_id', teamSelectionId)
         .inFilter('role', ['player', 'reserve']);
 
@@ -86,7 +90,9 @@ class TeamSheetService {
     // 3) Assignments
     final asnRows = await client
         .from('fixture_rink_assignments')
-        .select('fixture_rink_id, position, member_profile_id, member_profiles(display_name)')
+        .select(
+          'fixture_rink_id, position, member_profile_id, member_profiles(display_name)',
+        )
         .eq('fixture_id', fixtureId);
 
     // Group assignments: rinkId -> list sorted by position
@@ -97,7 +103,9 @@ class TeamSheetService {
       (asnByRink[rinkId] ??= []).add(a);
     }
     for (final e in asnByRink.entries) {
-      e.value.sort((x, y) => _asInt(x['position']).compareTo(_asInt(y['position'])));
+      e.value.sort(
+        (x, y) => _asInt(x['position']).compareTo(_asInt(y['position'])),
+      );
     }
 
     // Build TeamSheetRink list
@@ -120,9 +128,10 @@ class TeamSheetService {
         // keep reserves out of the rink boxes
         if (role == 'reserve') continue;
 
-        final name = a['member_profiles']?['display_name']?.toString()
-            ?? nameByMember[mpId]
-            ?? '';
+        final name =
+            a['member_profiles']?['display_name']?.toString() ??
+            nameByMember[mpId] ??
+            '';
         if (name.isNotEmpty) players.add(name);
       }
 

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import '../../core/utils/date_format.dart';
 
 /// Simple DTOs you can build from Supabase rows
 class TeamSheetRink {
@@ -88,18 +89,34 @@ class TeamSheetData {
 }
 
 String _two(int n) => n.toString().padLeft(2, '0');
+
 String _fmtDate(DateTime dt) {
-  // UK-ish: Sat 07 Mar 2026
-  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  final d = dt.toLocal();
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  final d = toClubTime(dt);
+
   final dow = days[d.weekday - 1];
   final mon = months[d.month - 1];
+
   return '$dow ${_two(d.day)} $mon ${d.year}';
 }
 
 String _fmtTime(DateTime dt) {
-  final d = dt.toLocal();
+  final d = toClubTime(dt);
   return '${_two(d.hour)}:${_two(d.minute)}';
 }
 
@@ -162,7 +179,11 @@ pw.Widget _badge(String text, PdfColor bg, PdfColor fg) {
     ),
     child: pw.Text(
       text,
-      style: pw.TextStyle(fontSize: 9, color: fg, fontWeight: pw.FontWeight.bold),
+      style: pw.TextStyle(
+        fontSize: 9,
+        color: fg,
+        fontWeight: pw.FontWeight.bold,
+      ),
     ),
   );
 }
@@ -175,9 +196,7 @@ pw.Widget _fixtureTypeBand(
   final isInternal = data.isInternal == true;
   final rawName = (data.fixtureTypeName ?? '').trim();
 
-  final displayName = isInternal
-      ? 'Internal Fixture'
-      : rawName;
+  final displayName = isInternal ? 'Internal Fixture' : rawName;
 
   if (displayName.isEmpty) return pw.SizedBox();
 
@@ -189,8 +208,7 @@ pw.Widget _fixtureTypeBand(
       ? PdfColor.fromInt(data.fixtureTypeFgColor!)
       : fallbackFg;
 
-  final dateTimeText =
-      '${_fmtDate(data.startAt)}  ${_fmtTime(data.startAt)}';
+  final dateTimeText = '${_fmtDate(data.startAt)}  ${_fmtTime(data.startAt)}';
 
   return pw.Container(
     width: double.infinity,
@@ -231,10 +249,7 @@ pw.Widget _fixtureTypeBand(
         pw.SizedBox(height: 4),
         pw.Text(
           'Please arrive at least 15 minutes before the start of the fixture',
-          style: pw.TextStyle(
-            fontSize: 10,
-            color: fg,
-          ),
+          style: pw.TextStyle(fontSize: 10, color: fg),
         ),
       ],
     ),
@@ -263,7 +278,8 @@ pw.Widget _rinkBox({
     opponentLines.removeRange(playersPerRink, opponentLines.length);
   }
 
-  final showMatchups = opponentLines.any((o) => o.trim().isNotEmpty) ||
+  final showMatchups =
+      opponentLines.any((o) => o.trim().isNotEmpty) ||
       ((rink.marker ?? '').trim().isNotEmpty);
 
   final label = (rink.homeRinkLabel ?? '').trim();
@@ -297,10 +313,7 @@ pw.Widget _rinkBox({
             ),
           ),
           pw.Expanded(
-            child: pw.Text(
-              player,
-              style: const pw.TextStyle(fontSize: 11),
-            ),
+            child: pw.Text(player, style: const pw.TextStyle(fontSize: 11)),
           ),
         ],
       ),
@@ -333,10 +346,7 @@ pw.Widget _rinkBox({
             ),
           ),
           pw.Expanded(
-            child: pw.Text(
-              player,
-              style: const pw.TextStyle(fontSize: 11),
-            ),
+            child: pw.Text(player, style: const pw.TextStyle(fontSize: 11)),
           ),
           pw.Padding(
             padding: const pw.EdgeInsets.symmetric(horizontal: 6),
@@ -350,10 +360,7 @@ pw.Widget _rinkBox({
             ),
           ),
           pw.Expanded(
-            child: pw.Text(
-              opponent,
-              style: const pw.TextStyle(fontSize: 11),
-            ),
+            child: pw.Text(opponent, style: const pw.TextStyle(fontSize: 11)),
           ),
         ],
       ),
@@ -441,16 +448,10 @@ pw.Widget _captainContactsBox(TeamSheetData data, PdfColor primary) {
       children: [
         pw.Text(
           title,
-          style: pw.TextStyle(
-            fontSize: 14,
-            fontWeight: pw.FontWeight.bold,
-          ),
+          style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 8),
-        pw.Text(
-          name,
-          style: const pw.TextStyle(fontSize: 13),
-        ),
+        pw.Text(name, style: const pw.TextStyle(fontSize: 13)),
         pw.SizedBox(height: 6),
         pw.Text(
           '   ${safe(email)}',
@@ -463,10 +464,7 @@ pw.Widget _captainContactsBox(TeamSheetData data, PdfColor primary) {
 
         pw.SizedBox(height: 6),
 
-        pw.Text(
-          '   ${safe(phone)}',
-          style: const pw.TextStyle(fontSize: 12),
-        ),
+        pw.Text('   ${safe(phone)}', style: const pw.TextStyle(fontSize: 12)),
       ],
     );
   }
@@ -541,7 +539,7 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
   final showOpponentsAndMarker =
       (data.selectionMode ?? '').trim().toLowerCase() == 'preselect' &&
       data.isInternal == true;
-      
+
   pdf.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
@@ -579,28 +577,22 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                         ),
                       ),
                       pw.SizedBox(height: 4),
-                      pw.Text(
-                        () {
-                          final opp = (data.opponentName ?? '').trim();
+                      pw.Text(() {
+                        final opp = (data.opponentName ?? '').trim();
 
-                          if (opp.isEmpty) {
-                            return data.isHome
-                                ? data.clubName
-                                : 'Away fixture';
-                          }
+                        if (opp.isEmpty) {
+                          return data.isHome ? data.clubName : 'Away fixture';
+                        }
 
-                          return data.isHome
-                              ? '${data.clubName}  v  $opp'
-                              : 'Away at $opp  v  ${data.clubName}';
-                        }(),
-                        style: pw.TextStyle(fontSize: 12, color: clubFg),
-                      ),
+                        return data.isHome
+                            ? '${data.clubName}  v  $opp'
+                            : 'Away at $opp  v  ${data.clubName}';
+                      }(), style: pw.TextStyle(fontSize: 12, color: clubFg)),
 
-//                      if ((data.fixtureTypeName ?? '').trim().isNotEmpty) ...[
-//                        pw.SizedBox(height: 8),
-//                        _fixtureTypeBand(data, secondaryWash, primary),
-//                      ],
-
+                      //                      if ((data.fixtureTypeName ?? '').trim().isNotEmpty) ...[
+                      //                        pw.SizedBox(height: 8),
+                      //                        _fixtureTypeBand(data, secondaryWash, primary),
+                      //                      ],
                       pw.SizedBox(height: 8),
 
                       pw.Wrap(
@@ -608,28 +600,32 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                         runSpacing: 6,
                         children: [
                           if ((internalLabel ?? '').isNotEmpty)
-                            _badge(
-                              internalLabel!,
-                              secondaryWash,
-                              primary,
-                            ),
+                            _badge(internalLabel!, secondaryWash, primary),
 
                           if ((selectionModeLabel ?? '').isNotEmpty)
-                            _badge(
-                              selectionModeLabel!,
-                              secondaryWash,
-                              primary,
-                            ),
+                            _badge(selectionModeLabel!, secondaryWash, primary),
 
-                          _badge(data.isHome ? 'HOME' : 'AWAY', secondaryWash, primary),
-                          _badge(data.section.toUpperCase(), secondaryWash, primary),
-                          _badge('${data.rinksRequired} TEAMS', secondaryWash, primary),
+                          _badge(
+                            data.isHome ? 'HOME' : 'AWAY',
+                            secondaryWash,
+                            primary,
+                          ),
+                          _badge(
+                            data.section.toUpperCase(),
+                            secondaryWash,
+                            primary,
+                          ),
+                          _badge(
+                            '${data.rinksRequired} TEAMS',
+                            secondaryWash,
+                            primary,
+                          ),
                           _badge(
                             data.playersPerRink == 2
                                 ? 'PAIRS'
                                 : data.playersPerRink == 3
-                                    ? 'TRIPLES'
-                                    : 'RINKS',
+                                ? 'TRIPLES'
+                                : 'RINKS',
                             secondaryWash,
                             primary,
                           ),
@@ -645,7 +641,8 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
 
                       pw.Text(
                         [
-                          if (data.dress.trim().isNotEmpty) 'Dress: ${data.dress}',
+                          if (data.dress.trim().isNotEmpty)
+                            'Dress: ${data.dress}',
                           if ((data.mealInfo ?? '').trim().isNotEmpty)
                             'Meal: ${data.mealInfo}',
                         ].join('   -   '),
@@ -685,8 +682,9 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
               final rightIndex = leftIndex + 1;
 
               final leftRink = data.rinks[leftIndex];
-              final TeamSheetRink? rightRink =
-                  rightIndex < data.rinks.length ? data.rinks[rightIndex] : null;
+              final TeamSheetRink? rightRink = rightIndex < data.rinks.length
+                  ? data.rinks[rightIndex]
+                  : null;
 
               return pw.Padding(
                 padding: const pw.EdgeInsets.only(bottom: 12),
@@ -738,13 +736,19 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                   ? [pw.Text('None', style: const pw.TextStyle(fontSize: 11))]
                   : data.reserves.map((name) {
                       return pw.Container(
-                        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
                         decoration: pw.BoxDecoration(
                           color: PdfColors.grey100,
                           borderRadius: pw.BorderRadius.circular(8),
                           border: pw.Border.all(color: PdfColors.grey300),
                         ),
-                        child: pw.Text(name, style: const pw.TextStyle(fontSize: 11)),
+                        child: pw.Text(
+                          name,
+                          style: const pw.TextStyle(fontSize: 11),
+                        ),
                       );
                     }).toList(),
             ),
@@ -768,4 +772,3 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
 
   return pdf.save();
 }
-

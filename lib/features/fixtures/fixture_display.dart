@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import '../../core/utils/date_format.dart';
 
 // lib/core/fixtures/fixture_display.dart
 
@@ -40,10 +41,9 @@ String fixtureTitleUnified(
   final rawUsesRinks = competitionType?['uses_rinks'];
   final usesRinks = rawUsesRinks == null ? true : rawUsesRinks == true;
 
-  final selectionMode = _s(competitionType?['selection_mode'])
-      .toLowerCase()
-      .replaceAll('-', '_')
-      .replaceAll(' ', '_');
+  final selectionMode = _s(
+    competitionType?['selection_mode'],
+  ).toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
 
   final joinedTeamName = _mapName(f['team']);
   final fixtureLabel = _s(f['team_name']);
@@ -76,8 +76,9 @@ String fixtureTitleUnified(
   }
 
   if (isHome) {
-    final opponent =
-        opponentVenueName.isNotEmpty ? opponentVenueName : 'Opponent';
+    final opponent = opponentVenueName.isNotEmpty
+        ? opponentVenueName
+        : 'Opponent';
 
     if (hasTeam) {
       return 'Home $teamName v $opponent';
@@ -94,7 +95,7 @@ String fixtureTitleUnified(
 }
 
 String formatFixtureWhenLong12h(String isoUtc) {
-  final dt = DateTime.parse(isoUtc).toLocal();
+  final dt = parseClubTime(isoUtc);
   var s = DateFormat("EEEE d MMMM yyyy, h:mm a").format(dt);
   s = s.replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.');
   return s;
@@ -102,8 +103,9 @@ String formatFixtureWhenLong12h(String isoUtc) {
 
 String fixtureSubtitleUnified(Map<String, dynamic> f) {
   final startAt = (f['start_at'] ?? '').toString();
-  final whenText =
-      startAt.isEmpty ? 'Date/time not set' : formatFixtureWhenLong12h(startAt);
+  final whenText = startAt.isEmpty
+      ? 'Date/time not set'
+      : formatFixtureWhenLong12h(startAt);
 
   final competitionType = f['competition_type'] as Map<String, dynamic>?;
   final fixtureTypeName = _s(competitionType?['name']);
@@ -111,10 +113,9 @@ String fixtureSubtitleUnified(Map<String, dynamic> f) {
   final rawUsesRinks = competitionType?['uses_rinks'];
   final usesRinks = rawUsesRinks == null ? true : rawUsesRinks == true;
 
-  final selectionMode = _s(competitionType?['selection_mode'])
-      .toLowerCase()
-      .replaceAll('-', '_')
-      .replaceAll(' ', '_');
+  final selectionMode = _s(
+    competitionType?['selection_mode'],
+  ).toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
 
   final section = _s(f['section']);
 

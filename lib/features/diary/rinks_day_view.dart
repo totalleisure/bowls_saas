@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/utils/date_format.dart';
+
 /// Primary operational Rinks Day view.
 ///
 /// Rows = physical rinks
@@ -19,6 +21,8 @@ const double kHeaderHeight = 44;
 const double kHourWidth = 80;
 
 enum RinkBlockStatus { confirmed, provisional, blocked }
+
+enum RinksTimelineDensity { fit, compact, detailed }
 
 class RinkDayViewScreen extends StatefulWidget {
   const RinkDayViewScreen({
@@ -39,15 +43,18 @@ class RinkDayViewScreen extends StatefulWidget {
 }
 
 class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
-  double _horizontalOffset = 0;
   late DateTime _selectedDate;
 
   final _client = Supabase.instance.client;
+
+  double _horizontalOffset = 0;
 
   bool _isLoading = true;
   String? _loadError;
 
   String? _myProfileId;
+
+  RinksTimelineDensity _density = RinksTimelineDensity.detailed;
 
   List<RinkLane> _rinks = [];
   List<RinkAssignmentBlock> _assignments = [];
@@ -111,7 +118,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
   void _moveDay(int delta) {
     setState(() {
-      _selectedDate = _selectedDate.add(Duration(days: delta));
+      _selectedDate = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day + delta,
+      );
     });
     _loadDay();
   }
@@ -206,12 +217,12 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     }
   }
 
-  double _leftForTime(DateTime startAt) {
+  double _leftForTime(DateTime startAt, double hourWidth) {
     final startMinutes = ((startAt.hour - kDayStartHour) * 60) + startAt.minute;
 
     final clamped = startMinutes.clamp(0, kDayMinutes);
 
-    return (clamped / 60.0) * kHourWidth;
+    return (clamped / 60.0) * hourWidth;
   }
 
   void _scrollToFirstActivity({
@@ -234,9 +245,12 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
     if (earliest == null) return;
 
-    final targetOffset = (_leftForTime(earliest) - 24).clamp(
+    final hourWidth = _hourWidthFor(context);
+    final timelineWidth = _timelineWidthFor(context);
+
+    final targetOffset = (_leftForTime(earliest, hourWidth) - 24).clamp(
       0.0,
-      _timelineWidth,
+      timelineWidth,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -385,9 +399,10 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     final blocks = <RinkAssignmentBlock>[];
 
     for (final fixture in fixtures) {
-      final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
+      final startAt = parseClubTime(fixture['start_at'].toString());
+
       final endAt = fixture['end_at'] != null
-          ? DateTime.parse(fixture['end_at'].toString()).toLocal()
+          ? parseClubTime(fixture['end_at'].toString())
           : startAt.add(const Duration(hours: 3));
 
       final competitionType =
@@ -456,12 +471,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
       if (rinks.isNotEmpty || rinksRequired <= 0) continue;
 
-      final startAt = DateTime.parse(fixture['start_at'].toString()).toLocal();
+      final startAt = parseClubTime(fixture['start_at'].toString());
 
       final endAt = fixture['end_at'] != null
-          ? DateTime.parse(fixture['end_at'].toString()).toLocal()
+          ? parseClubTime(fixture['end_at'].toString())
           : startAt.add(const Duration(hours: 3));
-
       final competitionType =
           fixture['competition_types'] as Map<String, dynamic>?;
       final colourScheme =
@@ -536,6 +550,10 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
               date: _selectedDate,
               onPrevious: () => _moveDay(-1),
               onNext: () => _moveDay(1),
+              density: _density,
+              onDensityChanged: (value) {
+                setState(() => _density = value);
+              },
             ),
             _SummaryBar(
               totalRinks: rinks.length,
@@ -568,9 +586,18 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     List<RinkAssignmentBlock> assignments,
     List<UnassignedRinkNeed> unassigned,
   ) {
+    final hourWidth = _hourWidthFor(context);
+    final timelineWidth = _timelineWidthFor(context);
+
     return Column(
       children: [
-        _buildTimeHeader(context, assignments, rinks.length),
+        _buildTimeHeader(
+          context,
+          assignments,
+          rinks.length,
+          hourWidth,
+          timelineWidth,
+        ),
         Expanded(
           child: Row(
             children: [
@@ -590,7 +617,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                     controller: _horizontalBodyController,
                     scrollDirection: Axis.horizontal,
                     child: SizedBox(
-                      width: _timelineWidth,
+                      width: timelineWidth,
                       child: Scrollbar(
                         controller: _verticalBodyController,
                         thumbVisibility: true,
@@ -607,7 +634,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                                   _RinkTimelineRow(
                                     rink: rink,
                                     blocks: blocks,
-                                    timelineWidth: _timelineWidth,
+                                    timelineWidth: timelineWidth,
+                                    hourWidth: hourWidth,
                                     onBlockTap: _openBlock,
                                     isAlternate: index.isOdd,
                                     horizontalOffset: _horizontalOffset,
@@ -640,16 +668,23 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     List<UnassignedRinkNeed> unassigned,
   ) {
     final hasFutureActivity = assignments.isNotEmpty || unassigned.isNotEmpty;
-
+    final hourWidth = _hourWidthFor(context);
+    final timelineWidth = _timelineWidthFor(context);
     return Column(
       children: [
-        _buildTimeHeader(context, assignments, rinks.length),
+        _buildTimeHeader(
+          context,
+          assignments,
+          rinks.length,
+          hourWidth,
+          timelineWidth,
+        ),
         Expanded(
           child: SingleChildScrollView(
             controller: _horizontalBodyController,
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: kRinkLabelWidth + _timelineWidth,
+              width: kRinkLabelWidth + timelineWidth,
               child: ListView(
                 children: [
                   for (final rink in rinks)
@@ -661,13 +696,14 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                           child: _RinkLabelCell(label: rink.label),
                         ),
                         SizedBox(
-                          width: _timelineWidth,
+                          width: timelineWidth,
                           child: _RinkTimelineRow(
                             rink: rink,
                             blocks: assignments
                                 .where((a) => a.rinkLabel == rink.label)
                                 .toList(),
-                            timelineWidth: _timelineWidth,
+                            timelineWidth: timelineWidth,
+                            hourWidth: hourWidth,
                             onBlockTap: _openBlock,
                             isAlternate: rinks.indexOf(rink).isOdd,
                             horizontalOffset: _horizontalOffset,
@@ -718,6 +754,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     BuildContext context,
     List<RinkAssignmentBlock> assignments,
     int rinkCount,
+    double hourWidth,
+    double timelineWidth,
   ) {
     final textStyle = Theme.of(
       context,
@@ -745,7 +783,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
             scrollDirection: Axis.horizontal,
             physics: const ClampingScrollPhysics(),
             child: SizedBox(
-              width: _timelineWidth,
+              width: timelineWidth,
               height: kHeaderHeight + 24,
               child: Column(
                 children: [
@@ -753,7 +791,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                     children: [
                       for (int i = 0; i < usage.length; i++)
                         Container(
-                          width: kHourWidth,
+                          width: hourWidth,
                           height: 24,
                           alignment: Alignment.center,
                           decoration: const BoxDecoration(
@@ -782,7 +820,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                         hour++
                       )
                         Container(
-                          width: kHourWidth,
+                          width: hourWidth,
                           height: kHeaderHeight,
                           alignment: Alignment.centerLeft,
                           padding: const EdgeInsets.only(left: 6),
@@ -806,7 +844,24 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     );
   }
 
-  double get _timelineWidth => (kDayEndHour - kDayStartHour + 1) * kHourWidth;
+  double _hourWidthFor(BuildContext context) {
+    final availableWidth = MediaQuery.of(context).size.width - kRinkLabelWidth;
+    final hourCount = kDayEndHour - kDayStartHour + 1;
+
+    switch (_density) {
+      case RinksTimelineDensity.fit:
+        return (availableWidth / hourCount).clamp(32.0, 80.0);
+      case RinksTimelineDensity.compact:
+        return 52.0;
+      case RinksTimelineDensity.detailed:
+        return 80.0;
+    }
+  }
+
+  double _timelineWidthFor(BuildContext context) {
+    final hourCount = kDayEndHour - kDayStartHour + 1;
+    return hourCount * _hourWidthFor(context);
+  }
 
   void _openBlock(RinkAssignmentBlock block) {
     ScaffoldMessenger.of(
@@ -961,12 +1016,16 @@ class _RinksHeader extends StatelessWidget {
     required this.date,
     required this.onPrevious,
     required this.onNext,
+    required this.density,
+    required this.onDensityChanged,
   });
 
   final String clubName;
   final DateTime date;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
+  final RinksTimelineDensity density;
+  final ValueChanged<RinksTimelineDensity> onDensityChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1028,6 +1087,26 @@ class _RinksHeader extends StatelessWidget {
                 onPressed: onNext,
                 icon: const Icon(Icons.chevron_right),
                 tooltip: 'Next day',
+              ),
+              PopupMenuButton<RinksTimelineDensity>(
+                tooltip: 'Timeline density',
+                icon: const Icon(Icons.zoom_out_map),
+                initialValue: density,
+                onSelected: onDensityChanged,
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: RinksTimelineDensity.fit,
+                    child: Text('Fit day'),
+                  ),
+                  PopupMenuItem(
+                    value: RinksTimelineDensity.compact,
+                    child: Text('Compact'),
+                  ),
+                  PopupMenuItem(
+                    value: RinksTimelineDensity.detailed,
+                    child: Text('Detailed'),
+                  ),
+                ],
               ),
               IconButton(
                 onPressed: () {},
@@ -1142,6 +1221,7 @@ class _RinkTimelineRow extends StatelessWidget {
     required this.rink,
     required this.blocks,
     required this.timelineWidth,
+    required this.hourWidth,
     required this.onBlockTap,
     required this.horizontalOffset,
     required this.viewportWidth,
@@ -1152,6 +1232,7 @@ class _RinkTimelineRow extends StatelessWidget {
   final RinkLane rink;
   final List<RinkAssignmentBlock> blocks;
   final double timelineWidth;
+  final double hourWidth;
   final ValueChanged<RinkAssignmentBlock> onBlockTap;
   final double horizontalOffset;
   final double viewportWidth;
@@ -1170,7 +1251,7 @@ class _RinkTimelineRow extends StatelessWidget {
               color: isAlternate ? const Color(0xFFF9FAFB) : Colors.white,
             ),
           ),
-          _HourGridBackground(width: timelineWidth),
+          _HourGridBackground(width: timelineWidth, hourWidth: hourWidth),
           for (final block in blocks)
             Positioned(
               left: _leftFor(block.startAt),
@@ -1204,7 +1285,7 @@ class _RinkTimelineRow extends StatelessWidget {
   double _leftFor(DateTime startAt) {
     final startMinutes = ((startAt.hour - kDayStartHour) * 60) + startAt.minute;
     final clamped = startMinutes.clamp(0, kDayMinutes);
-    return (clamped / 60.0) * kHourWidth;
+    return (clamped / 60.0) * hourWidth;
   }
 
   double _widthFor(DateTime startAt, DateTime endAt) {
@@ -1213,7 +1294,7 @@ class _RinkTimelineRow extends StatelessWidget {
     final visibleStart = startMinutes.clamp(0, kDayMinutes);
     final visibleEnd = endMinutes.clamp(0, kDayMinutes);
     final durationMinutes = (visibleEnd - visibleStart).clamp(20, kDayMinutes);
-    return (durationMinutes / 60.0) * kHourWidth;
+    return (durationMinutes / 60.0) * hourWidth;
   }
 
   bool get _hasHiddenLeft {
@@ -1241,9 +1322,10 @@ class _RinkTimelineRow extends StatelessWidget {
 }
 
 class _HourGridBackground extends StatelessWidget {
-  const _HourGridBackground({required this.width});
+  const _HourGridBackground({required this.width, required this.hourWidth});
 
   final double width;
+  final double hourWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -1257,7 +1339,7 @@ class _HourGridBackground extends StatelessWidget {
         children: [
           for (int hour = kDayStartHour; hour < kDayEndHour; hour++)
             Container(
-              width: kHourWidth,
+              width: hourWidth,
               decoration: const BoxDecoration(
                 border: Border(left: BorderSide(color: Color(0xFFF3F4F6))),
               ),

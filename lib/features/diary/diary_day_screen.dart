@@ -3,6 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../fixtures/fixture_details_page.dart';
 import '../fixtures/fixture_display.dart';
+
+import '../../core/utils/date_format.dart';
+
 import 'rinks_day_view.dart';
 
 class DiaryDayScreen extends StatefulWidget {
@@ -160,11 +163,11 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
   }
 
   _DiaryItem _mapFixture(Map<String, dynamic> f) {
-    final startAt = DateTime.parse(f['start_at'].toString()).toLocal();
-    final endAt = f['end_at'] != null
-        ? DateTime.parse(f['end_at'].toString()).toLocal()
-        : startAt.add(const Duration(hours: 3));
+    final startAt = parseClubTime(f['start_at'].toString());
 
+    final endAt = f['end_at'] != null
+        ? parseClubTime(f['end_at'].toString())
+        : startAt.add(const Duration(hours: 3));
     final type = f['competition_type'] as Map<String, dynamic>?;
     final colourScheme = type?['colour_scheme'] as Map<String, dynamic>?;
 
@@ -225,7 +228,7 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
 
   void _moveDay(int delta) {
     setState(() {
-      _date = _date.add(Duration(days: delta));
+      _date = DateTime(_date.year, _date.month, _date.day + delta);
     });
     _load();
   }

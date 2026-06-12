@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../fixtures/fixture_details_page.dart';
 
+import '../../core/utils/date_format.dart';
+
 import 'diary_day_screen.dart';
 import 'rinks_day_view.dart';
 
@@ -118,9 +120,10 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
   }
 
   _MonthDiaryItem _mapFixture(Map<String, dynamic> row) {
-    final startAt = DateTime.parse(row['start_at'].toString()).toLocal();
+    final startAt = parseClubTime(row['start_at'].toString());
+
     final endAt = row['end_at'] != null
-        ? DateTime.parse(row['end_at'].toString()).toLocal()
+        ? parseClubTime(row['end_at'].toString())
         : startAt.add(const Duration(hours: 3));
 
     final type = row['competition_types'] as Map<String, dynamic>?;
@@ -391,7 +394,11 @@ class _MonthGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final firstOfMonth = DateTime(month.year, month.month);
+    //    final firstOfMonth = DateTime(month.year, month.month);
+    //    final startOffset = firstOfMonth.weekday - DateTime.monday;
+    //    final gridStart = firstOfMonth.subtract(Duration(days: startOffset));
+
+    final firstOfMonth = DateTime(month.year, month.month, 1);
     final startOffset = firstOfMonth.weekday - DateTime.monday;
     final gridStart = firstOfMonth.subtract(Duration(days: startOffset));
 
@@ -438,7 +445,12 @@ class _MonthGrid extends StatelessWidget {
                 childAspectRatio: 1.05 / zoom,
               ),
               itemBuilder: (context, index) {
-                final date = gridStart.add(Duration(days: index));
+                final date = DateTime(
+                  gridStart.year,
+                  gridStart.month,
+                  gridStart.day + index,
+                );
+
                 final dayItems =
                     items
                         .where(

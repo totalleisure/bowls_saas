@@ -30,7 +30,7 @@ String _formatLocalDateTime(DateTime dt) {
 }
 
 String _formatLocalDisplay(DateTime dt) {
-  return formatWhenLocal(dt.toUtc().toIso8601String());
+  return formatClubDateTime(dt);
 }
 
 class FixtureDetailsPage extends StatefulWidget {
@@ -164,7 +164,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   DateTime? get _startAtLocal {
     final raw = _fixture?['start_at']?.toString();
     if (raw == null || raw.isEmpty) return null;
-    return DateTime.parse(raw).toLocal();
+    return parseClubTime(raw);
   }
 
   DateTime? get _endAtLocal {
@@ -173,7 +173,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       final start = _startAtLocal;
       return start == null ? null : start.add(const Duration(hours: 2));
     }
-    return DateTime.parse(raw).toLocal();
+    return parseClubTime(raw);
   }
 
   bool get _canEditAdminFixtureDetails =>
@@ -1166,8 +1166,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       return;
     }
 
-    final currentUtc = DateTime.parse(currentStartAtStr).toUtc();
-    final currentLocal = currentUtc.toLocal();
+    final currentLocal = parseClubTime(currentStartAtStr);
 
     final pickedDate = await showDatePicker(
       context: context,
@@ -1221,7 +1220,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     try {
       await Supabase.instance.client
           .from('fixtures')
-          .update({'start_at': newLocal.toUtc().toIso8601String()})
+          .update({'start_at': clubTimeToUtc(newLocal).toIso8601String()})
           .eq('id', widget.fixtureId);
 
       _didChangeFixture = true;
@@ -1558,8 +1557,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _editStartTime() async {
-    final startLocal = DateTime.parse(_fixture!['start_at']).toLocal();
-    final endLocal = DateTime.parse(_fixture!['end_at']).toLocal();
+    final startLocal = parseClubTime(_fixture!['start_at'].toString());
+    final endLocal = parseClubTime(_fixture!['end_at'].toString());
 
     final currentDuration = endLocal.difference(startLocal);
 
@@ -1618,8 +1617,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       await Supabase.instance.client
           .from('fixtures')
           .update({
-            'start_at': newStart.toUtc().toIso8601String(),
-            'end_at': newEnd.toUtc().toIso8601String(),
+            'start_at': clubTimeToUtc(newStart).toIso8601String(),
+            'end_at': clubTimeToUtc(newEnd).toIso8601String(),
           })
           .eq('id', widget.fixtureId);
 
@@ -1627,8 +1626,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         'queue_fixture_moved_notifications',
         params: {
           'p_fixture_id': widget.fixtureId,
-          'p_old_start_at': startLocal.toUtc().toIso8601String(),
-          'p_old_end_at': endLocal.toUtc().toIso8601String(),
+          'p_old_start_at': clubTimeToUtc(startLocal).toIso8601String(),
+          'p_old_end_at': clubTimeToUtc(endLocal).toIso8601String(),
         },
       );
 
@@ -1763,12 +1762,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _editEndTime() async {
-    final startLocal = DateTime.parse(_fixture!['start_at']).toLocal();
+    final startLocal = parseClubTime(_fixture!['start_at'].toString());
 
     final endStr = _fixture!['end_at']?.toString();
     final endLocal = (endStr == null || endStr.isEmpty)
         ? startLocal.add(const Duration(hours: 2))
-        : DateTime.parse(endStr).toLocal();
+        : parseClubTime(endStr);
 
     final pickedTime = await showTimePicker(
       context: context,
@@ -1823,7 +1822,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     try {
       await Supabase.instance.client
           .from('fixtures')
-          .update({'end_at': newEnd.toUtc().toIso8601String()})
+          .update({'end_at': clubTimeToUtc(newEnd).toIso8601String()})
           .eq('id', widget.fixtureId);
 
       await _clearPhysicalRinkAssignments();
@@ -2992,12 +2991,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final startAt = fixture['start_at'] as String?;
     final when = startAt != null
-        ? DateTime.parse(startAt).toLocal()
-        : DateTime.now();
+        ? parseClubTime(startAt)
+        : toClubTime(DateTime.now());
 
     final endAt = fixture['end_at'] as String?;
     final endWhen = endAt != null
-        ? DateTime.parse(endAt).toLocal()
+        ? parseClubTime(endAt)
         : when.add(const Duration(hours: 2));
 
     final venue = (fixture['venue']?['name'] as String?) ?? '';
