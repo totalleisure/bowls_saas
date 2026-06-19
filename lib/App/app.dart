@@ -7,6 +7,7 @@ class BowlsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Bowls SaaS',
       theme: ThemeData(useMaterial3: true),
       home: AuthGate(),

@@ -6,8 +6,8 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:convert';
 import '../../core/utils/date_format.dart';
 
-import 'package:bowls_saas/Services/team_sheet_pdf.dart';
-import 'package:bowls_saas/Services/team_sheet_share.dart';
+import 'package:bowls_saas/services/team_sheet_pdf.dart';
+import 'package:bowls_saas/services/team_sheet_share.dart';
 
 class TeamSheetBuildResult {
   final TeamSheetData data;
@@ -660,7 +660,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
       final recipients = recipientsByEmail.values.toList();
 
-      final d = data.startAt.toLocal();
+      final d = toClubTime(data.startAt);
       final when =
           '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
       final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
@@ -1084,7 +1084,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
       final pdfBytes = await buildTeamSheetPdf(data);
 
-      final d = data.startAt.toLocal();
+      final d = toClubTime(data.startAt);
       final when =
           '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
       final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '-');
@@ -1096,7 +1096,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       final path = await shareTeamSheetPdf(
         pdfBytes,
         message:
-            '${data.clubName} v ${data.opponentName} — ${data.startAt.toLocal()}',
+            '${data.clubName} v ${data.opponentName} — ${toClubTime(data.startAt)}',
         filename: '$safeClub v $safeOpp - $when.pdf',
       );
 

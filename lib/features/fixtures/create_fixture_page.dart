@@ -8,6 +8,7 @@ import 'package:bowls_saas/services/team_sheet_pdf.dart';
 
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
+
 import '../rinks/widgets/rink_availability_panel.dart';
 import 'package:bowls_saas/core/helpers/member_picker_helpers.dart';
 import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
@@ -19,16 +20,42 @@ enum FixtureLocationType { home, away }
 
 enum FixtureWorkflowType { rsvp, team }
 
+class InitialRinkBookingContext {
+  const InitialRinkBookingContext({
+    required this.greenAreaId,
+    required this.greenName,
+    required this.rinkLabel,
+    required this.startAt,
+    required this.latestEndAt,
+    this.suggestedEndAt,
+  });
+
+  final String greenAreaId;
+  final String greenName;
+  final String rinkLabel;
+
+  /// Suggested booking start time in club time.
+  final DateTime startAt;
+
+  /// Hard latest finish time from the available slot / sunset cutoff.
+  final DateTime latestEndAt;
+
+  /// Suggested booking end time in club time.
+  final DateTime? suggestedEndAt;
+}
+
 class CreateFixturePage extends StatefulWidget {
   final String clubId;
   final String clubName;
   final bool memberBookingMode;
+  final InitialRinkBookingContext? initialRinkBooking;
 
   const CreateFixturePage({
     super.key,
     required this.clubId,
     required this.clubName,
     this.memberBookingMode = false,
+    this.initialRinkBooking,
   });
 
   @override
@@ -55,6 +82,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   bool _isPreselectFixture = false;
 
   bool _hasUnsavedChanges = false;
+
+  bool _initialRinkBookingApplied = false;
 
   void _markDirty() {
     if (_hasUnsavedChanges) return;
@@ -163,8 +192,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       await _loadUserPermissions();
       await _loadFixtureTypes();
       await _loadTeams();
+
       // Only load greens once we have a home venue selected
       await _loadGreenAreas();
+
+      _applyInitialRinkBookingContext();
+
       await _loadClubMembers();
 
       _defaultBookerIntoFirstPlayerSlot();
@@ -211,12 +244,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     });
 
     try {
-      final rows = await _client.rpc(
+      final rows = await _rpcWithSingleRetry(
         'get_green_rink_availability',
         params: {
           'p_green_area_id': _greenAreaId,
-          'p_start_at': _startAtLocal!.toUtc().toIso8601String(),
-          'p_end_at': _endAtLocal!.toUtc().toIso8601String(),
+          'p_start_at': clubTimeToUtc(_startAtLocal!).toIso8601String(),
+          'p_end_at': clubTimeToUtc(_endAtLocal!).toIso8601String(),
         },
       );
 
@@ -244,9 +277,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     } catch (e) {
       if (!mounted) return;
 
+      final isNetwork = _looksLikeTransientNetworkError(e);
+
       setState(() {
-        _rinkAvailabilityError = e.toString();
         _rinkAvailability = [];
+        _rinkAvailabilityError = isNetwork
+            ? 'Could not load rink availability. Please check your connection and try again.'
+            : 'Could not load rink availability: $e';
       });
     } finally {
       if (mounted) {
@@ -520,12 +557,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       throw Exception('Please select a team.');
     }
 
-    final availabilityRows = await _client.rpc(
+    final availabilityRows = await _rpcWithSingleRetry(
       'get_green_rink_availability',
       params: {
         'p_green_area_id': isHome ? _greenAreaId : null,
-        'p_start_at': startAt.toUtc().toIso8601String(),
-        'p_end_at': endAt.toUtc().toIso8601String(),
+        'p_start_at': clubTimeToUtc(startAt).toIso8601String(),
+        'p_end_at': clubTimeToUtc(endAt).toIso8601String(),
       },
     );
 
@@ -577,8 +614,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         .from('fixtures')
         .insert({
           'club_id': widget.clubId,
-          'start_at': startAt.toUtc().toIso8601String(),
-          'end_at': endAt.toUtc().toIso8601String(),
+          'start_at': clubTimeToUtc(startAt).toIso8601String(),
+          'end_at': clubTimeToUtc(endAt).toIso8601String(),
           'is_home': isHome,
           'section': _section,
           'rinks_required': _rinksRequired,
@@ -716,12 +753,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
 
     try {
-      final rows = await _client.rpc(
+      final rows = await _rpcWithSingleRetry(
         'get_green_rink_availability',
         params: {
           'p_green_area_id': _greenAreaId,
-          'p_start_at': _startAtLocal!.toUtc().toIso8601String(),
-          'p_end_at': _endAtLocal!.toUtc().toIso8601String(),
+          'p_start_at': clubTimeToUtc(_startAtLocal!).toIso8601String(),
+          'p_end_at': clubTimeToUtc(_endAtLocal!).toIso8601String(),
         },
       );
 
@@ -781,7 +818,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     final pdfBytes = await buildTeamSheetPdf(result.data);
 
-    final d = result.data.startAt.toLocal();
+    final d = toClubTime(result.data.startAt);
     final when =
         '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
 
@@ -1010,10 +1047,20 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (!mounted) return;
 
     setState(() {
+      final existingGreenAreaId = _greenAreaId;
+
       _greenAreas = loadedGreens;
-      _greenAreaId = _greenAreas.isNotEmpty
-          ? _greenAreas.first['id'].toString()
-          : null;
+
+      final existingStillAvailable =
+          existingGreenAreaId != null &&
+          _greenAreas.any((g) => g['id']?.toString() == existingGreenAreaId);
+
+      _greenAreaId = existingStillAvailable
+          ? existingGreenAreaId
+          : (_greenAreas.isNotEmpty
+                ? _greenAreas.first['id'].toString()
+                : null);
+
       _syncOrientationToSelectedGreen();
     });
   }
@@ -1181,6 +1228,37 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (_orientation == null || !allowed.contains(_orientation)) {
       _orientation = allowed.first;
     }
+  }
+
+  void _applyInitialRinkBookingContext() {
+    final booking = widget.initialRinkBooking;
+
+    if (booking == null || _initialRinkBookingApplied) return;
+
+    _initialRinkBookingApplied = true;
+
+    _isHome = true;
+    _fixtureLocation = FixtureLocationType.home;
+
+    _startAtLocal = booking.startAt;
+    _endAtLocal = booking.suggestedEndAt ?? booking.latestEndAt;
+
+    final greenExists = _greenAreas.any(
+      (g) => g['id']?.toString() == booking.greenAreaId,
+    );
+
+    if (greenExists) {
+      _greenAreaId = booking.greenAreaId;
+    }
+
+    _selectedHomeRinkByTeam.clear();
+
+    if (booking.rinkLabel.trim().isNotEmpty) {
+      _selectedHomeRinkByTeam[1] = booking.rinkLabel;
+    }
+
+    _syncOrientationToSelectedGreen();
+    _shownInsufficientRinksWarning = false;
   }
 
   void _applyFixtureType(String? fixtureTypeId) {
@@ -1380,6 +1458,39 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return null;
   }
 
+  static const Duration _recommendedFixtureDuration = Duration(hours: 2);
+
+  Duration? get _currentRinkBookingDuration {
+    final booking = widget.initialRinkBooking;
+    if (booking == null) return null;
+
+    if (_startAtLocal == null || _endAtLocal == null) return null;
+
+    return _endAtLocal!.difference(_startAtLocal!);
+  }
+
+  bool get _currentRinkBookingIsShort {
+    final duration = _currentRinkBookingDuration;
+    if (duration == null) return false;
+
+    return duration < _recommendedFixtureDuration;
+  }
+
+  String _friendlyDuration(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+
+    if (hours > 0 && minutes > 0) {
+      return '$hours hr ${minutes} mins';
+    }
+
+    if (hours > 0) {
+      return hours == 1 ? '1 hr' : '$hours hrs';
+    }
+
+    return '$minutes mins';
+  }
+
   void _toggleHomeRinkSelection(String rinkLabel) {
     final existingTeamNo = _teamNoForSelectedRink(rinkLabel);
 
@@ -1497,6 +1608,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   bool get _isEventStyleFixture =>
       _selectedFixtureType != null && !_selectedFixtureUsesRinks;
+
+  bool _looksLikeTransientNetworkError(Object e) {
+    final s = e.toString().toLowerCase();
+
+    return s.contains('socketexception') ||
+        s.contains('semaphore timeout') ||
+        s.contains('connection timed out') ||
+        s.contains('connection closed') ||
+        s.contains('failed host lookup') ||
+        s.contains('network is unreachable');
+  }
 
   List<Map<String, dynamic>> get _allVenues {
     final byId = <String, Map<String, dynamic>>{};
@@ -1694,6 +1816,21 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
   }
 
+  Future<dynamic> _rpcWithSingleRetry(
+    String functionName, {
+    required Map<String, dynamic> params,
+  }) async {
+    try {
+      return await _client.rpc(functionName, params: params);
+    } catch (e) {
+      if (!_looksLikeTransientNetworkError(e)) rethrow;
+
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+
+      return _client.rpc(functionName, params: params);
+    }
+  }
+
   Future<void> _loadClubMembers() async {
     final rows = await _client
         .from('club_memberships')
@@ -1873,6 +2010,28 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     );
   }
 
+  void _validateInitialRinkBookingLimits() {
+    final initialBooking = widget.initialRinkBooking;
+
+    if (initialBooking == null) return;
+    if (_startAtLocal == null || _endAtLocal == null) return;
+
+    if (_endAtLocal!.isAfter(initialBooking.latestEndAt)) {
+      throw Exception(
+        'This booking must finish by ${formatClubDateTime(initialBooking.latestEndAt)}.',
+      );
+    }
+
+    final currentBookingDuration = _endAtLocal!.difference(_startAtLocal!);
+
+    if (currentBookingDuration < const Duration(hours: 2)) {
+      throw Exception(
+        'This booking only allows ${_friendlyDuration(currentBookingDuration)}. '
+        'A normal fixture needs 2 hours, so it cannot be saved.',
+      );
+    }
+  }
+
   Future<void> _save() async {
     if (_loading) {
       debugPrint('SAVE: ignored because already loading');
@@ -1952,12 +2111,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       debugPrint('CREATE FIXTURE currentMemberId=$_currentMemberId');
       debugPrint('CREATE FIXTURE canSeeAll=$_canSeeAllFixtureTypes');
 
+      _validateInitialRinkBookingLimits();
+
       final insertedRows = await _client
           .from('fixtures')
           .insert({
             'club_id': widget.clubId,
-            'start_at': _startAtLocal!.toUtc().toIso8601String(),
-            'end_at': _endAtLocal!.toUtc().toIso8601String(),
+            'start_at': clubTimeToUtc(_startAtLocal!).toIso8601String(),
+            'end_at': clubTimeToUtc(_endAtLocal!).toIso8601String(),
             'is_home': _isHome,
             'section': _section.isEmpty ? 'open' : _section,
             'rinks_required': usesRinks ? _rinksRequired : 0,
@@ -2756,11 +2917,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Widget build(BuildContext context) {
     final startLabel = _startAtLocal == null
         ? 'Start Date & Time'
-        : formatWhenLocal(_startAtLocal!.toUtc().toIso8601String());
+        : formatClubDateTime(_startAtLocal!);
 
     final endLabel = _endAtLocal == null
         ? 'End Date & Time'
-        : formatWhenLocal(_endAtLocal!.toUtc().toIso8601String());
+        : formatClubDateTime(_endAtLocal!);
 
     final selectedGreen = _selectedGreenArea;
     final allowedOrients = selectedGreen == null
@@ -2984,6 +3145,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             ),
                           ),
                         ],
+
+                        if (_currentRinkBookingIsShort &&
+                            _currentRinkBookingDuration != null &&
+                            widget.initialRinkBooking != null)
+                          _ShortRinkBookingWarning(
+                            availableDuration: _currentRinkBookingDuration!,
+                            latestEndAt: widget.initialRinkBooking!.latestEndAt,
+                          ),
 
                         Row(
                           children: [
@@ -3411,6 +3580,69 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ShortRinkBookingWarning extends StatelessWidget {
+  const _ShortRinkBookingWarning({
+    required this.availableDuration,
+    required this.latestEndAt,
+  });
+
+  final Duration availableDuration;
+  final DateTime latestEndAt;
+
+  @override
+  Widget build(BuildContext context) {
+    String friendlyDuration(Duration duration) {
+      final hours = duration.inHours;
+      final minutes = duration.inMinutes.remainder(60);
+
+      if (hours > 0 && minutes > 0) {
+        return '$hours hr ${minutes} mins';
+      }
+
+      if (hours > 0) {
+        return hours == 1 ? '1 hr' : '$hours hrs';
+      }
+
+      return '$minutes mins';
+    }
+
+    String timeLabel(DateTime value) {
+      final hour = value.hour.toString().padLeft(2, '0');
+      final minute = value.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF59E0B)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber, color: Color(0xFFB45309)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'This slot is shorter than the normal 2-hour fixture window. '
+              'Only ${friendlyDuration(availableDuration)} is available before the sunset booking limit '
+              'at ${timeLabel(latestEndAt)}.',
+              style: const TextStyle(
+                color: Color(0xFF92400E),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

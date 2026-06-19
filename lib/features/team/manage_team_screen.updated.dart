@@ -11,9 +11,9 @@ import '../../core/utils/date_format.dart';
 
 import '../../Core/widgets/app_badge.dart';
 
-import 'package:bowls_saas/Services/team_sheet_pdf.dart';
-import 'package:bowls_saas/Services/team_sheet_share.dart';
-import 'package:bowls_saas/Services/team_sheet_service.dart';
+import 'package:bowls_saas/services/team_sheet_pdf.dart';
+import 'package:bowls_saas/services/team_sheet_share.dart';
+import 'package:bowls_saas/services/team_sheet_service.dart';
 
 import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
@@ -684,7 +684,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Team selection not loaded yet. Try again in a moment.'),
+          content: Text(
+            'Team selection not loaded yet. Try again in a moment.',
+          ),
         ),
       );
       return;
@@ -713,9 +715,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       await _addMembersFromPicker(selectedIds.toSet());
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to add players: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to add players: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }

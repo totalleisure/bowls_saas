@@ -1,4 +1,9 @@
-CREATE OR REPLACE FUNCTION public.get_green_rink_availability(p_green_area_id uuid, p_start_at timestamp with time zone, p_end_at timestamp with time zone)
+CREATE OR REPLACE FUNCTION public.get_green_rink_availability(
+  p_green_area_id uuid,
+  p_start_at timestamp with time zone,
+  p_end_at timestamp with time zone,
+  p_exclude_fixture_id uuid default null
+)
  RETURNS TABLE(rink_label text, is_booked boolean, booked_text text, background_hex text, foreground_hex text, total_rinks integer, physically_booked_rinks integer, capacity_booked_rinks integer, free_capacity_rinks integer, fixture_rink_id uuid, booked_fixture_id uuid)
  LANGUAGE sql
  STABLE
@@ -32,8 +37,12 @@ AS $function$
     from green g
     left join public.fixtures f
       on f.green_area_id = g.id
-     and f.time_range && tstzrange(p_start_at, p_end_at, '[)')
-    group by g.rink_count
+    and f.time_range && tstzrange(p_start_at, p_end_at, '[)')
+    and (
+      p_exclude_fixture_id is null
+      or f.id <> p_exclude_fixture_id
+    )
+    group by g.id, g.rink_count
   ),
 booked as (
   select
@@ -77,6 +86,10 @@ booked as (
   where f.green_area_id = p_green_area_id
     and fr.home_rink_label is not null
     and f.time_range && tstzrange(p_start_at, p_end_at, '[)')
+    and (
+      p_exclude_fixture_id is null
+      or f.id <> p_exclude_fixture_id
+    )
   group by fr.home_rink_label
 ),
   physical_count as (

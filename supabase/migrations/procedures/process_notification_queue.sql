@@ -462,7 +462,28 @@ begin
             || chr(10)
             || 'Away at '
             || coalesce(r.payload->>'venue_name', 'Venue not set');
-        end if;        
+        end if;  
+      elsif r.event_type = 'acceptance_reminder' then
+      v_source := 'Selection Reminder';
+      v_title := v_source;
+
+      v_body :=
+          'Please confirm whether you accept your team selection for '
+          || v_fixture_label
+          || '.';
+
+      if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+      end if;
+
+      if v_home_away <> '' then
+          v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
+      end if;
+      if v_venue_name <> '' then
+          v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
+      end if;
+
+
       elsif r.event_type = 'fixture_message' then
         v_source := coalesce(
           nullif(r.payload->>'title', ''),
@@ -535,7 +556,8 @@ begin
         'guest_membership_request',
         'guest_membership_approved',
         'fixture_selected',
-        'fixture_moved'
+        'fixture_moved',
+        'acceptance_reminder'
       ) then
         insert into public.email_queue (
           member_profile_id,

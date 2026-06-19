@@ -1663,13 +1663,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _loadRinkAvailability() async {
-    debugPrint(
-      'RINK AVAILABILITY CHECK: '
-      'green=$_greenAreaId '
-      'start=$_startAtLocal '
-      'end=$_endAtLocal',
-    );
-
     if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
       setState(() {
         _rinkAvailability = [];
@@ -1683,13 +1676,27 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       _rinkAvailabilityError = null;
     });
 
+    debugPrint(
+      'RINK AVAILABILITY RPC: '
+      'fixture=${widget.fixtureId} '
+      'green=$_greenAreaId '
+      'startLocal=$_startAtLocal '
+      'endLocal=$_endAtLocal '
+      'startUtc=${_startAtLocal!.toUtc().toIso8601String()} '
+      'endUtc=${_endAtLocal!.toUtc().toIso8601String()}',
+    );
+
     try {
+      final startAtUtc = _fixture?['start_at']?.toString();
+      final endAtUtc = _fixture?['end_at']?.toString();
+
       final rows = await _client.rpc(
         'get_green_rink_availability',
         params: {
           'p_green_area_id': _greenAreaId,
-          'p_start_at': _startAtLocal!.toUtc().toIso8601String(),
-          'p_end_at': _endAtLocal!.toUtc().toIso8601String(),
+          'p_start_at': startAtUtc,
+          'p_end_at': endAtUtc,
+          'p_exclude_fixture_id': widget.fixtureId,
         },
       );
 

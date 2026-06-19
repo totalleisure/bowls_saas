@@ -28,6 +28,12 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This App needs access to your photo library so you can select photos to include in the app.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to your photo library so you can select photos to include in the app.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to the camera so you can take photos to include in the app.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Total Leisure Bowls may use your location while the App is in use to help identify nearby bowling clubs, venues, fixtures, and other location-related services.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -31,7 +31,6 @@ class FixturesScreen extends StatefulWidget {
 }
 
 class _FixturesScreenState extends State<FixturesScreen> {
-  
   bool _loading = true;
   bool _showPast = false;
   String? _error;
@@ -52,7 +51,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
 
   bool get _canSeeAllMemberFixtures =>
       _isSuperuser || _isClubAdmin || _isSelector;
-      
+
   List<Map<String, dynamic>> _fixtures = [];
 
   late final FixturesRepository _repo;
@@ -149,7 +148,8 @@ class _FixturesScreenState extends State<FixturesScreen> {
 
       final myClubName = (clubRow['name'] ?? '').toString();
       final primaryHex = (clubRow['primary_color_hex'] ?? '#2A58A8').toString();
-      final secondaryHex = (clubRow['secondary_color_hex'] ?? '#FFFFD600').toString();
+      final secondaryHex = (clubRow['secondary_color_hex'] ?? '#FFFFD600')
+          .toString();
 
       _clubBlue = colorFromHex(primaryHex);
       _clubYellow = colorFromHex(secondaryHex);
@@ -161,15 +161,15 @@ class _FixturesScreenState extends State<FixturesScreen> {
             'requires_rsvp, team_id, team_name, competition_type_id, '
             'captain_member_profile_id, vice_captain_member_profile_id, '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
-              'id, name, is_internal, selection_mode, uses_rinks, '
-              'colour_scheme:fixture_colour_schemes('
-                'id, name, background_hex, foreground_hex'
-              ')'
+            'id, name, is_internal, selection_mode, uses_rinks, '
+            'colour_scheme:fixture_colour_schemes('
+            'id, name, background_hex, foreground_hex'
+            ')'
             '), '
             'team:teams(name), '
             'venue:venues!fixtures_venue_id_fkey(name), '
             'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
-            'green_areas(name, discipline, orientation_mode)'
+            'green_areas(name, discipline, orientation_mode)',
           )
           .eq('club_id', widget.clubId);
 
@@ -212,14 +212,12 @@ class _FixturesScreenState extends State<FixturesScreen> {
     final created = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => CreateFixturePage(
-          clubId: widget.clubId,
-          clubName: widget.clubName,
-        ),
+        builder: (_) =>
+            CreateFixturePage(clubId: widget.clubId, clubName: widget.clubName),
       ),
     );
 
-//    debugPrint('fixtures_screen: create flow returned changed=$changed');
+    //    debugPrint('fixtures_screen: create flow returned changed=$changed');
 
     if (!context.mounted) return;
 
@@ -249,10 +247,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
               _load();
             },
           ),
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
         ],
       ),
 
@@ -263,8 +258,8 @@ class _FixturesScreenState extends State<FixturesScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : _buildGroupedFixtureList(),
+          ? Center(child: Text('Error: $_error'))
+          : _buildGroupedFixtureList(),
     );
   }
 
@@ -276,7 +271,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
     final Map<String, List<Map<String, dynamic>>> groups = {};
 
     for (final f in _fixtures) {
-      final when = DateTime.parse(f['start_at'] as String).toLocal();
+      final when = parseClubTime(f['start_at'].toString());
       final key =
           '${when.year}-${when.month.toString().padLeft(2, '0')}-${when.day.toString().padLeft(2, '0')}';
 
@@ -317,23 +312,34 @@ class _FixturesScreenState extends State<FixturesScreen> {
   String _friendlyDate(DateTime d) {
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const months = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${weekdays[d.weekday - 1]} ${d.day} ${months[d.month - 1]} ${d.year}';
   }
 
   Widget _fixtureTile(Map<String, dynamic> f) {
-
-    final when = DateTime.parse(f['start_at'] as String).toLocal();
+    final when = parseClubTime(f['start_at'].toString());
     final whenText = formatWhenLocal(f['start_at'] as String);
     final isHome = f['is_home'] as bool;
 
     final venue = (f['venue']?['name'] as String?) ?? '';
     final opponent = (f['opponent_venue']?['name'] as String?) ?? '';
-    final section = f['section'] as String;    final competitionType = f['competition_type'] as Map<String, dynamic>?;
-    final competitionTypeName =
-        (competitionType?['name'] ?? '').toString().trim();
+    final section = f['section'] as String;
+    final competitionType = f['competition_type'] as Map<String, dynamic>?;
+    final competitionTypeName = (competitionType?['name'] ?? '')
+        .toString()
+        .trim();
     final competitionColourScheme =
         competitionType?['colour_scheme'] as Map<String, dynamic>?;
 
@@ -360,7 +366,9 @@ class _FixturesScreenState extends State<FixturesScreen> {
     final orientationMode = ga?['orientation_mode'] as String?;
 
     final showOrientation =
-        isHome && discipline == 'outdoor' && orientationMode != 'not_applicable';
+        isHome &&
+        discipline == 'outdoor' &&
+        orientationMode != 'not_applicable';
 
     String formatLabel(int p) {
       if (p == 2) return 'Pairs';
@@ -406,7 +414,9 @@ class _FixturesScreenState extends State<FixturesScreen> {
               '$whenText • $section • ${formatLabel(ppr)} • $rinks rinks'
               '${showOrientation ? ' • orient: ${orientation ?? 'not set'}' : ''}',
               style: TextStyle(
-                color: fixtureTypeFg?.withOpacity(0.85) ?? (isHome ? _clubBlue : null),
+                color:
+                    fixtureTypeFg?.withOpacity(0.85) ??
+                    (isHome ? _clubBlue : null),
               ),
             ),
           ],

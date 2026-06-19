@@ -199,7 +199,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   String _buildPublishedTeamMessage() {
     final fixture = widget.fixture;
 
-    final when = DateTime.parse(fixture['start_at'] as String).toLocal();
+    final when = parseClubTime(fixture['start_at'].toString());
     final isHome = fixture['is_home'] as bool;
 
     final venue = (fixture['venue']?['name'] as String?) ?? '';
