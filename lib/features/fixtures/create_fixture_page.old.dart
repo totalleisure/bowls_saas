@@ -537,16 +537,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'p_team_name': fixtureLabel?.trim().isEmpty == true
             ? null
             : fixtureLabel?.trim(),
-        'p_requires_rsvp':
-            usesRinks && (!_isTeamFixture && !_isPreselectFixture),
+        'p_requires_rsvp': usesRinks && (!_isTeamFixture && !_isPreselectFixture),
         'p_venue_id': venueId,
         'p_opponent_venue_id': opponentVenueId,
         'p_green_area_id': usesRinks && isHome ? greenAreaId : null,
         'p_orientation': orientation,
         'p_captain_member_profile_id': captainMemberProfileId,
-        'p_notes': _notesCtrl.text.trim().isEmpty
-            ? null
-            : _notesCtrl.text.trim(),
+        'p_notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         'p_create_team_selection': createTeamSelection,
         'p_team_selection_status': 'published',
         'p_home_rink_labels': homeRinkLabels,
@@ -674,7 +671,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           : null;
 
       if (homeRinkLabel != null && homeRinkLabel.isNotEmpty) {
-        homeRinkLabels.add({'team_no': i, 'home_rink_label': homeRinkLabel});
+        homeRinkLabels.add({
+          'team_no': i,
+          'home_rink_label': homeRinkLabel,
+        });
       }
     }
 
@@ -1916,16 +1916,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   String _normalisedMemberGender(Map<String, dynamic>? member) {
     if (member == null) return '';
 
-    final raw =
-        (member['gender'] ??
-                member['sex'] ??
-                member['member_gender'] ??
-                member['playing_gender'] ??
-                member['section'] ??
-                '')
-            .toString()
-            .trim()
-            .toLowerCase();
+    final raw = (member['gender'] ??
+            member['sex'] ??
+            member['member_gender'] ??
+            member['playing_gender'] ??
+            member['section'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
     if (raw.isEmpty) return '';
 
@@ -1976,24 +1975,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
 
     return true;
-  }
-
-  MemberPickerSectionFilter _memberPickerSectionFilterForCurrentFixture() {
-    final section = _section.trim().toLowerCase();
-
-    if (section == 'mens' || section == "men's") {
-      return MemberPickerSectionFilter.mens;
-    }
-
-    if (section == 'ladies' || section == "ladies'") {
-      return MemberPickerSectionFilter.ladies;
-    }
-
-    if (section == 'mixed') {
-      return MemberPickerSectionFilter.mixed;
-    }
-
-    return MemberPickerSectionFilter.open;
   }
 
   void _defaultBookerIntoFirstPlayerSlot() {
@@ -2161,18 +2142,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (initialBooking == null) return;
     if (_startAtLocal == null || _endAtLocal == null) return;
 
-    final sameInitialDate =
-        _startAtLocal!.year == initialBooking.startAt.year &&
-        _startAtLocal!.month == initialBooking.startAt.month &&
-        _startAtLocal!.day == initialBooking.startAt.day;
-
-    if (!sameInitialDate) {
-      return;
-    }
-
     if (_endAtLocal!.isAfter(initialBooking.latestEndAt)) {
       throw Exception(
         'This booking must finish by ${formatClubDateTime(initialBooking.latestEndAt)}.',
+      );
+    }
+
+    final currentBookingDuration = _endAtLocal!.difference(_startAtLocal!);
+
+    if (currentBookingDuration < const Duration(hours: 2)) {
+      throw Exception(
+        'This booking only allows ${_friendlyDuration(currentBookingDuration)}. '
+        'A normal fixture needs 2 hours, so it cannot be saved.',
       );
     }
   }
@@ -2470,8 +2451,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             selections: _playerSelections,
                             fixtureId: null,
                             useFixtureSection: true,
-                            initialSectionFilter:
-                                _memberPickerSectionFilterForCurrentFixture(),
                             showError: _showSaveErrorDialog,
                             memberAlreadySelectedElsewhere:
                                 _memberAlreadySelectedElsewhere,
@@ -2500,8 +2479,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             selections: _opponentSelections,
                             fixtureId: null,
                             useFixtureSection: true,
-                            initialSectionFilter:
-                                _memberPickerSectionFilterForCurrentFixture(),
                             showError: _showSaveErrorDialog,
                             memberAlreadySelectedElsewhere:
                                 _memberAlreadySelectedElsewhere,
@@ -3502,21 +3479,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                 );
                               }).toList(),
                               onChanged: (v) {
-                                final previousGreenAreaId = _greenAreaId;
-
                                 setState(() {
                                   _greenAreaId = v;
-
-                                  if (previousGreenAreaId != v) {
-                                    _selectedHomeRinkByTeam.clear();
-                                    _selectedBookedRink = null;
-                                    _shownInsufficientRinksWarning = false;
-                                    _rinksRequiredFieldVersion++;
-                                  }
-
                                   _syncOrientationToSelectedGreen();
                                 });
-
                                 _markDirty();
                                 _loadRinkAvailability();
                               },

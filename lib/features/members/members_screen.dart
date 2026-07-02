@@ -31,6 +31,8 @@ class _MembersScreenState extends State<MembersScreen> {
   String _searchText = '';
   String _roleFilter = 'all';
 
+  String? _myMemberProfileId;
+
   List<Map<String, dynamic>> _rows = const [];
 
   List<Map<String, dynamic>> get _filteredRows {
@@ -145,6 +147,8 @@ class _MembersScreenState extends State<MembersScreen> {
 
       final myProfileId = mp?['id']?.toString();
 
+      _myMemberProfileId = myProfileId;
+
       await _loadUserPermissions(myProfileId);
 
       final res = await _client
@@ -152,9 +156,11 @@ class _MembersScreenState extends State<MembersScreen> {
           .select(
             'member_profile_id, role, is_active, is_coach, coaching_award, '
             'member_profiles('
-            'email_address, first_name, last_name, display_name, phone, '
+            'email_address, first_name, last_name, display_name, phone, home_phone, office_phone, '
             'address_line1, address_line2, town_city, county, postcode, '
-            'gender, gender_self_described, sex_at_birth, preferred_position'
+            'gender, gender_self_described, sex_at_birth, preferred_position, '
+            'show_mobile_in_directory, show_home_phone_in_directory, show_office_phone_in_directory, '
+            'show_email_in_directory, show_address_in_directory'
             ')',
           )
           .eq('club_id', widget.clubId)
@@ -395,6 +401,7 @@ class _MembersScreenState extends State<MembersScreen> {
     required Map<String, dynamic> memberProfile,
     required String role,
     required bool active,
+    required bool isOwnRecord,
     required bool isCoach,
     String? coachingAward,
   }) async {
@@ -411,6 +418,7 @@ class _MembersScreenState extends State<MembersScreen> {
           clubId: widget.clubId,
           initialRole: role,
           initialActive: active,
+          isOwnRecord: isOwnRecord,
           canManageMembers: _canManageMembers,
           initialIsCoach: isCoach,
           initialCoachingAward: coachingAward,
@@ -614,12 +622,18 @@ class _MembersScreenState extends State<MembersScreen> {
                                     last,
                                   ].where((e) => e.isNotEmpty).join(' ');
 
+                            final isOwnRecord =
+                                memberProfileId == _myMemberProfileId;
+                            final canOpenEdit =
+                                _canManageMembers || isOwnRecord;
+
                             return Card(
                               margin: const EdgeInsets.symmetric(vertical: 4),
+                              color: isOwnRecord ? Colors.green.shade50 : null,
                               child: ListTile(
                                 title: Text(
                                   '${name.isEmpty ? '(no name)' : name}'
-                                  '${preferredPositionLabel == null ? '' : ' (Preferred playing position: $preferredPositionLabel)'}',
+                                  '${preferredPositionLabel == null ? '' : ' (Preferred: $preferredPositionLabel)'}',
                                 ),
                                 subtitle: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -696,15 +710,18 @@ class _MembersScreenState extends State<MembersScreen> {
                                     const Icon(Icons.chevron_right),
                                   ],
                                 ),
-                                onTap: () => _openMemberEdit(
-                                  memberProfileId: memberProfileId,
-                                  memberProfile: mp,
-                                  role: role,
-                                  active: active,
-                                  isCoach: row['is_coach'] == true,
-                                  coachingAward: row['coaching_award']
-                                      ?.toString(),
-                                ),
+                                onTap: canOpenEdit
+                                    ? () => _openMemberEdit(
+                                        memberProfileId: memberProfileId,
+                                        memberProfile: mp,
+                                        role: role,
+                                        active: active,
+                                        isCoach: row['is_coach'] == true,
+                                        coachingAward: row['coaching_award']
+                                            ?.toString(),
+                                        isOwnRecord: isOwnRecord,
+                                      )
+                                    : null,
                               ),
                             );
                           },

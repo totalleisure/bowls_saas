@@ -36,7 +36,6 @@ class RinkAssignmentsScreen extends StatefulWidget {
 class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   bool _loading = true;
   bool _changed = false;
-  int _assignmentPickerReset = 0;
 
   String? _error;
   String? _currentMemberProfileId;
@@ -1002,14 +1001,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           ),
         );
 
-        if (confirmed != true) {
-          if (mounted) {
-            setState(() {
-              _assignmentPickerReset++;
-            });
-          }
-          return;
-        }
+        if (confirmed != true) return;
       }
 
       setState(() {
@@ -1066,76 +1058,17 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     }
   }
 
-  List<int>? _parseIncompleteTeamError(Object error) {
-    final match = RegExp(r'INCOMPLETE_TEAM:(\d+):(\d+)').firstMatch(
-      error.toString(),
-    );
-    if (match == null) return null;
-
-    return [int.parse(match.group(1)!), int.parse(match.group(2)!)];
-  }
-
-  Future<bool> _confirmPublishIncomplete({
-    required int requiredPositions,
-    required int assignedPositions,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Publish incomplete team sheet?'),
-        content: Text(
-          'This team sheet is incomplete. '
-          '$requiredPositions player positions are required, but only '
-          '$assignedPositions have been assigned.\n\n'
-          'Do you want to publish it anyway?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Publish anyway'),
-          ),
-        ],
-      ),
-    );
-
-    return result == true;
-  }
-
-  Future<void> _publishTeamSelection({required bool allowIncomplete}) async {
-    await Supabase.instance.client.rpc(
-      'publish_team_selection_safe',
-      params: {
-        'p_fixture_id': widget.fixtureId,
-        'p_team_selection_id': widget.teamSelectionId,
-        'p_allow_incomplete': allowIncomplete,
-      },
-    );
-  }
-
   Future<void> _publishAndEmailTeamSheet() async {
     if (!_canPublishTeamSheet) return;
 
     try {
-      try {
-        await _publishTeamSelection(allowIncomplete: false);
-      } catch (e) {
-        final incomplete = _parseIncompleteTeamError(e);
-        if (incomplete == null) rethrow;
-
-        if (!mounted) return;
-        final publishAnyway = await _confirmPublishIncomplete(
-          requiredPositions: incomplete[0],
-          assignedPositions: incomplete[1],
-        );
-
-        if (!publishAnyway) return;
-
-        await _publishTeamSelection(allowIncomplete: true);
-      }
+      await Supabase.instance.client.rpc(
+        'publish_team_selection_safe',
+        params: {
+          'p_fixture_id': widget.fixtureId,
+          'p_team_selection_id': widget.teamSelectionId,
+        },
+      );
 
       if (!mounted) return;
 
@@ -1392,7 +1325,6 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         const SizedBox(width: 8),
         Expanded(
           child: DropdownButtonFormField<String?>(
-            key: ValueKey('slot-$rinkId-$position-${selectedId ?? 'none'}-$_assignmentPickerReset'),
             value: selectedId,
             isDense: true,
             decoration: InputDecoration(
@@ -1438,7 +1370,6 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           children: [
             Expanded(
               child: DropdownButtonFormField<String?>(
-                key: ValueKey('player-$rinkId-$playerPos-${selectedPlayerId ?? 'none'}-$_assignmentPickerReset'),
                 value: selectedPlayerId,
                 isDense: true,
                 decoration: const InputDecoration(labelText: 'Player'),
@@ -1457,7 +1388,6 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: DropdownButtonFormField<String?>(
-                key: ValueKey('opponent-$rinkId-$opponentPos-${selectedOpponentId ?? 'none'}-$_assignmentPickerReset'),
                 value: selectedOpponentId,
                 isDense: true,
                 decoration: const InputDecoration(labelText: 'Opponent'),
@@ -1482,7 +1412,6 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     final selectedId = asn?['member_profile_id']?.toString();
 
     return DropdownButtonFormField<String?>(
-      key: ValueKey('marker-$rinkId-${selectedId ?? 'none'}-$_assignmentPickerReset'),
       value: selectedId,
       isDense: true,
       decoration: const InputDecoration(labelText: 'Marker (optional)'),

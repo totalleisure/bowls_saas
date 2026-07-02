@@ -1,4 +1,6 @@
 import '../rinks/rinks_setup_screen.dart';
+import '../rinks/rink_assignments_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
@@ -46,10 +48,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   List<Map<String, dynamic>> _pool = []; // RSVP yes/maybe
   List<Map<String, dynamic>> _selected = []; // team_selection_members
 
-  List<Map<String, dynamic>> _rinks = [];
-  Map<String, Map<int, Map<String, dynamic>>> _assignmentsByRink = {};
-  bool _savingAssignments = false;
-
   bool _checkingPermissions = true;
 
   bool _isSuperuser = false;
@@ -80,8 +78,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   String _selectedFilter = 'all';
 
   final TextEditingController _searchCtrl = TextEditingController();
-  final ScrollController _pageScrollController = ScrollController();
-  final GlobalKey _teamPoolHeaderKey = GlobalKey();
 
   final TextEditingController _clubMemberSearchController =
       TextEditingController();
@@ -133,25 +129,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   @override
   void dispose() {
     _searchCtrl.dispose();
-    _pageScrollController.dispose();
     _clubMemberSearchController.dispose();
     super.dispose();
-  }
-
-  void _keepTeamPoolOnScreen() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      final context = _teamPoolHeaderKey.currentContext;
-      if (context == null) return;
-
-      Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-        alignment: 0,
-      );
-    });
   }
 
   Future<void> _init() async {
@@ -194,530 +173,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     if (preferred.isEmpty) return name;
 
     return '$name ($preferred)';
-  }
-
-  int _asInt(dynamic v) {
-    if (v == null) return 0;
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    return int.tryParse(v.toString()) ?? 0;
-  }
-
-  String _positionLabel(int position, int playersPerRink) {
-    if (playersPerRink == 4) {
-      switch (position) {
-        case 1:
-          return 'Lead';
-        case 2:
-          return 'Two';
-        case 3:
-          return 'Three';
-        case 4:
-          return 'Skip';
-      }
-    }
-
-    if (playersPerRink == 3) {
-      switch (position) {
-        case 1:
-          return 'Lead';
-        case 2:
-          return 'Two';
-        case 3:
-          return 'Skip';
-      }
-    }
-
-    if (playersPerRink == 2) {
-      switch (position) {
-        case 1:
-          return 'Lead';
-        case 2:
-          return 'Skip';
-      }
-    }
-
-    if (playersPerRink == 1) {
-      return 'Player';
-    }
-
-    return 'Player $position';
-  }
-
-  Map<String, dynamic>? _assignmentFor({
-    required String fixtureRinkId,
-    required int position,
-  }) {
-    return _assignmentsByRink[fixtureRinkId]?[position];
-  }
-
-  String _assignmentLabel(Map<String, dynamic>? assignment) {
-    if (assignment == null) return 'Select player';
-
-    final memberProfileId = assignment['member_profile_id']?.toString();
-    if (memberProfileId == null || memberProfileId.isEmpty) {
-      return 'Select player';
-    }
-
-    final selectedRow = _selected.firstWhere(
-      (r) => r['member_profile_id']?.toString() == memberProfileId,
-      orElse: () => <String, dynamic>{},
-    );
-
-    final profile = selectedRow['member_profiles'] as Map<String, dynamic>?;
-    if (profile != null) {
-      return _displayNameWithPreferredPosition(profile);
-    }
-
-    final assignmentProfile =
-        assignment['member_profiles'] as Map<String, dynamic>?;
-    if (assignmentProfile != null) {
-      return _displayNameWithPreferredPosition(assignmentProfile);
-    }
-
-    return memberProfileId;
-  }
-
-  Map<String, dynamic>? _selectedRowForAssignment(
-    Map<String, dynamic>? assignment,
-  ) {
-    final memberProfileId = assignment?['member_profile_id']?.toString();
-    if (memberProfileId == null || memberProfileId.isEmpty) return null;
-
-    for (final row in _selected) {
-      if (row['member_profile_id']?.toString() == memberProfileId) {
-        return row;
-      }
-    }
-
-    return null;
-  }
-
-  String _assignmentAcceptance(Map<String, dynamic>? assignment) {
-    final selectedRow = _selectedRowForAssignment(assignment);
-    return (selectedRow?['acceptance'] ?? 'pending')
-        .toString()
-        .toLowerCase()
-        .trim();
-  }
-
-  Color? _assignmentBackgroundColor(Map<String, dynamic>? assignment) {
-    if (assignment == null ||
-        assignment['member_profile_id']?.toString().trim().isNotEmpty != true) {
-      return null;
-    }
-
-    switch (_assignmentAcceptance(assignment)) {
-      case 'accepted':
-        return Colors.green.shade100;
-      case 'declined':
-        return Colors.red.shade100;
-      case 'pending':
-      default:
-        return Colors.orange.shade100;
-    }
-  }
-
-  Color _assignmentForegroundColor(Map<String, dynamic>? assignment) {
-    if (assignment == null ||
-        assignment['member_profile_id']?.toString().trim().isNotEmpty != true) {
-      return Theme.of(context).colorScheme.onSurface;
-    }
-
-    switch (_assignmentAcceptance(assignment)) {
-      case 'accepted':
-        return Colors.green.shade900;
-      case 'declined':
-        return Colors.red.shade900;
-      case 'pending':
-      default:
-        return Colors.orange.shade900;
-    }
-  }
-
-  Color? _assignmentBorderColor(Map<String, dynamic>? assignment) {
-    if (assignment == null ||
-        assignment['member_profile_id']?.toString().trim().isNotEmpty != true) {
-      return null;
-    }
-
-    switch (_assignmentAcceptance(assignment)) {
-      case 'accepted':
-        return Colors.green.shade400;
-      case 'declined':
-        return Colors.red.shade400;
-      case 'pending':
-      default:
-        return Colors.orange.shade400;
-    }
-  }
-
-  List<Map<String, dynamic>> _assignableSelectedRows() {
-    final rows = _selected
-        .where((s) {
-          final role = (s['role'] ?? 'player').toString().toLowerCase().trim();
-          final isSelected = s['is_selected'] == true;
-          return isSelected && (role == 'player' || role == 'reserve');
-        })
-        .map((s) => Map<String, dynamic>.from(s))
-        .toList();
-
-    rows.sort((a, b) {
-      final amp = a['member_profiles'] as Map<String, dynamic>?;
-      final bmp = b['member_profiles'] as Map<String, dynamic>?;
-      return _compareMemberProfiles(amp, bmp);
-    });
-
-    return rows;
-  }
-
-
-  Map<String, dynamic>? _poolRowForMember(String memberProfileId) {
-    for (final row in _pool) {
-      if (row['member_profile_id']?.toString() == memberProfileId) {
-        return row;
-      }
-    }
-    return null;
-  }
-
-  String _rsvpStatusForMember(String memberProfileId) {
-    final row = _poolRowForMember(memberProfileId);
-    return (row?['rsvp_status'] ?? row?['status'] ?? '')
-        .toString()
-        .toLowerCase()
-        .trim();
-  }
-
-  Future<bool> _confirmUnavailablePlayerSelection(String memberProfileId) async {
-    final status = _rsvpStatusForMember(memberProfileId);
-    if (status != 'no') return true;
-
-    final poolRow = _poolRowForMember(memberProfileId);
-    final profile = poolRow?['member_profiles'] as Map<String, dynamic>?;
-    final name = _displayNameWithPreferredPosition(profile);
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Player marked not available'),
-        content: Text(
-          name.isNotEmpty
-              ? '$name has already indicated that they are not available for this match.\n\nAre you sure you wish to select them?'
-              : 'This player has already indicated that they are not available for this match.\n\nAre you sure you wish to select them?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Select anyway'),
-          ),
-        ],
-      ),
-    );
-
-    return confirmed == true;
-  }
-
-  MapEntry<String, MapEntry<int, Map<String, dynamic>>>? _assignmentEntryForMember(
-    String memberProfileId,
-  ) {
-    for (final rinkEntry in _assignmentsByRink.entries) {
-      for (final positionEntry in rinkEntry.value.entries) {
-        if (positionEntry.value['member_profile_id']?.toString() ==
-            memberProfileId) {
-          return MapEntry(rinkEntry.key, positionEntry);
-        }
-      }
-    }
-    return null;
-  }
-
-  String? _assignmentLocationLabelForMember(String memberProfileId) {
-    final assignmentEntry = _assignmentEntryForMember(memberProfileId);
-    if (assignmentEntry == null) return null;
-
-    final rinkId = assignmentEntry.key;
-    final position = assignmentEntry.value.key;
-
-    Map<String, dynamic>? rink;
-    for (final r in _rinks) {
-      if (r['id']?.toString() == rinkId) {
-        rink = r;
-        break;
-      }
-    }
-
-    final teamNo = rink?['fixture_rink_no']?.toString() ?? '';
-    final playersPerRink = _asInt(rink?['players_per_rink']);
-    final positionLabel = _positionLabel(position, playersPerRink);
-
-    if (teamNo.isEmpty) return positionLabel;
-    return 'Team $teamNo • $positionLabel';
-  }
-
-  List<Map<String, dynamic>> _currentAssignmentPayload() {
-    final rows = <Map<String, dynamic>>[];
-
-    for (final rinkEntry in _assignmentsByRink.entries) {
-      final rinkId = rinkEntry.key;
-      for (final positionEntry in rinkEntry.value.entries) {
-        final memberProfileId = positionEntry.value['member_profile_id']
-            ?.toString()
-            .trim();
-
-        if (memberProfileId == null || memberProfileId.isEmpty) {
-          continue;
-        }
-
-        rows.add({
-          'fixture_rink_id': rinkId,
-          'position': positionEntry.key,
-          'member_profile_id': memberProfileId,
-        });
-      }
-    }
-
-    return rows;
-  }
-
-  Future<void> _saveCurrentAssignments() async {
-    if (_selectionId == null) return;
-
-    await _client.rpc(
-      'save_fixture_rink_assignments',
-      params: {
-        'p_fixture_id': widget.fixture['id']?.toString(),
-        'p_team_selection_id': _selectionId!,
-        'p_assignments': _currentAssignmentPayload(),
-      },
-    );
-  }
-
-  Future<void> _clearAssignmentSlot(String rinkId, int position) async {
-    if (!_canAssignRinks || _savingAssignments) return;
-
-    final previous = <String, Map<int, Map<String, dynamic>>>{};
-    for (final entry in _assignmentsByRink.entries) {
-      previous[entry.key] = Map<int, Map<String, dynamic>>.from(entry.value);
-    }
-
-    try {
-      setState(() {
-        _savingAssignments = true;
-        _assignmentsByRink[rinkId]?.remove(position);
-        if (_assignmentsByRink[rinkId]?.isEmpty == true) {
-          _assignmentsByRink.remove(rinkId);
-        }
-      });
-
-      await _saveCurrentAssignments();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _assignmentsByRink = previous);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Clear failed: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _savingAssignments = false);
-    }
-  }
-
-  Future<bool> _confirmReservePromotion(String memberProfileId) async {
-    final selectedRow = _selected.firstWhere(
-      (r) => r['member_profile_id']?.toString() == memberProfileId,
-      orElse: () => <String, dynamic>{},
-    );
-
-    final role = (selectedRow['role'] ?? '').toString().toLowerCase().trim();
-    if (role != 'reserve') return true;
-
-    final profile = selectedRow['member_profiles'] as Map<String, dynamic>?;
-    final playerName = profile == null
-        ? ''
-        : _displayNameWithPreferredPosition(profile);
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Promote reserve to player?'),
-        content: Text(
-          playerName.isNotEmpty
-              ? '$playerName is currently marked as a reserve. Assigning them to a team will promote them to player. Continue?'
-              : 'This member is currently marked as a reserve. Assigning them to a team will promote them to player. Continue?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Promote and assign'),
-          ),
-        ],
-      ),
-    );
-
-    return confirmed == true;
-  }
-
-  Future<void> _assignMemberToSlot({
-    required String rinkId,
-    required int position,
-    required String memberProfileId,
-  }) async {
-    if (!_canAssignRinks || _savingAssignments) return;
-
-    final confirmed = await _confirmReservePromotion(memberProfileId);
-    if (!confirmed) return;
-
-    final previous = <String, Map<int, Map<String, dynamic>>>{};
-    for (final entry in _assignmentsByRink.entries) {
-      previous[entry.key] = Map<int, Map<String, dynamic>>.from(entry.value);
-    }
-
-    try {
-      setState(() {
-        _savingAssignments = true;
-
-        // Move semantics: one player can occupy only one position.
-        for (final byPosition in _assignmentsByRink.values) {
-          byPosition.removeWhere(
-            (_, row) => row['member_profile_id']?.toString() == memberProfileId,
-          );
-        }
-
-        _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
-
-        _assignmentsByRink.putIfAbsent(rinkId, () => {});
-        _assignmentsByRink[rinkId]![position] = {
-          'fixture_rink_id': rinkId,
-          'position': position,
-          'member_profile_id': memberProfileId,
-        };
-      });
-
-      await _saveCurrentAssignments();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _assignmentsByRink = previous);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Assign failed: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _savingAssignments = false);
-    }
-  }
-
-  Future<void> _selectAssignmentSlot({
-    required BuildContext context,
-    required String rinkId,
-    required int position,
-    required String title,
-  }) async {
-    if (!_canAssignRinks || _savingAssignments) return;
-
-    final rows = _assignableSelectedRows();
-
-    final selectedMemberId = await showModalBottomSheet<String?>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              ListTile(
-                leading: const Icon(Icons.clear),
-                title: const Text('Clear this position'),
-                onTap: () => Navigator.of(context).pop('__clear__'),
-              ),
-              const Divider(),
-              if (rows.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text('No selected players or reserves are available.'),
-                )
-              else
-                for (final row in rows)
-                  Builder(
-                    builder: (context) {
-                      final memberId = row['member_profile_id']?.toString();
-                      final profile =
-                          row['member_profiles'] as Map<String, dynamic>?;
-                      final role = (row['role'] ?? 'player')
-                          .toString()
-                          .toLowerCase();
-                      final name = _displayNameWithPreferredPosition(profile);
-
-                      final assignedLabel = memberId == null
-                          ? null
-                          : _assignmentLocationLabelForMember(memberId);
-                      final isAssigned = assignedLabel != null;
-                      final isReserve = role == 'reserve';
-
-                      final Color? tileColor = isReserve
-                          ? Colors.orange.shade100
-                          : isAssigned
-                          ? Colors.green.shade100
-                          : null;
-
-                      final Color? iconColor = isReserve
-                          ? Colors.orange.shade800
-                          : isAssigned
-                          ? Colors.green.shade800
-                          : null;
-
-                      return Card(
-                        color: tileColor,
-                        margin: const EdgeInsets.symmetric(vertical: 3),
-                        child: ListTile(
-                          title: Text(name),
-                          subtitle: Text(
-                            isReserve
-                                ? 'Reserve'
-                                : isAssigned
-                                ? assignedLabel
-                                : 'Not yet positioned',
-                          ),
-                          trailing: isReserve
-                              ? Icon(Icons.swap_vert, color: iconColor)
-                              : isAssigned
-                              ? Icon(Icons.check_circle, color: iconColor)
-                              : null,
-                          onTap: memberId == null || memberId.isEmpty
-                              ? null
-                              : () => Navigator.of(context).pop(memberId),
-                        ),
-                      );
-                    },
-                  ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (!mounted || selectedMemberId == null) return;
-
-    if (selectedMemberId == '__clear__') {
-      await _clearAssignmentSlot(rinkId, position);
-      return;
-    }
-
-    await _assignMemberToSlot(
-      rinkId: rinkId,
-      position: position,
-      memberProfileId: selectedMemberId,
-    );
   }
 
   String _memberSortKey(Map<String, dynamic>? memberProfile) {
@@ -991,43 +446,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           'MANAGE_TEAM selected member=${s['member_profile_id']} role=${s['role']} is_selected=${s['is_selected']}',
         );
       }
-
-      final rinkRows = await client
-          .from('fixture_rinks')
-          .select(
-            'id, fixture_rink_no, format, players_per_rink, home_rink_label',
-          )
-          .eq('fixture_id', fixtureId);
-
-      final rinkList = List<Map<String, dynamic>>.from(rinkRows);
-
-      rinkList.sort((a, b) {
-        final ao = _asInt(a['fixture_rink_no']);
-        final bo = _asInt(b['fixture_rink_no']);
-        return ao.compareTo(bo);
-      });
-
-      final assignmentRows = await client
-          .from('fixture_rink_assignments')
-          .select(
-            'fixture_rink_id, position, member_profile_id, member_profiles(display_name, first_name, last_name, preferred_position)',
-          )
-          .eq('fixture_id', fixtureId);
-
-      final byRink = <String, Map<int, Map<String, dynamic>>>{};
-
-      for (final a in List<Map<String, dynamic>>.from(assignmentRows)) {
-        final rinkId = a['fixture_rink_id']?.toString();
-        final position = _asInt(a['position']);
-
-        if (rinkId == null || rinkId.isEmpty || position <= 0) continue;
-
-        byRink.putIfAbsent(rinkId, () => {});
-        byRink[rinkId]![position] = a;
-      }
-
-      _rinks = rinkList;
-      _assignmentsByRink = byRink;
 
       // sort pool by name
       int availabilityRank(Map<String, dynamic> r) {
@@ -1527,15 +945,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .eq('member_profile_id', memberId)
           .maybeSingle();
 
-      final currentlySelected = existingAny?['is_selected'] == true;
-
-      if (!currentlySelected) {
-        final confirmedAvailable = await _confirmUnavailablePlayerSelection(
-          memberId,
-        );
-        if (!confirmedAvailable) return;
-      }
-
       if (existingAny == null) {
         await client.from('team_selection_members').insert({
           'team_selection_id': _selectionId,
@@ -1545,57 +954,24 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           'is_selected': true,
         });
       } else {
-        await client
-            .from('team_selection_members')
-            .update({'is_selected': !currentlySelected})
-            .eq('team_selection_id', _selectionId!)
-            .eq('member_profile_id', memberId);
+        final currentlySelected = existingAny['is_selected'] == true;
+
+        if (currentlySelected) {
+          await client
+              .from('team_selection_members')
+              .update({'is_selected': false})
+              .eq('team_selection_id', _selectionId!)
+              .eq('member_profile_id', memberId);
+        } else {
+          await client
+              .from('team_selection_members')
+              .update({'is_selected': true})
+              .eq('team_selection_id', _selectionId!)
+              .eq('member_profile_id', memberId);
+        }
       }
 
-      if (!mounted) return;
-
-      setState(() {
-        if (currentlySelected) {
-          // This path is not normally used from the visible Team Pool because
-          // selected players are filtered out, but keep the local state correct
-          // if this method is reused elsewhere.
-          _selected.removeWhere(
-            (r) => r['member_profile_id']?.toString() == memberId,
-          );
-
-          // If the player has been removed from the selection, also remove any
-          // local assignment so the screen does not show an invalid slot.
-          for (final byPosition in _assignmentsByRink.values) {
-            byPosition.removeWhere(
-              (_, row) => row['member_profile_id']?.toString() == memberId,
-            );
-          }
-          _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
-        } else {
-          final alreadyInSelected = _selected.any(
-            (r) => r['member_profile_id']?.toString() == memberId,
-          );
-
-          if (!alreadyInSelected) {
-            final poolRow = _pool.cast<Map<String, dynamic>?>().firstWhere(
-              (r) => r?['member_profile_id']?.toString() == memberId,
-              orElse: () => null,
-            );
-
-            _selected.add({
-              'member_profile_id': memberId,
-              'role': (existingAny?['role'] ?? 'player').toString(),
-              'acceptance': (existingAny?['acceptance'] ?? 'pending')
-                  .toString(),
-              'is_selected': true,
-              'member_profiles': poolRow?['member_profiles'],
-              'accepted_by_profile': null,
-            });
-          }
-        }
-      });
-
-      _keepTeamPoolOnScreen();
+      await _load();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1619,43 +995,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final oldRole = (existing?['role'] ?? '').toString().toLowerCase().trim();
       final newRole = role.toLowerCase().trim();
 
-      final assignmentLocation = _assignmentLocationLabelForMember(memberId);
-      final hasTeamPosition = assignmentLocation != null;
-
-      if (newRole == 'reserve' && hasTeamPosition) {
-        final selectedRow = _selected.firstWhere(
-          (r) => r['member_profile_id']?.toString() == memberId,
-          orElse: () => <String, dynamic>{},
-        );
-
-        final profile = selectedRow['member_profiles'] as Map<String, dynamic>?;
-        final name = _displayNameWithPreferredPosition(profile);
-
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Remove player from team?'),
-            content: Text(
-              name.isNotEmpty
-                  ? '$name is currently assigned to $assignmentLocation.\n\nMaking this member a reserve will remove them from that team position. Do you want to continue?'
-                  : 'This member is currently assigned to $assignmentLocation.\n\nMaking them a reserve will remove them from that team position. Do you want to continue?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Make reserve'),
-              ),
-            ],
-          ),
-        );
-
-        if (confirmed != true) return;
-      }
-
       debugPrint('SETROLE memberId=$memberId');
       debugPrint('SETROLE existing=$existing');
       debugPrint('SETROLE oldRole=$oldRole newRole=$newRole');
@@ -1666,16 +1005,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .update({'role': role})
           .eq('team_selection_id', _selectionId!)
           .eq('member_profile_id', memberId);
-
-      if (newRole == 'reserve' && hasTeamPosition) {
-        for (final byPosition in _assignmentsByRink.values) {
-          byPosition.removeWhere(
-            (_, row) => row['member_profile_id']?.toString() == memberId,
-          );
-        }
-        _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
-        await _saveCurrentAssignments();
-      }
 
       if (oldRole == 'reserve' && newRole == 'player') {
         debugPrint('SETROLE reserve->player trigger fired for $memberId');
@@ -1733,19 +1062,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         });
       }
 
-      if (!mounted) return;
-      setState(() {
-        for (final row in _selected) {
-          if (row['member_profile_id']?.toString() == memberId) {
-            row['role'] = role;
-            break;
-          }
-        }
-      });
+      await _load();
     } catch (e, st) {
       debugPrint('SETROLE error: $e');
       debugPrint('SETROLE stack: $st');
-      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Set role error: $e')));
@@ -1753,9 +1073,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   List<int>? _parseIncompleteTeamError(Object error) {
-    final match = RegExp(
-      r'INCOMPLETE_TEAM:(\d+):(\d+)',
-    ).firstMatch(error.toString());
+    final match = RegExp(r'INCOMPLETE_TEAM:(\d+):(\d+)').firstMatch(
+      error.toString(),
+    );
     if (match == null) return null;
 
     return [int.parse(match.group(1)!), int.parse(match.group(2)!)];
@@ -1901,23 +1221,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .eq('fixture_id', fixtureId)
           .eq('member_profile_id', memberProfileId);
 
-      if (!mounted) return;
-
-      setState(() {
-        _selected.removeWhere(
-          (r) => r['member_profile_id']?.toString() == memberProfileId,
-        );
-
-        // If the player was already assigned to a team/position, remove that
-        // local assignment as well. The database delete above has already made
-        // the persisted state match this.
-        for (final byPosition in _assignmentsByRink.values) {
-          byPosition.removeWhere(
-            (_, row) => row['member_profile_id']?.toString() == memberProfileId,
-          );
-        }
-        _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
-      });
+      await _load();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1980,12 +1284,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
               const Icon(Icons.help, size: 14, color: Colors.orange),
           ],
         ),
-        onTap: _canModifySelection
-            ? () async {
-                await _togglePlayer(memberId);
-                _keepTeamPoolOnScreen();
-              }
-            : null,
+        onTap: _canModifySelection ? () => _togglePlayer(memberId) : null,
       ),
     );
   }
@@ -2104,185 +1403,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return ids;
   }
 
-  Widget _buildIntegratedTeamAssignmentsSection() {
-    if (_selectionId == null) return const SizedBox.shrink();
-
-    if (_rinks.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Team positions',
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'No teams have been created for this fixture yet.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final required = _rinks.fold<int>(
-      0,
-      (total, rink) => total + _asInt(rink['players_per_rink']),
-    );
-
-    final assigned = _currentAssignmentPayload().length;
-    final remaining = required - assigned;
-
-    return Card(
-      margin: const EdgeInsets.only(top: 8, bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Team positions',
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              remaining <= 0
-                  ? '$assigned of $required positions filled'
-                  : '$assigned of $required positions filled • $remaining remaining',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            if (_savingAssignments) ...[
-              const SizedBox(height: 8),
-              const LinearProgressIndicator(),
-            ],
-            const SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final useTwoColumns = constraints.maxWidth >= 720;
-                final cardWidth = useTwoColumns
-                    ? (constraints.maxWidth - 12) / 2
-                    : constraints.maxWidth;
-
-                return Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (final rink in _rinks)
-                      SizedBox(
-                        width: cardWidth,
-                        child: _buildTeamAssignmentCard(rink),
-                      ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTeamAssignmentCard(Map<String, dynamic> rink) {
-    final rinkId = rink['id']?.toString() ?? '';
-    final teamNo = rink['fixture_rink_no']?.toString() ?? '';
-    final playersPerRink = _asInt(rink['players_per_rink']);
-
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Team $teamNo',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            for (var position = 1; position <= playersPerRink; position++) ...[
-              _buildTeamPositionRow(
-                rinkId: rinkId,
-                position: position,
-                playersPerRink: playersPerRink,
-              ),
-              if (position < playersPerRink) const SizedBox(height: 8),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTeamPositionRow({
-    required String rinkId,
-    required int position,
-    required int playersPerRink,
-  }) {
-    final assignment = _assignmentFor(
-      fixtureRinkId: rinkId,
-      position: position,
-    );
-
-    final hasAssignment =
-        assignment?['member_profile_id']?.toString().trim().isNotEmpty == true;
-
-    return Row(
-      children: [
-        SizedBox(
-          width: 72,
-          child: Text(_positionLabel(position, playersPerRink)),
-        ),
-        Expanded(
-          child: OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              backgroundColor: _assignmentBackgroundColor(assignment),
-              foregroundColor: _assignmentForegroundColor(assignment),
-              side: _assignmentBorderColor(assignment) == null
-                  ? null
-                  : BorderSide(color: _assignmentBorderColor(assignment)!),
-            ),
-            onPressed: _canAssignRinks && !_savingAssignments
-                ? () => _selectAssignmentSlot(
-                    context: context,
-                    rinkId: rinkId,
-                    position: position,
-                    title: 'Select ${_positionLabel(position, playersPerRink)}',
-                  )
-                : null,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                _assignmentLabel(assignment),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ),
-        ),
-        if (hasAssignment && _canAssignRinks && !_savingAssignments) ...[
-          const SizedBox(width: 6),
-          IconButton(
-            tooltip: 'Clear',
-            icon: const Icon(Icons.clear),
-            onPressed: () => _clearAssignmentSlot(rinkId, position),
-          ),
-        ],
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isPublished = _status == 'published';
@@ -2357,7 +1477,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           : _error != null
           ? Center(child: Text('Error: $_error'))
           : ListView(
-              controller: _pageScrollController,
               padding: const EdgeInsets.all(16),
               children: [
                 Card(
@@ -2389,7 +1508,40 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                         const SizedBox(height: 8),
 
-                        // Team position assignment is now integrated below.
+                        ElevatedButton.icon(
+                          onPressed: _selectionId == null
+                              ? null
+                              : () async {
+                                  final changed = await Navigator.push<bool>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => RinkAssignmentsScreen(
+                                        fixtureId: widget.fixture['id']
+                                            .toString(),
+                                        teamSelectionId: _selectionId!,
+                                        readOnly: !_canAssignRinks,
+                                      ),
+                                    ),
+                                  );
+
+                                  debugPrint(
+                                    'MANAGE_TEAM returned from Rinks changed=$changed',
+                                  );
+
+                                  if (changed == true) {
+                                    await _load();
+                                  }
+                                },
+                          icon: const Icon(Icons.groups),
+                          label: Text(
+                            _canAssignRinks
+                                ? 'Assign Team Players & Positions'
+                                : 'View Team Players & Positions',
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
                         if (!isPublished)
                           ElevatedButton(
                             onPressed: _canPublish ? _publish : null,
@@ -2464,10 +1616,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-
-                _buildIntegratedTeamAssignmentsSection(),
-
                 const SizedBox(height: 8),
 
                 Wrap(
@@ -2705,55 +1853,33 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                     'Use the Add players button to search the club list and add more players.',
                   ),
                 ] else ...[
-                  Card(
-                    key: _teamPoolHeaderKey,
-                    margin: EdgeInsets.zero,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            _isTeamFixture
-                                ? 'Team pool'
-                                : (_usesRsvpPool
-                                      ? 'RSVP pool (Yes/Maybe)'
-                                      : 'Club members'),
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: _searchCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Search members',
-                              prefixIcon: Icon(Icons.search),
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (v) => setState(() => _search = v),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            height: 420,
-                            child: visiblePool.isEmpty
-                                ? Align(
-                                    alignment: Alignment.topLeft,
-                                    child: Text(
-                                      _search.trim().isEmpty
-                                          ? 'No eligible members found.'
-                                          : 'No members match your search.',
-                                    ),
-                                  )
-                                : ListView.builder(
-                                    primary: false,
-                                    itemCount: visiblePool.length,
-                                    itemBuilder: (context, index) =>
-                                        _poolRow(visiblePool[index]),
-                                  ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  Text(
+                    _isTeamFixture
+                        ? 'Team pool'
+                        : (_usesRsvpPool
+                              ? 'RSVP pool (Yes/Maybe)'
+                              : 'Club members'),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _searchCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Search members',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) => setState(() => _search = v),
+                  ),
+                  const SizedBox(height: 12),
+                  if (visiblePool.isEmpty)
+                    Text(
+                      _search.trim().isEmpty
+                          ? 'No eligible members found.'
+                          : 'No members match your search.',
+                    )
+                  else
+                    ...visiblePool.map(_poolRow),
                 ],
               ],
             ),

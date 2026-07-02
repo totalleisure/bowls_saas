@@ -366,14 +366,96 @@ class _GreenAreasScreenState extends State<GreenAreasScreen> {
       'sunset_booking_offset_minutes': sunsetBookingOffsetMinutes,
     };
 
+    final oldLabels = isEdit ? _buildRinkNames(existing) : <String>[];
+    final newLabels = _buildRinkNames(data);
+
+    final labelsChanged = isEdit && !_sameStringList(oldLabels, newLabels);
+
+    bool shouldRemapRinkLabels = false;
+
+    if (labelsChanged) {
+      if (oldLabels.length == newLabels.length) {
+        final preview = List.generate(oldLabels.length, (i) {
+          return '${oldLabels[i]} → ${newLabels[i]}';
+        }).join('\n');
+
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Update existing rink bookings?'),
+            content: Text(
+              'The rink labels have changed.\n\n'
+              'Existing fixture rink bookings can be updated like this:\n\n'
+              '$preview\n\n'
+              'Continue?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Update bookings'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true) return;
+
+        shouldRemapRinkLabels = true;
+      } else {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Rink labels changed'),
+            content: const Text(
+              'The number of rink labels has changed, so existing rink bookings '
+              'cannot be safely remapped automatically.\n\n'
+              'Please continue only if you are happy to review any existing rink '
+              'bookings manually.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true) return;
+      }
+    }
+
     try {
       final client = Supabase.instance.client;
+
+      int remappedCount = 0;
 
       if (isEdit) {
         await client
             .from('green_areas')
             .update(data)
             .eq('id', existing['id'].toString());
+
+        if (shouldRemapRinkLabels) {
+          final result = await client.rpc(
+            'remap_green_rink_labels',
+            params: {
+              'p_green_area_id': existing['id'].toString(),
+              'p_old_labels': oldLabels,
+              'p_new_labels': newLabels,
+            },
+          );
+
+          remappedCount = int.tryParse(result.toString()) ?? 0;
+        }
       } else {
         await client.from('green_areas').insert(data);
       }
@@ -382,7 +464,11 @@ class _GreenAreasScreenState extends State<GreenAreasScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              isEdit ? 'Home green updated ✅' : 'Home green created ✅',
+              isEdit
+                  ? remappedCount > 0
+                        ? 'Home green updated ✅ $remappedCount rink bookings remapped.'
+                        : 'Home green updated ✅'
+                  : 'Home green created ✅',
             ),
           ),
         );
@@ -404,6 +490,16 @@ class _GreenAreasScreenState extends State<GreenAreasScreen> {
       orElse: () => {'name': 'Unknown'},
     );
     return (v['name'] ?? 'Unknown').toString();
+  }
+
+  bool _sameStringList(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+
+    return true;
   }
 
   List<String> _buildRinkNames(Map<String, dynamic> g) {

@@ -1602,6 +1602,20 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               }
             },
           ),
+
+          IconButton(
+            icon: const Icon(Icons.groups),
+            tooltip: 'Club Members',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MembersScreen(clubId: widget.clubId),
+                ),
+              );
+            },
+          ),
+
           if (canAccessAdmin)
             IconButton(
               tooltip: 'Admin',

@@ -134,3 +134,20 @@ The final capacity validation should ultimately occur within the same database t
 Review completed.
 
 Implementation work deferred until Production Readiness phase.
+
+---
+
+## Implementation Status
+
+Completed: May 2026
+
+Implemented:
+- create_fixture_with_setup RPC
+- Transactional fixture creation
+- Server-side rink availability validation
+- Single and repeat fixture creation unified
+- Enum-safe inserts
+- Client-side duplicate save protection retained
+
+Outcome:
+Fixture creation is now transaction-safe and no longer relies upon multiple independent client-side database updates.

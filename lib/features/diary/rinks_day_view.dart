@@ -431,7 +431,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     final green = await _client
         .from('green_areas')
         .select(
-          'id, name, rink_count, custom_labels, scheme_prefix, scheme_padding, '
+          'id, name, rink_count, scheme_type, custom_labels, scheme_prefix, scheme_padding, '
           'is_outdoor, uses_sunset_cutoff, sunset_booking_offset_minutes',
         )
         .eq('venue_id', venue['id'])
@@ -452,25 +452,35 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
   List<RinkLane> _buildRinksFromGreen(Map<String, dynamic> green) {
     final rinkCount = (green['rink_count'] ?? 0) as int;
+    final schemeType = (green['scheme_type'] ?? 'numeric').toString();
 
     final custom = green['custom_labels'];
 
-    if (custom is List && custom.isNotEmpty) {
+    if (schemeType == 'custom_list' && custom is List && custom.isNotEmpty) {
       return custom
-          .map((e) => e.toString())
+          .take(rinkCount)
           .toList()
           .asMap()
           .entries
-          .map((e) => RinkLane(id: '${e.key + 1}', label: e.value))
+          .map((e) => RinkLane(id: '${e.key + 1}', label: e.value.toString()))
           .toList();
     }
 
-    final prefix = (green['scheme_prefix'] ?? 'R').toString();
+    final rawPrefix = green['scheme_prefix']?.toString();
+    final prefix = rawPrefix == null || rawPrefix.trim().isEmpty
+        ? 'R'
+        : rawPrefix.trim();
+
     final padding = (green['scheme_padding'] ?? 0) as int;
 
     return List.generate(rinkCount, (i) {
-      final num = (i + 1).toString().padLeft(padding, '0');
-      return RinkLane(id: '${i + 1}', label: '$prefix$num');
+      final n = i + 1;
+
+      final label = schemeType == 'alpha'
+          ? '$prefix${String.fromCharCode(64 + n)}'
+          : '$prefix${padding > 0 ? n.toString().padLeft(padding, '0') : n.toString()}';
+
+      return RinkLane(id: '$n', label: label);
     });
   }
 

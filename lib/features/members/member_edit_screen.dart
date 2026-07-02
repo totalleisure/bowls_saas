@@ -13,6 +13,8 @@ class MemberEditScreen extends StatefulWidget {
   final bool initialIsCoach;
   final String? initialCoachingAward;
 
+  final bool isOwnRecord;
+
   const MemberEditScreen({
     super.key,
     required this.memberProfileId,
@@ -22,6 +24,7 @@ class MemberEditScreen extends StatefulWidget {
     required this.initialActive,
     required this.canManageMembers,
     required this.initialIsCoach,
+    required this.isOwnRecord,
     this.initialCoachingAward,
   });
 
@@ -46,6 +49,15 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   late bool _isCoach;
   late final TextEditingController _coachingAward;
 
+  late final TextEditingController _homePhone;
+  late final TextEditingController _officePhone;
+
+  bool _showMobileInDirectory = true;
+  bool _showHomePhoneInDirectory = false;
+  bool _showOfficePhoneInDirectory = false;
+  bool _showEmailInDirectory = true;
+  bool _showAddressInDirectory = false;
+
   String? _gender;
   String? _sexAtBirth;
   String? _preferredPosition;
@@ -57,6 +69,9 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
   bool _hasUnsavedChanges = false;
 
+  bool get _canEditEmailAndMobile => widget.canManageMembers;
+
+  bool get _canSeeAdminFields => widget.canManageMembers;
   String? _originalRole;
 
   void _markDirty() {
@@ -75,6 +90,19 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     _lastName = TextEditingController(text: (i['last_name'] ?? '').toString());
     _email = TextEditingController(text: (i['email_address'] ?? '').toString());
     _phone = TextEditingController(text: (i['phone'] ?? '').toString());
+
+    _homePhone = TextEditingController(
+      text: (i['home_phone'] ?? '').toString(),
+    );
+    _officePhone = TextEditingController(
+      text: (i['office_phone'] ?? '').toString(),
+    );
+
+    _showMobileInDirectory = i['show_mobile_in_directory'] != false;
+    _showHomePhoneInDirectory = i['show_home_phone_in_directory'] == true;
+    _showOfficePhoneInDirectory = i['show_office_phone_in_directory'] == true;
+    _showEmailInDirectory = i['show_email_in_directory'] != false;
+    _showAddressInDirectory = i['show_address_in_directory'] == true;
 
     _a1 = TextEditingController(text: (i['address_line1'] ?? '').toString());
     _a2 = TextEditingController(text: (i['address_line2'] ?? '').toString());
@@ -109,6 +137,8 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     _postcode.dispose();
     _genderSelfDescribed.dispose();
     _coachingAward.dispose();
+    _homePhone.dispose();
+    _officePhone.dispose();
     super.dispose();
   }
 
@@ -143,8 +173,12 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       final payload = <String, dynamic>{
         'first_name': first.isEmpty ? null : first,
         'last_name': last.isEmpty ? null : last,
-        'email_address': _email.text.trim().isEmpty ? null : _email.text.trim(),
-        'phone': _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        'home_phone': _homePhone.text.trim().isEmpty
+            ? null
+            : _homePhone.text.trim(),
+        'office_phone': _officePhone.text.trim().isEmpty
+            ? null
+            : _officePhone.text.trim(),
         'display_name': displayName.isEmpty ? null : displayName,
         'address_line1': _a1.text.trim().isEmpty ? null : _a1.text.trim(),
         'address_line2': _a2.text.trim().isEmpty ? null : _a2.text.trim(),
@@ -161,7 +195,22 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
             : null,
         'sex_at_birth': _sexAtBirth,
         'preferred_position': _preferredPosition,
+        'show_mobile_in_directory': _showMobileInDirectory,
+        'show_home_phone_in_directory': _showHomePhoneInDirectory,
+        'show_office_phone_in_directory': _showOfficePhoneInDirectory,
+        'show_email_in_directory': _showEmailInDirectory,
+        'show_address_in_directory': _showAddressInDirectory,
       };
+
+      if (_canEditEmailAndMobile) {
+        payload['email_address'] = _email.text.trim().isEmpty
+            ? null
+            : _email.text.trim();
+
+        payload['phone'] = _phone.text.trim().isEmpty
+            ? null
+            : _phone.text.trim();
+      }
 
       //      debugPrint('Saving member_profile_id=${widget.memberProfileId}');
       //      debugPrint('Payload=$payload');
@@ -256,12 +305,18 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     }
   }
 
-  Widget _field(String label, TextEditingController c, {TextInputType? type}) {
+  Widget _field(
+    String label,
+    TextEditingController c, {
+    TextInputType? type,
+    bool enabled = true,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: TextField(
         controller: c,
         keyboardType: type,
+        enabled: enabled,
         onChanged: (_) => _markDirty(),
         style: const TextStyle(
           color: Colors.black,
@@ -309,6 +364,44 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           labelText: label,
           helperText: helperText,
         ),
+      ),
+    );
+  }
+
+  Widget _fieldWithDirectoryOption({
+    required String label,
+    required TextEditingController controller,
+    required bool showInDirectory,
+    required ValueChanged<bool> onDirectoryChanged,
+    TextInputType? type,
+    bool enabled = true,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: _field(label, controller, type: type, enabled: enabled),
+          ),
+          const SizedBox(width: 8),
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Checkbox(
+                  value: showInDirectory,
+                  onChanged: (v) {
+                    if (v == null) return;
+                    onDirectoryChanged(v);
+                  },
+                ),
+                Icon(Icons.groups, size: 18, color: Colors.green.shade700),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -396,10 +489,67 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                 const SizedBox(height: 8),
                 _field('First name', _firstName),
                 _field('Last name (surname)', _lastName),
-                _field('Email', _email, type: TextInputType.emailAddress),
-                _field('Phone', _phone, type: TextInputType.phone),
 
-                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(Icons.groups, size: 20, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Club Member Directory: Tick the boxes to control which details are visible to other club members.',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                _fieldWithDirectoryOption(
+                  label: 'Email',
+                  controller: _email,
+                  type: TextInputType.emailAddress,
+                  enabled: _canEditEmailAndMobile,
+                  showInDirectory: _showEmailInDirectory,
+                  onDirectoryChanged: (v) {
+                    setState(() => _showEmailInDirectory = v);
+                    _markDirty();
+                  },
+                ),
+
+                _fieldWithDirectoryOption(
+                  label: 'Mobile phone',
+                  controller: _phone,
+                  type: TextInputType.phone,
+                  enabled: _canEditEmailAndMobile,
+                  showInDirectory: _showMobileInDirectory,
+                  onDirectoryChanged: (v) {
+                    setState(() => _showMobileInDirectory = v);
+                    _markDirty();
+                  },
+                ),
+
+                _fieldWithDirectoryOption(
+                  label: 'Home phone',
+                  controller: _homePhone,
+                  type: TextInputType.phone,
+                  showInDirectory: _showHomePhoneInDirectory,
+                  onDirectoryChanged: (v) {
+                    setState(() => _showHomePhoneInDirectory = v);
+                    _markDirty();
+                  },
+                ),
+
+                _fieldWithDirectoryOption(
+                  label: 'Office phone',
+                  controller: _officePhone,
+                  type: TextInputType.phone,
+                  showInDirectory: _showOfficePhoneInDirectory,
+                  onDirectoryChanged: (v) {
+                    setState(() => _showOfficePhoneInDirectory = v);
+                    _markDirty();
+                  },
+                ),
+
                 Text(
                   'Personal details',
                   style: Theme.of(context).textTheme.titleMedium,
@@ -463,9 +613,26 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                   },
                 ),
 
-                const SizedBox(height: 12),
-                Text('Address', style: Theme.of(context).textTheme.titleMedium),
+                Row(
+                  children: [
+                    Text(
+                      'Address',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const Spacer(),
+                    Checkbox(
+                      value: _showAddressInDirectory,
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setState(() => _showAddressInDirectory = v);
+                        _markDirty();
+                      },
+                    ),
+                    Icon(Icons.groups, size: 18, color: Colors.green.shade700),
+                  ],
+                ),
                 const SizedBox(height: 8),
+
                 _field('Address line 1', _a1),
                 _field('Address line 2', _a2),
                 _field('Town / City', _town),
@@ -496,7 +663,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                   },
                 ),
 
-                if (widget.canManageMembers) ...[
+                if (_canSeeAdminFields) ...[
                   const SizedBox(height: 12),
                   Text(
                     'Admin details',

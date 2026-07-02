@@ -2041,6 +2041,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       return;
     }
 
+    debugPrint(
+      'ASSIGN FREE RINK DEBUG fixture=${widget.fixtureId} '
+      'selectedLabel=$label '
+      'memberPreselectRinks=${_memberPreselectRinks.map((r) => {'id': r['id'], 'fixture_rink_no': r['fixture_rink_no'], 'home_rink_label': r['home_rink_label']}).toList()}',
+    );
+
     // Toggle ON: assign to first team/rink without a physical rink
     final unassigned = _memberPreselectRinks.where((r) {
       return (r['home_rink_label'] ?? '').toString().trim().isEmpty;
@@ -3295,7 +3301,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         ),
                       ],
 
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       if (_canEditFixtureLabel)
                         Align(
                           alignment: Alignment.centerRight,
@@ -3379,7 +3385,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
           ],
           Card(
             child: Padding(
@@ -3448,17 +3454,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           const SizedBox(height: 20),
 
           if (!isEventStyleFixture) ...[
-            Text(
-              'Captain & vice-captain',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            SetCaptainSection(fixture: fixture, readOnly: !_canAssignCaptaincy),
-
             if (!isOpenSessionFixture && canRespondToTeamSelection) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 8),
               Text(
                 'Team selection',
                 style: Theme.of(
@@ -3547,6 +3544,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             if (isRsvpFixture && !isPublished) ...[
               CaptainViewSection(fixture: fixture),
             ],
+
+            Text(
+              'Captain & vice-captain',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            SetCaptainSection(fixture: fixture, readOnly: !_canAssignCaptaincy),
 
             if (!_usesSimpleBookingWorkflow) ...[
               const SizedBox(height: 12),
