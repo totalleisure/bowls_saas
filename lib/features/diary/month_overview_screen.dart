@@ -40,6 +40,14 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
 
   String? _myProfileId;
 
+  void _setMonthZoom(double nextZoom) {
+    if (nextZoom == _monthZoom) return;
+
+    setState(() {
+      _monthZoom = nextZoom;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -432,9 +440,7 @@ class _MonthGrid extends StatelessWidget {
               }
 
               if (nextZoom != state._monthZoom) {
-                state.setState(() {
-                  state._monthZoom = nextZoom;
-                });
+                state._setMonthZoom(nextZoom);
               }
             },
             child: GridView.builder(

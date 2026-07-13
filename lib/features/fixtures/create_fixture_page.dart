@@ -116,7 +116,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   List<Map<String, dynamic>> _clubMembers = [];
   final Map<String, String?> _playerSelections = {};
   final Map<String, String?> _opponentSelections = {};
+  final Map<String, String> _opponentExternalNames = {};
   final Map<String, String?> _markerSelections = {};
+
+  // Marker state is maintained independently for each fixture rink/team.
+  final Map<int, bool> _markerRequiredByTeam = {};
+  final Map<int, bool> _markerRequestByTeam = {};
 
   // Teams (for team fixtures)
   List<Map<String, dynamic>> _teams = [];
@@ -1446,6 +1451,238 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return _memberLabel(match.first);
   }
 
+  String _selectedOpponentLabel(String key) {
+    final memberId = _opponentSelections[key];
+    if (memberId != null && memberId.isNotEmpty) {
+      return _selectedMemberLabel(memberId);
+    }
+
+    final externalName = _opponentExternalNames[key]?.trim() ?? '';
+    if (externalName.isNotEmpty) return externalName;
+
+    return 'Optional — select or enter name';
+  }
+
+  Future<String?> _promptForExternalOpponentName({
+    required int playerNo,
+    required String initialValue,
+  }) async {
+    final controller = TextEditingController(text: initialValue);
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Opponent $playerNo name'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'External opponent name',
+              hintText: 'Leave blank to cancel',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (value) {
+              final name = value.trim();
+              if (name.isNotEmpty) Navigator.pop(dialogContext, name);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = controller.text.trim();
+                if (name.isEmpty) return;
+                Navigator.pop(dialogContext, name);
+              },
+              child: const Text('Use name'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+    return result;
+  }
+
+  Future<void> _chooseOpponentForSlot({
+    required int teamNo,
+    required int playerNo,
+  }) async {
+    final key = _slotKey(teamNo, playerNo);
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) {
+        final hasValue =
+            (_opponentSelections[key]?.isNotEmpty == true) ||
+            (_opponentExternalNames[key]?.trim().isNotEmpty == true);
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.person_search),
+                title: const Text('Select a club member'),
+                onTap: () => Navigator.pop(sheetContext, 'member'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit),
+                title: const Text('Enter an external opponent name'),
+                onTap: () => Navigator.pop(sheetContext, 'external'),
+              ),
+              if (hasValue)
+                ListTile(
+                  leading: const Icon(Icons.clear),
+                  title: const Text('Leave opponent blank'),
+                  onTap: () => Navigator.pop(sheetContext, 'clear'),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || choice == null) return;
+
+    if (choice == 'member') {
+      final beforeMember = _opponentSelections[key];
+      final beforeExternal = _opponentExternalNames[key];
+
+      await pickFixtureSlotMember(
+        context: context,
+        clubId: widget.clubId,
+        title: 'Select Opponent $playerNo',
+        bucket: 'opponent',
+        key: key,
+        selections: _opponentSelections,
+        fixtureId: null,
+        useFixtureSection: true,
+        initialSectionFilter: _memberPickerSectionFilterForCurrentFixture(),
+        showError: _showSaveErrorDialog,
+        memberAlreadySelectedElsewhere: _memberAlreadySelectedElsewhere,
+      );
+
+      if (!mounted) return;
+
+      final selectedMember = _opponentSelections[key];
+      if (selectedMember != null && selectedMember.isNotEmpty) {
+        setState(() => _opponentExternalNames.remove(key));
+      } else {
+        setState(() {});
+      }
+
+      if (beforeMember != _opponentSelections[key] ||
+          beforeExternal != _opponentExternalNames[key]) {
+        _markDirty();
+      }
+      return;
+    }
+
+    if (choice == 'external') {
+      final name = await _promptForExternalOpponentName(
+        playerNo: playerNo,
+        initialValue: _opponentExternalNames[key] ?? '',
+      );
+
+      if (!mounted || name == null) return;
+
+      setState(() {
+        _opponentSelections.remove(key);
+        _opponentExternalNames[key] = name;
+      });
+      _markDirty();
+      return;
+    }
+
+    if (choice == 'clear') {
+      setState(() {
+        _opponentSelections.remove(key);
+        _opponentExternalNames.remove(key);
+      });
+      _markDirty();
+    }
+  }
+
+  bool _markerRequiredForTeam(int teamNo) {
+    final markerId = _markerSelections[_slotKey(teamNo, 1)];
+    return _markerRequiredByTeam[teamNo] == true ||
+        _markerRequestByTeam[teamNo] == true ||
+        (markerId != null && markerId.isNotEmpty);
+  }
+
+  void _setMarkerRequiredForTeam(int teamNo, bool required) {
+    setState(() {
+      _markerRequiredByTeam[teamNo] = required;
+
+      if (!required) {
+        _markerSelections.remove(_slotKey(teamNo, 1));
+        _markerRequestByTeam.remove(teamNo);
+      }
+    });
+    _markDirty();
+  }
+
+  Future<void> _pickMarkerForTeam(int teamNo) async {
+    final key = _slotKey(teamNo, 1);
+    final beforeMarker = _markerSelections[key];
+
+    await pickFixtureSlotMember(
+      context: context,
+      clubId: widget.clubId,
+      title: 'Select Marker for Team $teamNo',
+      bucket: 'marker',
+      key: key,
+      selections: _markerSelections,
+      fixtureId: null,
+      useFixtureSection: false,
+      initialSectionFilter: MemberPickerSectionFilter.open,
+      showError: _showSaveErrorDialog,
+      memberAlreadySelectedElsewhere: _memberAlreadySelectedElsewhere,
+    );
+
+    if (!mounted) return;
+
+    final markerId = _markerSelections[key];
+    setState(() {
+      if (markerId != null && markerId.isNotEmpty) {
+        _markerRequiredByTeam[teamNo] = true;
+        _markerRequestByTeam[teamNo] = false;
+      }
+    });
+
+    if (beforeMarker != markerId) _markDirty();
+  }
+
+  void _toggleMarkerRequestForTeam(int teamNo) {
+    final shouldRequest = _markerRequestByTeam[teamNo] != true;
+
+    setState(() {
+      _markerRequiredByTeam[teamNo] = true;
+      _markerRequestByTeam[teamNo] = shouldRequest;
+
+      if (shouldRequest) {
+        _markerSelections.remove(_slotKey(teamNo, 1));
+      }
+    });
+    _markDirty();
+  }
+
+  void _clearNamedMarkerForTeam(int teamNo) {
+    setState(() {
+      _markerSelections.remove(_slotKey(teamNo, 1));
+      // The rink can still require a marker without immediately asking for one.
+      _markerRequiredByTeam[teamNo] = true;
+    });
+    _markDirty();
+  }
+
   String? get _selectedGreenName {
     if (_greenAreaId == null) return null;
 
@@ -2288,6 +2525,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
               }
 
               final opponentId = _opponentSelections[key];
+              final externalOpponentName =
+                  _opponentExternalNames[key]?.trim() ?? '';
+
               if (opponentId != null && opponentId.isNotEmpty) {
                 rinkAssignments.add({
                   'team_no': teamNo,
@@ -2295,18 +2535,38 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   'position': 100 + playerNo,
                 });
                 selectedMemberRoles[opponentId] = 'opponent';
+              } else if (externalOpponentName.isNotEmpty) {
+                rinkAssignments.add({
+                  'team_no': teamNo,
+                  'display_name': externalOpponentName,
+                  'position': 100 + playerNo,
+                });
               }
             }
 
             final markerKey = _slotKey(teamNo, 1);
             final markerId = _markerSelections[markerKey];
+            final markerRequired = _markerRequiredForTeam(teamNo);
+            final requestMarker = markerId == null || markerId.isEmpty
+                ? _markerRequestByTeam[teamNo] == true
+                : false;
+
             if (markerId != null && markerId.isNotEmpty) {
               rinkAssignments.add({
                 'team_no': teamNo,
                 'member_profile_id': markerId,
                 'position': 201,
+                'marker_required': true,
+                'request_marker': false,
               });
               selectedMemberRoles[markerId] = 'marker';
+            } else if (markerRequired || requestMarker) {
+              rinkAssignments.add({
+                'team_no': teamNo,
+                'position': 201,
+                'marker_required': markerRequired,
+                'request_marker': requestMarker,
+              });
             }
           }
         }
@@ -2348,29 +2608,127 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         teamSelectionMembers: teamSelectionMembers,
       );
 
-      // This is setting up the notifications for the pre-selected fixtures.
-      // Keep this client-side because it builds the PDF attachment after the
-      // fixture and its related records have been committed successfully.
+      // The fixture transaction has succeeded at this point. Communication
+      // preparation is deliberately isolated so a PDF/queue failure cannot be
+      // reported to the user as a failed fixture save.
+      final communicationsWarnings = <String>[];
+
       if (usesRinks && _isPreselectFixture) {
-        final attachments = await _buildFixtureSheetAttachments(fixtureId);
+        // Selected-player communications.
+        // This must not prevent marker-request communications from running.
+        try {
+          final attachments = await _buildFixtureSheetAttachments(fixtureId);
+          final attachmentsJson = jsonEncode(attachments);
+          final debugPreview = attachmentsJson.length <= 80
+              ? attachmentsJson
+              : attachmentsJson.substring(0, 80);
 
-        debugPrint('FIXTURE SHEET ATTACHMENTS COUNT: ${attachments.length}');
-        debugPrint(
-          'FIXTURE SHEET ATTACHMENTS JSON: ${jsonEncode(attachments).substring(0, 80)}',
-        );
+          debugPrint('FIXTURE SHEET ATTACHMENTS COUNT: ${attachments.length}');
+          debugPrint('FIXTURE SHEET ATTACHMENTS JSON: $debugPreview');
 
-        await _client.rpc(
-          'queue_fixture_selected_notifications',
-          params: {
-            'p_fixture_id': fixtureId,
-            'p_attachments': jsonDecode(jsonEncode(attachments)),
-          },
-        );
+          await _client.rpc(
+            'queue_fixture_selected_notifications',
+            params: {
+              'p_fixture_id': fixtureId,
+              'p_attachments': jsonDecode(attachmentsJson),
+            },
+          );
+        } catch (e, stackTrace) {
+          debugPrint(
+            'CREATE FIXTURE: fixture $fixtureId was saved, '
+            'but selection communications preparation failed: $e',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+
+          communicationsWarnings.add(
+            'The fixture was created, but the selected-player communications '
+            'could not be prepared. They can be checked and repaired in the '
+            'Communications Control Centre.',
+          );
+        }
+
+        // Marker-request communications run independently.
+        try {
+          debugPrint(
+            'CREATE FIXTURE MARKER COMMUNICATIONS: '
+            'calling RPC for fixture $fixtureId',
+          );
+
+          final rawMarkerResult = await _client.rpc(
+            'queue_open_marker_request_communications',
+            params: {'p_fixture_id': fixtureId},
+          );
+
+          final markerResult = rawMarkerResult is Map
+              ? Map<String, dynamic>.from(rawMarkerResult)
+              : <String, dynamic>{};
+
+          int resultAsInt(dynamic value) {
+            if (value is int) return value;
+            return int.tryParse((value ?? '0').toString()) ?? 0;
+          }
+
+          final openRequestCount = resultAsInt(
+            markerResult['open_request_count'],
+          );
+
+          final volunteerCount = resultAsInt(
+            markerResult['active_marker_volunteer_count'],
+          );
+
+          final queuedCount = resultAsInt(
+            markerResult['communications_queued'],
+          );
+
+          debugPrint(
+            'CREATE FIXTURE MARKER COMMUNICATIONS: '
+            'open=$openRequestCount '
+            'volunteers=$volunteerCount '
+            'queued=$queuedCount',
+          );
+
+          if (openRequestCount > 0 && volunteerCount == 0) {
+            communicationsWarnings.add(
+              'The fixture and marker request were created, but there are no '
+              'active marker volunteers registered for this club.',
+            );
+          }
+        } catch (e, stackTrace) {
+          debugPrint(
+            'CREATE FIXTURE: fixture $fixtureId was saved, '
+            'but marker-request communications failed: $e',
+          );
+          debugPrintStack(stackTrace: stackTrace);
+
+          communicationsWarnings.add(
+            'The fixture and marker request were created, but the marker '
+            'volunteer notifications could not be queued. They can be checked '
+            'and repaired in the Communications Control Centre.',
+          );
+        }
       }
 
       debugPrint('SAVE: pop');
 
       if (!mounted) return;
+
+      if (communicationsWarnings.isNotEmpty) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Fixture created'),
+            content: Text(communicationsWarnings.join('\n\n')),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        );
+
+        if (!mounted) return;
+      }
 
       debugPrint(
         'create_fixture_page: created fixtureId=$fixtureId, opening details...',
@@ -2490,29 +2848,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                     SizedBox(width: 90, child: Text('Opponent $playerNo')),
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () async {
-                          await pickFixtureSlotMember(
-                            context: context,
-                            clubId: widget.clubId,
-                            title: 'Select Opponent $playerNo',
-                            bucket: 'opponent',
-                            key: _slotKey(teamNo, playerNo),
-                            selections: _opponentSelections,
-                            fixtureId: null,
-                            useFixtureSection: true,
-                            initialSectionFilter:
-                                _memberPickerSectionFilterForCurrentFixture(),
-                            showError: _showSaveErrorDialog,
-                            memberAlreadySelectedElsewhere:
-                                _memberAlreadySelectedElsewhere,
-                          );
-
-                          if (mounted) setState(() {});
-                        },
+                        onPressed: () => _chooseOpponentForSlot(
+                          teamNo: teamNo,
+                          playerNo: playerNo,
+                        ),
                         child: Text(
-                          _selectedMemberLabel(
-                            _opponentSelections[_slotKey(teamNo, playerNo)],
-                          ),
+                          _selectedOpponentLabel(_slotKey(teamNo, playerNo)),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
                         ),
                       ),
                     ),
@@ -2521,38 +2865,65 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                 const SizedBox(height: 8),
               ],
 
-              Row(
-                children: [
-                  const SizedBox(width: 80, child: Text('Marker')),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        await pickFixtureSlotMember(
-                          context: context,
-                          clubId: widget.clubId,
-                          title: 'Select Marker',
-                          bucket: 'marker',
-                          key: _slotKey(teamNo, 1),
-                          selections: _markerSelections,
-                          fixtureId: null,
-                          useFixtureSection: false,
-                          initialSectionFilter: MemberPickerSectionFilter.open,
-                          showError: _showSaveErrorDialog,
-                          memberAlreadySelectedElsewhere:
-                              _memberAlreadySelectedElsewhere,
-                        );
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Marker required'),
+                subtitle: const Text('Set independently for this rink/team.'),
+                value: _markerRequiredForTeam(teamNo),
+                onChanged: (value) => _setMarkerRequiredForTeam(teamNo, value),
+              ),
 
-                        if (mounted) setState(() {});
-                      },
-                      child: Text(
-                        _selectedMemberLabel(
-                          _markerSelections[_slotKey(teamNo, 1)],
-                        ),
+              if (_markerRequiredForTeam(teamNo)) ...[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _pickMarkerForTeam(teamNo),
+                      icon: const Icon(Icons.person_search),
+                      label: Text(
+                        _markerSelections[_slotKey(teamNo, 1)]?.isNotEmpty ==
+                                true
+                            ? _selectedMemberLabel(
+                                _markerSelections[_slotKey(teamNo, 1)],
+                              )
+                            : 'Select named marker',
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    OutlinedButton.icon(
+                      onPressed: () => _toggleMarkerRequestForTeam(teamNo),
+                      icon: Icon(
+                        _markerRequestByTeam[teamNo] == true
+                            ? Icons.campaign
+                            : Icons.campaign_outlined,
+                      ),
+                      label: Text(
+                        _markerRequestByTeam[teamNo] == true
+                            ? 'Marker request selected'
+                            : 'Ask for a marker',
+                      ),
+                    ),
+                    if (_markerSelections[_slotKey(teamNo, 1)]?.isNotEmpty ==
+                        true)
+                      TextButton.icon(
+                        onPressed: () => _clearNamedMarkerForTeam(teamNo),
+                        icon: const Icon(Icons.clear),
+                        label: const Text('Clear marker'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _markerRequestByTeam[teamNo] == true
+                      ? 'An open marker request will be created for this rink.'
+                      : (_markerSelections[_slotKey(teamNo, 1)]?.isNotEmpty ==
+                                true
+                            ? 'A named marker is assigned to this rink.'
+                            : 'A marker is required, but no request will be sent yet.'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
               const Divider(height: 28),
             ],
 

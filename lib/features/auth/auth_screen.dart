@@ -312,10 +312,11 @@ class _AuthScreenState extends State<AuthScreen> {
         _debugError = '$e';
       });
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _loadingDebugUsers = false;
-      });
+      if (mounted) {
+        setState(() {
+          _loadingDebugUsers = false;
+        });
+      }
     }
   }
 

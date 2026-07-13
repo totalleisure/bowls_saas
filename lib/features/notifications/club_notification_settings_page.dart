@@ -57,17 +57,16 @@ class _ClubNotificationSettingsPageState
         _notifyCaptainOnAcceptanceChange =
             (row?['notify_captain_on_acceptance_change'] as bool?) ?? true;
         _notifyViceCaptainOnAcceptanceChange =
-            (row?['notify_vice_captain_on_acceptance_change'] as bool?) ?? false;
+            (row?['notify_vice_captain_on_acceptance_change'] as bool?) ??
+            false;
         _enableInAppNotifications =
             (row?['enable_in_app_notifications'] as bool?) ?? true;
         _enablePushNotifications =
             (row?['enable_push_notifications'] as bool?) ?? true;
         _enableEmailNotifications =
             (row?['enable_email_notifications'] as bool?) ?? false;
-        _notifyOnAccepted =
-            (row?['notify_on_accepted'] as bool?) ?? true;
-        _notifyOnDeclined =
-            (row?['notify_on_declined'] as bool?) ?? true;
+        _notifyOnAccepted = (row?['notify_on_accepted'] as bool?) ?? true;
+        _notifyOnDeclined = (row?['notify_on_declined'] as bool?) ?? true;
         _notifyOnChangedMind =
             (row?['notify_on_changed_mind'] as bool?) ?? true;
         _loading = false;
@@ -89,8 +88,7 @@ class _ClubNotificationSettingsPageState
     try {
       await _repo.saveClubSettings(
         clubId: widget.clubId,
-        notifyCaptainOnAcceptanceChange:
-            _notifyCaptainOnAcceptanceChange,
+        notifyCaptainOnAcceptanceChange: _notifyCaptainOnAcceptanceChange,
         notifyViceCaptainOnAcceptanceChange:
             _notifyViceCaptainOnAcceptanceChange,
         enableInAppNotifications: _enableInAppNotifications,
@@ -107,9 +105,9 @@ class _ClubNotificationSettingsPageState
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save settings: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to save settings: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -133,7 +131,7 @@ class _ClubNotificationSettingsPageState
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
+      return Scaffold(
         appBar: AppBar(title: Text('Notification Settings')),
         body: Center(child: CircularProgressIndicator()),
       );
@@ -178,10 +176,7 @@ class _ClubNotificationSettingsPageState
             const SizedBox(height: 16),
           ],
 
-          Text(
-            'Recipients',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('Recipients', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
 
           Card(
@@ -191,17 +186,20 @@ class _ClubNotificationSettingsPageState
                 children: [
                   _buildSwitchTile(
                     title: 'Notify captain',
-                    subtitle: 'Send notifications to the fixture captain when a selected player changes response.',
+                    subtitle:
+                        'Send notifications to the fixture captain when a selected player changes response.',
                     value: _notifyCaptainOnAcceptanceChange,
                     onChanged: (v) =>
                         setState(() => _notifyCaptainOnAcceptanceChange = v),
                   ),
                   _buildSwitchTile(
                     title: 'Notify vice-captain',
-                    subtitle: 'Also notify the vice-captain when a selected player changes response.',
+                    subtitle:
+                        'Also notify the vice-captain when a selected player changes response.',
                     value: _notifyViceCaptainOnAcceptanceChange,
                     onChanged: (v) => setState(
-                        () => _notifyViceCaptainOnAcceptanceChange = v),
+                      () => _notifyViceCaptainOnAcceptanceChange = v,
+                    ),
                   ),
                 ],
               ),
@@ -209,10 +207,7 @@ class _ClubNotificationSettingsPageState
           ),
 
           const SizedBox(height: 16),
-          Text(
-            'Channels',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('Channels', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
 
           Card(
@@ -262,22 +257,20 @@ class _ClubNotificationSettingsPageState
                     title: 'Player accepted',
                     subtitle: 'Notify when a selected player accepts.',
                     value: _notifyOnAccepted,
-                    onChanged: (v) =>
-                        setState(() => _notifyOnAccepted = v),
+                    onChanged: (v) => setState(() => _notifyOnAccepted = v),
                   ),
                   _buildSwitchTile(
                     title: 'Player declined',
                     subtitle: 'Notify when a selected player declines.',
                     value: _notifyOnDeclined,
-                    onChanged: (v) =>
-                        setState(() => _notifyOnDeclined = v),
+                    onChanged: (v) => setState(() => _notifyOnDeclined = v),
                   ),
                   _buildSwitchTile(
                     title: 'Player changed mind',
-                    subtitle: 'Notify when a player changes from accepted to declined or vice versa.',
+                    subtitle:
+                        'Notify when a player changes from accepted to declined or vice versa.',
                     value: _notifyOnChangedMind,
-                    onChanged: (v) =>
-                        setState(() => _notifyOnChangedMind = v),
+                    onChanged: (v) => setState(() => _notifyOnChangedMind = v),
                   ),
                 ],
               ),

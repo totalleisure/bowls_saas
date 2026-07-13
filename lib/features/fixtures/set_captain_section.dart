@@ -12,7 +12,7 @@ class SetCaptainSection extends StatefulWidget {
   final bool readOnly;
 
   const SetCaptainSection({
-    super.key,  
+    super.key,
     required this.fixture,
     this.readOnly = false,
   });
@@ -91,7 +91,9 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
         _captainName = displayName.isNotEmpty
             ? displayName
-            : (fullName.isNotEmpty ? fullName : (email.isNotEmpty ? email : null));
+            : (fullName.isNotEmpty
+                  ? fullName
+                  : (email.isNotEmpty ? email : null));
 
         _captainPhone = (cap?['phone'] ?? '').toString().trim();
       }
@@ -112,7 +114,9 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
         _viceCaptainName = displayName.isNotEmpty
             ? displayName
-            : (fullName.isNotEmpty ? fullName : (email.isNotEmpty ? email : null));
+            : (fullName.isNotEmpty
+                  ? fullName
+                  : (email.isNotEmpty ? email : null));
 
         _viceCaptainPhone = (vice?['phone'] ?? '').toString().trim();
       }
@@ -128,7 +132,8 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
           .eq('member_profile_id', myId)
           .maybeSingle();
 
-      _isAdmin = cm != null && (cm['is_active'] == true) && (cm['role'] == 'admin');
+      _isAdmin =
+          cm != null && (cm['is_active'] == true) && (cm['role'] == 'admin');
 
       if (!_isAdmin) {
         setState(() => _loading = false);
@@ -155,6 +160,8 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
       setState(() => _loading = false);
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -173,7 +180,9 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
     final displayName = (mp?['display_name'] ?? '').toString().trim();
     final firstName = (mp?['first_name'] ?? '').toString().trim();
     final lastName = (mp?['last_name'] ?? '').toString().trim();
-    final email = (mp?['email_address'] ?? mp?['email'] ?? '').toString().trim();
+    final email = (mp?['email_address'] ?? mp?['email'] ?? '')
+        .toString()
+        .trim();
 
     if (displayName.isNotEmpty) return displayName;
 
@@ -199,10 +208,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
   List<DropdownMenuItem<String?>> _dropdownItems() {
     return [
-      const DropdownMenuItem<String?>(
-        value: null,
-        child: Text('None'),
-      ),
+      const DropdownMenuItem<String?>(value: null, child: Text('None')),
       ..._members.map<DropdownMenuItem<String?>>((m) {
         final id = m['member_profile_id'] as String;
         final mp = m['member_profiles'] as Map<String, dynamic>?;
@@ -214,11 +220,10 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
         final fullName = '$firstName $lastName'.trim();
         final name = displayName.isNotEmpty
             ? displayName
-            : (fullName.isNotEmpty ? fullName : (email.isNotEmpty ? email : '(no name)'));
-        return DropdownMenuItem<String?>(
-          value: id,
-          child: Text(name),
-        );
+            : (fullName.isNotEmpty
+                  ? fullName
+                  : (email.isNotEmpty ? email : '(no name)'));
+        return DropdownMenuItem<String?>(value: id, child: Text(name));
       }),
     ];
   }
@@ -245,15 +250,15 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Captaincy saved')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Captaincy saved')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save error: $e')));
       }
     }
   }
@@ -265,7 +270,10 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
     final fixtureId = widget.fixture['id']?.toString();
     final clubId = widget.fixture['club_id']?.toString();
 
-    if (fixtureId == null || fixtureId.isEmpty || clubId == null || clubId.isEmpty) {
+    if (fixtureId == null ||
+        fixtureId.isEmpty ||
+        clubId == null ||
+        clubId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Fixture or club id is missing')),
       );
@@ -316,7 +324,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
       );
     }
 
-//    if (!_isAdmin) return const SizedBox.shrink();
+    //    if (!_isAdmin) return const SizedBox.shrink();
 
     final captainName = _isAdmin
         ? _nameForMemberId(_selectedCaptainId)
@@ -324,7 +332,9 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
     final viceName = _isAdmin
         ? _nameForMemberId(_selectedViceCaptainId)
-        : ((_viceCaptainName?.trim().isNotEmpty ?? false) ? _viceCaptainName! : 'None');
+        : ((_viceCaptainName?.trim().isNotEmpty ?? false)
+              ? _viceCaptainName!
+              : 'None');
 
     final captainPhone = _isAdmin
         ? _phoneForMemberId(_selectedCaptainId)
@@ -332,17 +342,18 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
     final vicePhone = _isAdmin
         ? _phoneForMemberId(_selectedViceCaptainId)
-        : ((_viceCaptainPhone?.trim().isNotEmpty ?? false) ? _viceCaptainPhone! : null);
-        
+        : ((_viceCaptainPhone?.trim().isNotEmpty ?? false)
+              ? _viceCaptainPhone!
+              : null);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-//            Text('Captaincy', style: Theme.of(context).textTheme.titleMedium),
-//            const SizedBox(height: 8),
-
+            //            Text('Captaincy', style: Theme.of(context).textTheme.titleMedium),
+            //            const SizedBox(height: 8),
             if (!_editing) ...[
               Row(
                 children: [
@@ -350,8 +361,10 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Captain',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        const Text(
+                          'Captain',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                         const SizedBox(height: 4),
                         Text(captainName),
                         if (captainPhone != null) ...[
@@ -369,8 +382,10 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Vice-captain',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        const Text(
+                          'Vice-captain',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                         const SizedBox(height: 4),
                         Text(viceName),
                         if (vicePhone != null) ...[
@@ -399,7 +414,8 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.person),
                       label: Text(
-                        _nameForMemberId(_selectedCaptainId) ?? 'Select Captain',
+                        _nameForMemberId(_selectedCaptainId) ??
+                            'Select Captain',
                         overflow: TextOverflow.ellipsis,
                       ),
                       onPressed: () async {
@@ -412,7 +428,9 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
                         if (selected != null) {
                           setState(() {
-                            _selectedCaptainId = selected.isEmpty ? null : selected.first;
+                            _selectedCaptainId = selected.isEmpty
+                                ? null
+                                : selected.first;
                           });
                         }
                       },
@@ -423,7 +441,8 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.person_outline),
                       label: Text(
-                        _nameForMemberId(_selectedViceCaptainId) ?? 'Select Vice-captain',
+                        _nameForMemberId(_selectedViceCaptainId) ??
+                            'Select Vice-captain',
                         overflow: TextOverflow.ellipsis,
                       ),
                       onPressed: () async {
@@ -436,7 +455,9 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
 
                         if (selected != null) {
                           setState(() {
-                            _selectedViceCaptainId = selected.isEmpty ? null : selected.first;
+                            _selectedViceCaptainId = selected.isEmpty
+                                ? null
+                                : selected.first;
                           });
                         }
                       },
@@ -468,5 +489,3 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
     );
   }
 }
-
-

@@ -315,6 +315,7 @@ begin
             ||
 
             coalesce(
+              nullif(fra.display_name, ''),
               nullif(mp.display_name, ''),
               nullif(
                 trim(
@@ -427,6 +428,101 @@ begin
             || 'Home Rink: '
             || v_home_rink_label;
         end if;
+      elsif r.event_type = 'marker_request_opened' then
+        v_source := 'Marker Required';
+        v_title := v_source;
+
+        v_fixture_label := coalesce(
+          nullif(r.payload->>'fixture_label', ''),
+          'Pre-Select Fixture'
+        );
+
+        v_team_no := coalesce(r.payload->>'team_no', '');
+        v_home_rink_label := coalesce(
+          nullif(r.payload->>'home_rink_label', ''),
+          ''
+        );
+        v_home_away := coalesce(r.payload->>'home_away', '');
+        v_venue_name := coalesce(r.payload->>'venue_name', '');
+
+        begin
+          v_start_at := coalesce(
+            nullif(r.payload->>'start_at', '')::timestamptz,
+            nullif(r.payload->>'fixture_date', '')::timestamptz
+          );
+        exception
+          when others then
+            v_start_at := null;
+        end;
+
+        v_fixture_date_text :=
+          case
+            when v_start_at is not null then
+              to_char(
+                v_start_at at time zone 'Europe/London',
+                'FMDay DD Mon YYYY "at" HH24:MI'
+              )
+            else ''
+          end;
+
+        v_body :=
+          'A volunteer marker is required for '
+          || v_fixture_label
+          || '.';
+
+        if v_fixture_date_text <> '' then
+          v_body :=
+            v_body
+            || chr(10) || chr(10)
+            || 'When: '
+            || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' then
+          v_body :=
+            v_body
+            || chr(10)
+            || 'Home/Away: '
+            || v_home_away;
+        end if;
+
+        if v_venue_name <> '' then
+          v_body :=
+            v_body
+            || chr(10)
+            || 'Venue: '
+            || v_venue_name;
+        end if;
+
+        if coalesce(nullif(r.payload->>'opponent_name', ''), '') <> '' then
+          v_body :=
+            v_body
+            || chr(10)
+            || 'Opponent: '
+            || (r.payload->>'opponent_name');
+        end if;
+
+        if v_team_no <> '' then
+          v_body :=
+            v_body
+            || chr(10)
+            || 'Team: '
+            || v_team_no;
+        end if;
+
+        if v_home_rink_label <> '' then
+          v_body :=
+            v_body
+            || chr(10)
+            || 'Rink: '
+            || v_home_rink_label;
+        end if;
+
+        v_body :=
+          v_body
+          || chr(10) || chr(10)
+          || 'Please contact the fixture captain if you can help.';
+
       elsif r.event_type = 'fixture_moved' then
         v_source := 'Fixture Moved';
         v_title := v_source;
@@ -483,6 +579,113 @@ begin
           v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
       end if;
 
+      elsif r.event_type = 'team_published_player' then
+        v_source := 'Team Published';
+        v_title := v_source;
+
+        v_body :=
+          'You have been selected for '
+          || v_fixture_label
+          || '.';
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' then
+          v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
+        end if;
+
+        if v_venue_name <> '' then
+          v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
+        end if;
+
+        v_body := v_body || chr(10) || chr(10) || 'Please check your team sheet.';
+
+      elsif r.event_type = 'team_published_reserve' then
+        v_source := 'Selected as Reserve';
+        v_title := v_source;
+
+        v_body :=
+          'You have been selected as a reserve for '
+          || v_fixture_label
+          || '.';
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' then
+          v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
+        end if;
+
+        if v_venue_name <> '' then
+          v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
+        end if;
+
+      elsif r.event_type in ('team_published_captain', 'team_published_vice') then
+        v_source := 'Team Published';
+        v_title := v_source;
+
+        v_body :=
+          'The team has been published for '
+          || v_fixture_label
+          || '.';
+
+        if coalesce((r.payload->>'missing_players')::int, 0) > 0 then
+          v_body := v_body
+            || chr(10)
+            || chr(10)
+            || 'The team is currently short of '
+            || (r.payload->>'missing_players')
+            || ' player(s).';
+        end if;
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' then
+          v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
+        end if;
+
+        if v_venue_name <> '' then
+          v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
+        end if;
+
+      elsif r.event_type = 'team_published_not_selected' then
+        v_source := 'Team Selected';
+        v_title := v_source;
+
+        v_body :=
+          'Thank you for making yourself available for '
+          || v_fixture_label
+          || '.'
+          || chr(10)
+          || chr(10)
+          || 'The team has now been selected and you have not been selected on this occasion.';
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
+
+      elsif r.event_type = 'team_published_incomplete_request' then
+        v_source := 'Players Still Required';
+        v_title := v_source;
+
+        v_body :=
+          'The team has been published for '
+          || v_fixture_label
+          || ', but we are still looking for '
+          || coalesce(nullif(r.payload->>'missing_players', ''), 'more')
+          || ' player(s).'
+          || chr(10)
+          || chr(10)
+          || 'If you are available, please contact the captain.';
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
 
       elsif r.event_type = 'fixture_message' then
         v_source := coalesce(
@@ -535,18 +738,25 @@ begin
         type,
         title,
         body,
-        data
+        data,
+        fixture_id,
+        team_selection_id
       )
       values (
         r.target_member_profile_id,
         r.event_type,
         v_title,
         v_body,
-        jsonb_build_object(
-          'fixture_id', r.fixture_id,
-          'team_selection_id', r.team_selection_id,
-          'source_member_profile_id', r.member_profile_id
-        )
+        jsonb_strip_nulls(
+          jsonb_build_object(
+            'source_member_profile_id', r.member_profile_id,
+            'marker_request_id', nullif(r.payload->>'marker_request_id', ''),
+            'fixture_rink_id', nullif(r.payload->>'fixture_rink_id', ''),
+            'team_no', nullif(r.payload->>'team_no', '')
+          )
+        ),
+        r.fixture_id,
+        r.team_selection_id
       );
 
       -- Optional email queue for important notifications
@@ -557,6 +767,13 @@ begin
         'guest_membership_approved',
         'fixture_selected',
         'fixture_moved',
+        'marker_request_opened',
+        'team_published_player',
+        'team_published_reserve',
+        'team_published_captain',
+        'team_published_vice',
+        'team_published_not_selected',
+        'team_published_incomplete_request',        
         'acceptance_reminder'
       ) then
         insert into public.email_queue (
@@ -566,6 +783,8 @@ begin
           subject,
           body,
           payload,
+          fixture_id,
+          team_selection_id,
           attachments
         )
 
@@ -579,6 +798,8 @@ begin
             'fixture_id', r.fixture_id,
             'team_selection_id', r.team_selection_id
           ),
+          r.fixture_id,
+          r.team_selection_id,
           coalesce(r.payload->'attachments', '[]'::jsonb)
         from public.member_profiles mp
         where mp.id = r.target_member_profile_id

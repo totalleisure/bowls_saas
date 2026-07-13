@@ -95,12 +95,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   List<Map<String, dynamic>> _memberPreselectRinks = [];
   List<Map<String, dynamic>> _memberPreselectAssignments = [];
 
-  final Map<String, bool> _markerRequiredByRinkId = {};
-  final Map<String, bool> _markerRequestByRinkId = {};
-
-  bool _preselectDirty = false;
-  bool _savingPreselect = false;
-
   final ScrollController _scrollController = ScrollController();
 
   final _client = Supabase.instance.client;
@@ -338,17 +332,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   void _handleRinkTap(Map<String, dynamic> rink) {
-    if (_preselectDirty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Save the player, opponent and marker changes before changing rink bookings.',
-          ),
-        ),
-      );
-      return;
-    }
-
     final rinkLabel =
         (rink['rink_label'] ?? rink['label'] ?? rink['name'] ?? '').toString();
 
@@ -604,6 +587,42 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
+  Future<void> _saveFixtureRinkAssignment({
+    required String fixtureRinkId,
+    required int position,
+    required String? memberProfileId,
+  }) async {
+    if (memberProfileId == null) {
+      await _client
+          .from('fixture_rink_assignments')
+          .delete()
+          .eq('fixture_rink_id', fixtureRinkId)
+          .eq('position', position);
+    } else {
+      final existing = _existingAssignmentForMember(
+        memberProfileId: memberProfileId,
+        fixtureRinkId: fixtureRinkId,
+        position: position,
+      );
+
+      if (existing != null) {
+        await _showSaveErrorDialog(
+          'This member has already been selected elsewhere in this fixture. Please choose a different member.',
+        );
+        return;
+      }
+
+      await _client.from('fixture_rink_assignments').upsert({
+        'fixture_id': widget.fixtureId,
+        'fixture_rink_id': fixtureRinkId,
+        'position': position,
+        'member_profile_id': memberProfileId,
+      }, onConflict: 'fixture_rink_id,position');
+    }
+
+    await _loadMemberPreselectData();
+  }
+
   Future<void> _enqueueFixtureSelectedNotification({
     required String memberProfileId,
     required String fixtureRinkId,
@@ -681,573 +700,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     return null;
-  }
-
-  Map<String, dynamic>? _clubMemberById(String memberProfileId) {
-    for (final member in _clubMembers) {
-      if (member['id']?.toString() == memberProfileId) {
-        return member;
-      }
-    }
-    return null;
-  }
-
-  void _setDraftPreselectAssignment({
-    required String fixtureRinkId,
-    required int position,
-    String? memberProfileId,
-    String? displayName,
-  }) {
-    final trimmedName = displayName?.trim();
-    final existing = _assignmentFor(
-      fixtureRinkId: fixtureRinkId,
-      position: position,
-    );
-
-    if (memberProfileId != null && memberProfileId.isNotEmpty) {
-      final duplicate = _existingAssignmentForMember(
-        memberProfileId: memberProfileId,
-        fixtureRinkId: fixtureRinkId,
-        position: position,
-      );
-
-      if (duplicate != null) {
-        _showSaveErrorDialog(
-          'This member has already been selected elsewhere in this fixture. Please choose a different member.',
-        );
-        return;
-      }
-    }
-
-    final oldMemberId = existing?['member_profile_id']?.toString();
-    final oldDisplayName = existing?['display_name']?.toString().trim();
-
-    final unchanged =
-        oldMemberId == memberProfileId &&
-        (oldDisplayName ?? '') == (trimmedName ?? '');
-
-    if (unchanged) return;
-
-    setState(() {
-      _memberPreselectAssignments.removeWhere(
-        (assignment) =>
-            assignment['fixture_rink_id']?.toString() == fixtureRinkId &&
-            assignment['position'] == position,
-      );
-
-      if ((memberProfileId != null && memberProfileId.isNotEmpty) ||
-          (trimmedName != null && trimmedName.isNotEmpty)) {
-        final member = memberProfileId == null
-            ? null
-            : _clubMemberById(memberProfileId);
-
-        final captainId = _fixture?['captain_member_profile_id']?.toString();
-
-        dynamic acceptance;
-        if (memberProfileId == null) {
-          acceptance = null;
-        } else if (memberProfileId == captainId) {
-          acceptance = 'accepted';
-        } else if (existing != null &&
-            existing['member_profile_id']?.toString() == memberProfileId) {
-          acceptance = existing['acceptance'];
-        } else {
-          acceptance = 'pending';
-        }
-
-        _memberPreselectAssignments.add({
-          'fixture_rink_id': fixtureRinkId,
-          'position': position,
-          'member_profile_id': memberProfileId,
-          'display_name': trimmedName,
-          'member': member,
-          'acceptance': acceptance,
-        });
-      }
-
-      if (position == 201 &&
-          memberProfileId != null &&
-          memberProfileId.isNotEmpty) {
-        _markerRequiredByRinkId[fixtureRinkId] = true;
-        _markerRequestByRinkId[fixtureRinkId] = false;
-      }
-
-      _preselectDirty = true;
-    });
-  }
-
-  void _clearDraftPreselectAssignment({
-    required String fixtureRinkId,
-    required int position,
-  }) {
-    final existing = _assignmentFor(
-      fixtureRinkId: fixtureRinkId,
-      position: position,
-    );
-
-    if (existing == null) return;
-
-    setState(() {
-      _memberPreselectAssignments.removeWhere(
-        (assignment) =>
-            assignment['fixture_rink_id']?.toString() == fixtureRinkId &&
-            assignment['position'] == position,
-      );
-      _preselectDirty = true;
-    });
-  }
-
-  Future<void> _editExternalOpponentSlot({
-    required String fixtureRinkId,
-    required int position,
-    required String title,
-  }) async {
-    final existing = _assignmentFor(
-      fixtureRinkId: fixtureRinkId,
-      position: position,
-    );
-
-    final controller = TextEditingController(
-      text: (existing?['display_name'] ?? '').toString(),
-    );
-
-    final value = await showDialog<String?>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(
-            labelText: 'Opponent name',
-            hintText: 'Enter an external opponent name',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          if (existing != null)
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, ''),
-              child: const Text('Clear'),
-            ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Use name'),
-          ),
-        ],
-      ),
-    );
-
-    controller.dispose();
-
-    if (!mounted || value == null) return;
-
-    if (value.trim().isEmpty) {
-      _clearDraftPreselectAssignment(
-        fixtureRinkId: fixtureRinkId,
-        position: position,
-      );
-      return;
-    }
-
-    _setDraftPreselectAssignment(
-      fixtureRinkId: fixtureRinkId,
-      position: position,
-      displayName: value,
-    );
-  }
-
-  Future<void> _editOpponentPreselectSlot({
-    required BuildContext context,
-    required String fixtureRinkId,
-    required int position,
-    required int opponentNo,
-  }) async {
-    final assignment = _assignmentFor(
-      fixtureRinkId: fixtureRinkId,
-      position: position,
-    );
-
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.person_search),
-                title: const Text('Select club member'),
-                onTap: () => Navigator.pop(sheetContext, 'member'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Enter external opponent name'),
-                onTap: () => Navigator.pop(sheetContext, 'external'),
-              ),
-              if (assignment != null)
-                ListTile(
-                  leading: const Icon(Icons.clear),
-                  title: const Text('Clear opponent'),
-                  onTap: () => Navigator.pop(sheetContext, 'clear'),
-                ),
-              ListTile(
-                leading: const Icon(Icons.close),
-                title: const Text('Cancel'),
-                onTap: () => Navigator.pop(sheetContext),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (!mounted || action == null) return;
-
-    switch (action) {
-      case 'member':
-        await _selectMemberPreselectSlot(
-          context: context,
-          fixtureRinkId: fixtureRinkId,
-          position: position,
-          pickerTitle: 'Select Opponent $opponentNo',
-          useFixtureSection: true,
-        );
-        break;
-
-      case 'external':
-        await _editExternalOpponentSlot(
-          fixtureRinkId: fixtureRinkId,
-          position: position,
-          title: 'Opponent $opponentNo',
-        );
-        break;
-
-      case 'clear':
-        _clearDraftPreselectAssignment(
-          fixtureRinkId: fixtureRinkId,
-          position: position,
-        );
-        break;
-    }
-  }
-
-  List<Map<String, dynamic>> _buildPreselectSavePayload() {
-    final payload = <Map<String, dynamic>>[];
-
-    for (final rink in _memberPreselectRinks) {
-      final rinkId = rink['id'].toString();
-      final playersPerRink =
-          int.tryParse((rink['players_per_rink'] ?? '1').toString()) ?? 1;
-
-      for (var position = 1; position <= playersPerRink; position++) {
-        final assignment = _assignmentFor(
-          fixtureRinkId: rinkId,
-          position: position,
-        );
-
-        if (assignment != null) {
-          payload.add({
-            'fixture_rink_id': rinkId,
-            'position': position,
-            'member_profile_id': assignment['member_profile_id'],
-          });
-        }
-      }
-
-      for (var opponentNo = 1; opponentNo <= playersPerRink; opponentNo++) {
-        final position = 100 + opponentNo;
-        final assignment = _assignmentFor(
-          fixtureRinkId: rinkId,
-          position: position,
-        );
-
-        if (assignment != null) {
-          final memberId = assignment['member_profile_id']?.toString();
-          final displayName = assignment['display_name']?.toString().trim();
-
-          payload.add({
-            'fixture_rink_id': rinkId,
-            'position': position,
-            if (memberId != null && memberId.isNotEmpty)
-              'member_profile_id': memberId,
-            if (displayName != null && displayName.isNotEmpty)
-              'display_name': displayName,
-          });
-        }
-      }
-
-      final markerAssignment = _assignmentFor(
-        fixtureRinkId: rinkId,
-        position: 201,
-      );
-
-      final markerRequired = _markerRequiredByRinkId[rinkId] == true;
-      final requestMarker = _markerRequestByRinkId[rinkId] == true;
-      final markerMemberId = markerAssignment?['member_profile_id']?.toString();
-
-      if ((markerMemberId != null && markerMemberId.isNotEmpty) ||
-          markerRequired ||
-          requestMarker) {
-        payload.add({
-          'fixture_rink_id': rinkId,
-          'position': 201,
-          if (markerMemberId != null && markerMemberId.isNotEmpty)
-            'member_profile_id': markerMemberId,
-          'marker_required': markerRequired,
-          'request_marker':
-              requestMarker &&
-              (markerMemberId == null || markerMemberId.isEmpty),
-        });
-      }
-    }
-
-    return payload;
-  }
-
-  Future<String?> _queueOpenMarkerRequestCommunications() async {
-    try {
-      debugPrint('MARKER REQUEST RPC START: fixture=${widget.fixtureId}');
-
-      final rawResult = await _client.rpc(
-        'queue_open_marker_request_communications',
-        params: {'p_fixture_id': widget.fixtureId},
-      );
-
-      debugPrint('MARKER REQUEST RPC RESULT: $rawResult');
-
-      final result = rawResult is Map
-          ? Map<String, dynamic>.from(rawResult)
-          : <String, dynamic>{};
-
-      int asInt(dynamic value) {
-        if (value is int) return value;
-        return int.tryParse((value ?? '0').toString()) ?? 0;
-      }
-
-      final openRequestCount = asInt(result['open_request_count']);
-      final volunteerCount = asInt(result['active_marker_volunteer_count']);
-      final queuedCount = asInt(result['communications_queued']);
-
-      debugPrint(
-        'MARKER REQUEST COMMUNICATIONS: '
-        'open=$openRequestCount '
-        'volunteers=$volunteerCount '
-        'queued=$queuedCount',
-      );
-
-      if (openRequestCount > 0 && volunteerCount == 0) {
-        return 'The marker request was saved, but there are no active marker '
-            'volunteers registered for this club.';
-      }
-
-      return null;
-    } catch (e) {
-      debugPrint('Marker request communications could not be queued: $e');
-
-      return 'The marker request was saved, but its volunteer notifications '
-          'could not be queued. The Communications Control Centre can identify '
-          'and repair this.';
-    }
-  }
-
-  Future<String?> _queuePreselectChangeNotifications(
-    Map<String, dynamic> result,
-  ) async {
-    final memberIds = <String>{};
-
-    void collect(dynamic raw) {
-      if (raw is! List) return;
-      for (final item in raw) {
-        if (item is! Map) continue;
-        final memberId = item['member_profile_id']?.toString();
-        if (memberId != null && memberId.isNotEmpty) {
-          memberIds.add(memberId);
-        }
-      }
-    }
-
-    collect(result['added']);
-    collect(result['role_changed']);
-
-    if (memberIds.isEmpty) return null;
-
-    final failures = <String>[];
-
-    for (final memberId in memberIds) {
-      Map<String, dynamic>? assignment;
-
-      for (final item in _memberPreselectAssignments) {
-        if (item['member_profile_id']?.toString() == memberId) {
-          assignment = item;
-          break;
-        }
-      }
-
-      if (assignment == null) continue;
-
-      try {
-        await _enqueueFixtureSelectedNotification(
-          memberProfileId: memberId,
-          fixtureRinkId: assignment['fixture_rink_id'].toString(),
-          position: assignment['position'] as int,
-        );
-      } catch (e) {
-        failures.add(memberId);
-        debugPrint(
-          'PRESELECT SAVE: state saved but selection notification failed '
-          'for $memberId: $e',
-        );
-      }
-    }
-
-    if (failures.isEmpty) return null;
-
-    return 'The selection was saved, but ${failures.length} communication'
-        '${failures.length == 1 ? '' : 's'} could not be queued. '
-        'The Communications Control Centre can identify and repair them.';
-  }
-
-  Future<void> _savePreselectState() async {
-    if (_savingPreselect || !_preselectDirty) return;
-
-    final offset = _scrollController.hasClients
-        ? _scrollController.offset
-        : 0.0;
-    final payload = _buildPreselectSavePayload();
-
-    setState(() => _savingPreselect = true);
-
-    Map<String, dynamic> result;
-
-    // The RPC is the authoritative save. Do not mix a later refresh or
-    // communications failure up with the database transaction itself.
-    try {
-      debugPrint('PRESELECT SAVE payload=$payload');
-
-      final rawResult = await _client.rpc(
-        'save_preselect_fixture_state',
-        params: {'p_fixture_id': widget.fixtureId, 'p_assignments': payload},
-      );
-
-      debugPrint('PRESELECT SAVE result=$rawResult');
-
-      result = rawResult is Map
-          ? Map<String, dynamic>.from(rawResult)
-          : <String, dynamic>{};
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() => _savingPreselect = false);
-
-      await _showSaveErrorDialog(
-        e is PostgrestException && e.message.isNotEmpty
-            ? e.message
-            : e.toString(),
-      );
-      return;
-    }
-
-    if (!mounted) return;
-
-    // The transaction has committed at this point. Clear the dirty state
-    // immediately so the screen never claims that successfully saved data is
-    // still unsaved merely because a later refresh or notification failed.
-    setState(() {
-      _preselectDirty = false;
-      _didChangeFixture = true;
-    });
-
-    final warnings = <String>[];
-
-    // Selection-change communications
-    try {
-      final communicationsWarning = await _queuePreselectChangeNotifications(
-        result,
-      );
-
-      if (communicationsWarning != null) {
-        warnings.add(communicationsWarning);
-      }
-    } catch (e, st) {
-      debugPrint('PRESELECT COMMUNICATIONS FAILED: $e');
-      debugPrint('$st');
-
-      warnings.add(
-        'The selection was saved, but selection notifications could not be queued.',
-      );
-    }
-
-    // Marker-request communications must run independently.
-    try {
-      debugPrint(
-        'MARKER COMMUNICATIONS: calling RPC for fixture ${widget.fixtureId}',
-      );
-
-      final markerWarning = await _queueOpenMarkerRequestCommunications();
-
-      if (markerWarning != null) {
-        warnings.add(markerWarning);
-      }
-    } catch (e, st) {
-      debugPrint('MARKER COMMUNICATIONS FAILED: $e');
-      debugPrint('$st');
-
-      warnings.add(
-        'The marker request was saved, but marker volunteer notifications '
-        'could not be queued.',
-      );
-    }
-
-    try {
-      await _loadMemberPreselectData();
-      await _loadMyTeamSelection();
-      await _loadFixtureReadiness();
-    } catch (e) {
-      debugPrint('PRESELECT SAVE: state saved but refresh failed: $e');
-      warnings.add(
-        'The selection was saved, but this screen could not refresh fully. '
-        'Reopen the fixture to reload the saved state.',
-      );
-    }
-
-    if (!mounted) return;
-
-    setState(() => _savingPreselect = false);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.jumpTo(
-        offset.clamp(0.0, _scrollController.position.maxScrollExtent),
-      );
-    });
-
-    if (warnings.isNotEmpty) {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Selection saved'),
-          content: Text(warnings.join('\n\n')),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Continue'),
-            ),
-          ],
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pre-Select fixture saved.')),
-      );
-    }
   }
 
   Future<void> _loadClubMembers() async {
@@ -1341,13 +793,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Future<void> _loadMemberPreselectData() async {
     final rinks = await _client
         .from('fixture_rinks')
-        .select(
-          'id, fixture_rink_no, players_per_rink, home_rink_label, marker_required',
-        )
+        .select('id, fixture_rink_no, players_per_rink, home_rink_label')
         .eq('fixture_id', widget.fixtureId)
         .order('fixture_rink_no');
 
     final rinkRows = List<Map<String, dynamic>>.from(rinks);
+
     final rinkIds = rinkRows.map((r) => r['id'].toString()).toList();
 
     if (rinkIds.isEmpty) {
@@ -1356,9 +807,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       setState(() {
         _memberPreselectRinks = [];
         _memberPreselectAssignments = [];
-        _markerRequiredByRinkId.clear();
-        _markerRequestByRinkId.clear();
-        _preselectDirty = false;
       });
 
       return;
@@ -1367,31 +815,19 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final assignments = await _client
         .from('fixture_rink_assignments')
         .select('''
-          fixture_rink_id,
-          member_profile_id,
-          display_name,
-          position,
-          member:member_profiles(
-            id,
-            first_name,
-            last_name,
-            display_name
-          )
-        ''')
+      fixture_rink_id,
+      member_profile_id,
+      position,
+      member:member_profiles(
+        id,
+        first_name,
+        last_name,
+        display_name
+      )
+    ''')
         .inFilter('fixture_rink_id', rinkIds);
 
     final assignmentRows = List<Map<String, dynamic>>.from(assignments);
-
-    final openMarkerRequests = await _client
-        .from('fixture_marker_requests')
-        .select('fixture_rink_id')
-        .inFilter('fixture_rink_id', rinkIds)
-        .eq('status', 'open');
-
-    final requestedRinkIds = List<Map<String, dynamic>>.from(openMarkerRequests)
-        .map((row) => row['fixture_rink_id']?.toString())
-        .whereType<String>()
-        .toSet();
 
     final selection = await _client
         .from('team_selections')
@@ -1433,30 +869,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     setState(() {
       _memberPreselectRinks = rinkRows;
       _memberPreselectAssignments = assignmentRows;
-
-      _markerRequiredByRinkId
-        ..clear()
-        ..addEntries(
-          rinkRows.map(
-            (rink) => MapEntry(
-              rink['id'].toString(),
-              rink['marker_required'] == true,
-            ),
-          ),
-        );
-
-      _markerRequestByRinkId
-        ..clear()
-        ..addEntries(
-          rinkRows.map(
-            (rink) => MapEntry(
-              rink['id'].toString(),
-              requestedRinkIds.contains(rink['id'].toString()),
-            ),
-          ),
-        );
-
-      _preselectDirty = false;
     });
   }
 
@@ -1584,9 +996,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     setState(() => _loadingReadiness = true);
 
     try {
-      final result = await FixtureReadinessService(
-        _client,
-      ).check(widget.fixtureId);
+      final result = await FixtureReadinessService(_client).check(
+        widget.fixtureId,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -2536,9 +1948,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   String _memberLabelFromAssignment(Map<String, dynamic>? assignment) {
     if (assignment == null) return 'Not selected';
 
-    final externalName = (assignment['display_name'] ?? '').toString().trim();
-    if (externalName.isNotEmpty) return externalName;
-
     final member = assignment['member'];
     if (member is! Map<String, dynamic>) return 'Not selected';
 
@@ -2691,31 +2100,27 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     await _reloadRinksPreservingScroll();
   }
 
-  MemberPickerSectionFilter _memberPickerSectionFilterForFixture() {
-    final section = (_fixture?['section'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
+  Future<void> _clearMemberPreselectSlot({
+    required String fixtureRinkId,
+    required int position,
+  }) async {
+    final oldMemberProfileId = _assignmentFor(
+      fixtureRinkId: fixtureRinkId,
+      position: position,
+    )?['member_profile_id']?.toString();
 
-    if (section == 'mens' ||
-        section == "men's" ||
-        section == 'men' ||
-        section == 'male') {
-      return MemberPickerSectionFilter.mens;
-    }
+    if (oldMemberProfileId == null || oldMemberProfileId.isEmpty) return;
 
-    if (section == 'ladies' ||
-        section == "ladies'" ||
-        section == 'women' ||
-        section == 'female') {
-      return MemberPickerSectionFilter.ladies;
-    }
+    await Supabase.instance.client
+        .from('fixture_rink_assignments')
+        .delete()
+        .eq('fixture_id', widget.fixtureId)
+        .eq('fixture_rink_id', fixtureRinkId)
+        .eq('position', position);
 
-    if (section == 'mixed') {
-      return MemberPickerSectionFilter.mixed;
-    }
+    await _markTeamSelectionMemberUnselected(oldMemberProfileId);
 
-    return MemberPickerSectionFilter.open;
+    await _load();
   }
 
   Future<String?> _teamSelectionIdForFixture() async {
@@ -2726,6 +2131,56 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         .maybeSingle();
 
     return row?['id']?.toString();
+  }
+
+  Future<void> _markTeamSelectionMemberSelected(String memberProfileId) async {
+    final client = Supabase.instance.client;
+    final teamSelectionId = await _teamSelectionIdForFixture();
+
+    if (teamSelectionId == null || teamSelectionId.isEmpty) {
+      debugPrint('No team_selection row found for fixture ${widget.fixtureId}');
+      return;
+    }
+
+    final existing = await client
+        .from('team_selection_members')
+        .select('id, acceptance')
+        .eq('team_selection_id', teamSelectionId)
+        .eq('member_profile_id', memberProfileId)
+        .maybeSingle();
+
+    if (existing == null) {
+      await client.from('team_selection_members').insert({
+        'team_selection_id': teamSelectionId,
+        'member_profile_id': memberProfileId,
+        'role': 'player',
+        'acceptance': 'pending',
+        'is_selected': true,
+      });
+    } else {
+      await client
+          .from('team_selection_members')
+          .update({'is_selected': true})
+          .eq('id', existing['id']);
+    }
+  }
+
+  Future<void> _markTeamSelectionMemberUnselected(
+    String memberProfileId,
+  ) async {
+    final client = Supabase.instance.client;
+    final teamSelectionId = await _teamSelectionIdForFixture();
+
+    if (teamSelectionId == null || teamSelectionId.isEmpty) {
+      debugPrint('No team_selection row found for fixture ${widget.fixtureId}');
+      return;
+    }
+
+    await client
+        .from('team_selection_members')
+        .update({'is_selected': false})
+        .eq('team_selection_id', teamSelectionId)
+        .eq('member_profile_id', memberProfileId);
   }
 
   Future<void> _selectMemberPreselectSlot({
@@ -2749,7 +2204,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           fixtureId: widget.fixtureId,
           useFixtureSection: useFixtureSection,
           initialSectionFilter:
-              initialSectionFilter ?? _memberPickerSectionFilterForFixture(),
+              initialSectionFilter ?? MemberPickerSectionFilter.mixed,
           allowMultiple: false,
           initialSelectedIds: {
             if (oldMemberProfileId != null && oldMemberProfileId.isNotEmpty)
@@ -2759,23 +2214,38 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       ),
     );
 
-    if (!mounted || selected == null) return;
+    if (!mounted) return;
+
+    if (selected == null) return; // Cancel
 
     final newMemberProfileId = selected.isEmpty ? null : selected.first;
 
-    if (newMemberProfileId == null || newMemberProfileId.isEmpty) {
-      _clearDraftPreselectAssignment(
-        fixtureRinkId: fixtureRinkId,
-        position: position,
-      );
-      return;
+    // If old member removed or replaced, mark old one unselected
+    if (oldMemberProfileId != null &&
+        oldMemberProfileId.isNotEmpty &&
+        oldMemberProfileId != newMemberProfileId) {
+      await _markTeamSelectionMemberUnselected(oldMemberProfileId);
     }
 
-    _setDraftPreselectAssignment(
+    // Save selected member OR clear assignment
+    await _saveFixtureRinkAssignment(
       fixtureRinkId: fixtureRinkId,
       position: position,
       memberProfileId: newMemberProfileId,
     );
+
+    // If new member selected, mark selected and notify if this is a new/replaced selection
+    if (newMemberProfileId != null && newMemberProfileId.isNotEmpty) {
+      await _markTeamSelectionMemberSelected(newMemberProfileId);
+
+      if (newMemberProfileId != oldMemberProfileId) {
+        await _enqueueFixtureSelectedNotification(
+          memberProfileId: newMemberProfileId,
+          fixtureRinkId: fixtureRinkId,
+          position: position,
+        );
+      }
+    }
   }
 
   Widget _buildMemberPreselectEditorPlaceholder() {
@@ -2800,14 +2270,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               textAlign: TextAlign.center,
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
             ),
-            const SizedBox(height: 6),
-            Text(
-              _canMaintainMemberPreselectFixture
-                  ? 'Make all selection changes, then use Save selection once.'
-                  : 'Current Pre-Select fixture assignments.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
             const SizedBox(height: 12),
 
             if (_memberPreselectRinks.isEmpty)
@@ -2822,219 +2284,147 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                     final rinkId = rink['id'].toString();
                     final teamNo = rink['fixture_rink_no'] ?? '';
                     final playersPerSide =
-                        int.tryParse(
-                          (rink['players_per_rink'] ?? '2').toString(),
-                        ) ??
-                        2;
+                        (rink['players_per_rink'] as int?) ?? 2;
 
-                    final markerAssignment = _assignmentFor(
-                      fixtureRinkId: rinkId,
-                      position: 201,
-                    );
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Team $teamNo',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 8),
 
-                    final markerRequired =
-                        _markerRequiredByRinkId[rinkId] == true;
-                    final markerRequested =
-                        _markerRequestByRinkId[rinkId] == true;
-                    final markerMemberId =
-                        markerAssignment?['member_profile_id']?.toString();
-                    final markerAssigned =
-                        markerMemberId != null && markerMemberId.isNotEmpty;
+                        for (
+                          var playerNo = 1;
+                          playerNo <= playersPerSide;
+                          playerNo++
+                        ) ...[
+                          Row(
+                            children: [
+                              SizedBox(
+                                width: 80,
+                                child: Text('Player $playerNo'),
+                              ),
+                              Expanded(
+                                child: Builder(
+                                  builder: (context) {
+                                    final assignment = _assignmentFor(
+                                      fixtureRinkId: rinkId,
+                                      position: playerNo,
+                                    );
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.black12),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            'Team $teamNo',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 10),
+                                    final acceptance = assignment?['acceptance']
+                                        ?.toString();
 
-                          for (
-                            var playerNo = 1;
-                            playerNo <= playersPerSide;
-                            playerNo++
-                          ) ...[
-                            Row(
-                              children: [
-                                SizedBox(
-                                  width: 80,
-                                  child: Text('Player $playerNo'),
-                                ),
-                                Expanded(
-                                  child: Builder(
-                                    builder: (context) {
-                                      final assignment = _assignmentFor(
-                                        fixtureRinkId: rinkId,
-                                        position: playerNo,
-                                      );
-
-                                      final acceptance =
-                                          assignment?['acceptance']?.toString();
-
-                                      return OutlinedButton(
-                                        style: assignment == null
-                                            ? null
-                                            : OutlinedButton.styleFrom(
-                                                backgroundColor:
-                                                    _acceptanceBackgroundColor(
-                                                      acceptance,
-                                                    ),
-                                                foregroundColor:
-                                                    _acceptanceForegroundColor(
-                                                      acceptance,
-                                                    ),
-                                              ),
-                                        onPressed:
-                                            _canMaintainMemberPreselectFixture
-                                            ? () => _selectMemberPreselectSlot(
-                                                context: context,
-                                                fixtureRinkId: rinkId,
-                                                position: playerNo,
-                                                pickerTitle:
-                                                    'Select Player $playerNo',
-                                                useFixtureSection: true,
-                                              )
-                                            : null,
-                                        child: Text(
-                                          _memberLabelFromAssignment(
-                                            assignment,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                SizedBox(
-                                  width: 90,
-                                  child: Text('Opponent $playerNo'),
-                                ),
-                                Expanded(
-                                  child: Builder(
-                                    builder: (context) {
-                                      final assignment = _assignmentFor(
-                                        fixtureRinkId: rinkId,
-                                        position: 100 + playerNo,
-                                      );
-
-                                      final acceptance =
-                                          assignment?['acceptance']?.toString();
-                                      final isExternal =
-                                          (assignment?['display_name'] ?? '')
-                                              .toString()
-                                              .trim()
-                                              .isNotEmpty;
-
-                                      return OutlinedButton(
-                                        style: assignment == null
-                                            ? null
-                                            : OutlinedButton.styleFrom(
-                                                backgroundColor: isExternal
-                                                    ? Colors.blueGrey.shade50
-                                                    : _acceptanceBackgroundColor(
-                                                        acceptance,
-                                                      ),
-                                                foregroundColor: isExternal
-                                                    ? Colors.blueGrey.shade900
-                                                    : _acceptanceForegroundColor(
-                                                        acceptance,
-                                                      ),
-                                              ),
-                                        onPressed:
-                                            _canMaintainMemberPreselectFixture
-                                            ? () => _editOpponentPreselectSlot(
-                                                context: context,
-                                                fixtureRinkId: rinkId,
-                                                position: 100 + playerNo,
-                                                opponentNo: playerNo,
-                                              )
-                                            : null,
-                                        child: Text(
-                                          _memberLabelFromAssignment(
-                                            assignment,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-
-                          const Divider(height: 24),
-
-                          SwitchListTile.adaptive(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text(
-                              'Marker required',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            subtitle: Text(
-                              markerRequired
-                                  ? 'This rink needs one marker.'
-                                  : 'No marker is needed for this rink.',
-                            ),
-                            value: markerRequired,
-                            onChanged: !_canMaintainMemberPreselectFixture
-                                ? null
-                                : (value) {
-                                    setState(() {
-                                      _markerRequiredByRinkId[rinkId] = value;
-
-                                      if (!value) {
-                                        _markerRequestByRinkId[rinkId] = false;
-                                        _memberPreselectAssignments.removeWhere(
-                                          (assignment) =>
-                                              assignment['fixture_rink_id']
-                                                      ?.toString() ==
-                                                  rinkId &&
-                                              assignment['position'] == 201,
-                                        );
-                                      }
-
-                                      _preselectDirty = true;
-                                    });
+                                    return OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        backgroundColor:
+                                            _acceptanceBackgroundColor(
+                                              acceptance,
+                                            ),
+                                        foregroundColor:
+                                            _acceptanceForegroundColor(
+                                              acceptance,
+                                            ),
+                                      ),
+                                      onPressed:
+                                          _canMaintainMemberPreselectFixture
+                                          ? () => _selectMemberPreselectSlot(
+                                              context: context,
+                                              fixtureRinkId: rinkId,
+                                              position: playerNo,
+                                              pickerTitle:
+                                                  'Select Player $playerNo',
+                                              useFixtureSection: true,
+                                            )
+                                          : null,
+                                      child: Text(
+                                        _memberLabelFromAssignment(assignment),
+                                      ),
+                                    );
                                   },
-                          ),
-
-                          if (markerRequired) ...[
-                            Row(
-                              children: [
-                                const SizedBox(
-                                  width: 80,
-                                  child: Text('Marker'),
                                 ),
-                                Expanded(
-                                  child: OutlinedButton(
-                                    style: markerAssignment == null
-                                        ? null
-                                        : OutlinedButton.styleFrom(
-                                            backgroundColor:
-                                                _acceptanceBackgroundColor(
-                                                  markerAssignment['acceptance']
-                                                      ?.toString(),
-                                                ),
-                                            foregroundColor:
-                                                _acceptanceForegroundColor(
-                                                  markerAssignment['acceptance']
-                                                      ?.toString(),
-                                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: 90,
+                                child: Text('Opponent $playerNo'),
+                              ),
+                              Expanded(
+                                child: Builder(
+                                  builder: (context) {
+                                    final assignment = _assignmentFor(
+                                      fixtureRinkId: rinkId,
+                                      position: 100 + playerNo,
+                                    );
+
+                                    final acceptance = assignment?['acceptance']
+                                        ?.toString();
+
+                                    return OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        backgroundColor:
+                                            _acceptanceBackgroundColor(
+                                              acceptance,
+                                            ),
+                                        foregroundColor:
+                                            _acceptanceForegroundColor(
+                                              acceptance,
+                                            ),
+                                      ),
+                                      onPressed:
+                                          _canMaintainMemberPreselectFixture
+                                          ? () => _selectMemberPreselectSlot(
+                                              context: context,
+                                              fixtureRinkId: rinkId,
+                                              position: 100 + playerNo,
+                                              pickerTitle:
+                                                  'Select Opponent $playerNo',
+                                              useFixtureSection: true,
+                                            )
+                                          : null,
+                                      child: Text(
+                                        _memberLabelFromAssignment(assignment),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+
+                        Row(
+                          children: [
+                            const SizedBox(width: 80, child: Text('Marker')),
+                            Expanded(
+                              child: Builder(
+                                builder: (context) {
+                                  final assignment = _assignmentFor(
+                                    fixtureRinkId: rinkId,
+                                    position: 201,
+                                  );
+
+                                  final acceptance = assignment?['acceptance']
+                                      ?.toString();
+
+                                  return OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      backgroundColor:
+                                          _acceptanceBackgroundColor(
+                                            acceptance,
                                           ),
+                                      foregroundColor:
+                                          _acceptanceForegroundColor(
+                                            acceptance,
+                                          ),
+                                    ),
                                     onPressed:
-                                        !_canMaintainMemberPreselectFixture
-                                        ? null
-                                        : () => _selectMemberPreselectSlot(
+                                        _canMaintainMemberPreselectFixture
+                                        ? () => _selectMemberPreselectSlot(
                                             context: context,
                                             fixtureRinkId: rinkId,
                                             position: 201,
@@ -3042,79 +2432,22 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                                             useFixtureSection: false,
                                             initialSectionFilter:
                                                 MemberPickerSectionFilter.open,
-                                          ),
+                                          )
+                                        : null,
                                     child: Text(
-                                      _memberLabelFromAssignment(
-                                        markerAssignment,
-                                      ),
+                                      _memberLabelFromAssignment(assignment),
                                     ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              controlAffinity: ListTileControlAffinity.leading,
-                              title: const Text('Ask for a marker'),
-                              subtitle: Text(
-                                markerAssigned
-                                    ? 'Clear the named marker before opening a request.'
-                                    : markerRequested
-                                    ? 'An open request will be maintained for this rink.'
-                                    : 'Request a volunteer marker for this rink.',
+                                  );
+                                },
                               ),
-                              value: markerRequested,
-                              onChanged:
-                                  !_canMaintainMemberPreselectFixture ||
-                                      markerAssigned
-                                  ? null
-                                  : (value) {
-                                      setState(() {
-                                        _markerRequestByRinkId[rinkId] =
-                                            value == true;
-                                        _markerRequiredByRinkId[rinkId] = true;
-                                        _preselectDirty = true;
-                                      });
-                                    },
                             ),
                           ],
-                        ],
-                      ),
+                        ),
+                      ],
                     );
                   },
                 ),
               ],
-
-            if (_canMaintainMemberPreselectFixture && _preselectDirty) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: const Text(
-                  'The selection has unsaved changes.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _savingPreselect ? null : _savePreselectState,
-                icon: _savingPreselect
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(_savingPreselect ? 'Saving...' : 'Save selection'),
-              ),
-              const SizedBox(height: 16),
-            ],
 
             if (_isHome) ...[
               const SizedBox(height: 8),
@@ -3127,17 +2460,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _showRinkBookingActions(Map<String, dynamic> rink) async {
-    if (_preselectDirty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Save the player, opponent and marker changes before changing rink bookings.',
-          ),
-        ),
-      );
-      return;
-    }
-
     final rinkLabel =
         (rink['rink_label'] ?? rink['label'] ?? rink['name'] ?? 'Rink')
             .toString();

@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/utils/date_format.dart';
 import '../competitions/screens/competition_type_list_screen.dart';
 import '../admin/queue_admin_screen.dart';
+import '../communications/communications_control_centre.dart';
 
 class ClubHomeScreen extends StatefulWidget {
   final String clubId;
@@ -186,19 +187,38 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
               },
             ),
           ),
-          if (_isSuperuser)
+          if (_isSuperuser) ...[
             Card(
               child: ListTile(
                 leading: const Icon(Icons.admin_panel_settings_outlined),
                 title: const Text('Queue Administration'),
+                subtitle: const Text('Technical queue processing tools'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
-                  Navigator.of(
-                    context,
-                  ).push(MaterialPageRoute(builder: (_) => QueueAdminScreen()));
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const QueueAdminScreen(),
+                    ),
+                  );
                 },
               ),
             ),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.support_agent),
+                title: const Text('Communications Control Centre'),
+                subtitle: const Text('Monitor and repair fixture communications'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CommunicationsControlCentreScreen(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );

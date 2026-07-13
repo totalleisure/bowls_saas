@@ -18,6 +18,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
   final _fixtureTypesKey = GlobalKey();
   final _creatingFixturesKey = GlobalKey();
   final _workflowsKey = GlobalKey();
+  final _teamsLifecycleKey = GlobalKey();
   final _rinksKey = GlobalKey();
   final _publishingKey = GlobalKey();
   final _notificationsKey = GlobalKey();
@@ -240,15 +241,17 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                       _topicButton('4. Creating Fixtures', _creatingFixturesKey),
                       _topicButton('5. Fixture Workflows and Stages',
                           _workflowsKey),
-                      _topicButton('6. Rink Allocation and Physical Rinks',
+                      _topicButton('6. Using the App to Manage Teams',
+                          _teamsLifecycleKey),
+                      _topicButton('7. Rink Allocation and Physical Rinks',
                           _rinksKey),
-                      _topicButton('7. Publishing Teams and Fixture Sheets',
+                      _topicButton('8. Publishing Teams and Fixture Sheets',
                           _publishingKey),
-                      _topicButton('8. Notifications and Communication',
+                      _topicButton('9. Notifications and Communication',
                           _notificationsKey),
-                      _topicButton('9. Member Booked Internal Fixtures',
+                      _topicButton('10. Member Booked Internal Fixtures',
                           _internalKey),
-                      _topicButton('10. Captains and Vice-Captains',
+                      _topicButton('11. Captains and Vice-Captains',
                           _captainsKey),
                     ],
                   ),
@@ -379,8 +382,77 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                 ),
 
                 _buildSection(
+                  key: _teamsLifecycleKey,
+                  title: '6. Using the App to Manage Teams',
+                  children: [
+                    _p(
+                      'A team in the app is more than a static list of names. It is a working group of members who may be considered for a set of fixtures during the season.',
+                    ),
+                    _p(
+                      'The team can be linked to fixtures, used to gather availability, used as the starting pool for selection, and then used to publish fixture sheets and communicate with selected players.',
+                    ),
+                    _subHeading('The people involved'),
+                    _bullet('Club admins manage the wider setup of the app, including members, venues, greens, fixture types, teams and permissions.'),
+                    _bullet('Fixture secretaries may enter the known fixtures for the season and link those fixtures to the correct teams.'),
+                    _bullet('Selectors may review availability, choose players, arrange reserves and help prepare the team before publication.'),
+                    _bullet('Captains may monitor availability and acceptance, organise players and deal with fixture changes.'),
+                    _bullet('Vice-captains provide a second point of contact and can support the fixture captain where required.'),
+                    _p(
+                      'To keep the manual clear, the app uses the term fixture captain for the person in charge of an individual fixture. This may be the team captain, a selector, the fixture secretary or another authorised officer nominated for that match.',
+                    ),
+                    _p(
+                      'The rest of this guide refers to the fixture captain as the person managing the fixture. However, club admins, fixture secretaries, selectors and captains can also view and interact with teams and team fixtures where their permissions allow.',
+                    ),
+                    _subHeading('Creating and maintaining a team'),
+                    _bullet('Create the team for a league, division, competition squad or regular playing group.'),
+                    _bullet('Add the members who should normally be considered for that team.'),
+                    _bullet('Keep the team pool up to date during the season.'),
+                    _bullet('Add players when they become part of the squad.'),
+                    _bullet('Remove players who move to another team, play up to a higher division, or are no longer eligible for that team.'),
+                    _subHeading('Creating fixtures early'),
+                    _p(
+                      'Once fixtures are known, the fixture secretary can enter them into the app as early as possible. As soon as a team fixture exists, members of that team can see it and register their availability.',
+                    ),
+                    _bullet('Members can check their diaries early.'),
+                    _bullet('Members can respond Yes, Maybe or No.'),
+                    _bullet('The fixture captain can see who is available, who is unsure, and who is not available.'),
+                    _bullet('This gives the fixture captain useful information before any selection is made.'),
+                    _subHeading('Selecting the team'),
+                    _p(
+                      'The fixture remains unpublished while the fixture captain prepares the selection. This allows players to be selected, deselected, moved into positions, or marked as reserves before the team is formally released.',
+                    ),
+                    _bullet('Select players from the team pool.'),
+                    _bullet('Add other eligible players if required.'),
+                    _bullet('Remove players who should not be considered for that fixture.'),
+                    _bullet('Arrange players into pairs, triples, rinks or other team formats.'),
+                    _bullet('Allocate reserves where appropriate.'),
+                    _subHeading('Publishing the team'),
+                    _p(
+                      'Publishing is the point at which selected members are formally told that they have been chosen. The fixture appears on their dashboard and they are asked to accept or decline their selection.',
+                    ),
+                    _bullet('Selected members receive an in-app notification.'),
+                    _bullet('Selected members receive an email where email is enabled.'),
+                    _bullet('The email should include the fixture sheet.'),
+                    _bullet('The fixture sheet shows the fixture details, selected players, positions, reserves, captain details and rink information where entered.'),
+                    _subHeading('Monitoring replies and sending reminders'),
+                    _p(
+                      'After publication, the fixture captain can monitor who has accepted, who has declined and who has not yet replied. This makes it easier to chase outstanding responses and arrange replacements if needed.',
+                    ),
+                    _bullet('The app may send reminders to players who have not replied after a period of time.'),
+                    _bullet('A further reminder may be sent shortly before the fixture if a player still has not replied.'),
+                    _bullet('The fixture captain can also send reminders manually at any stage.'),
+                    _bullet('Reminders may be sent as both an in-app notification and an email.'),
+                    _subHeading('Changes after publication'),
+                    _p(
+                      'A published team may still change. Players may decline, become unavailable, be promoted from reserve to player, change position, or need updated rink details. When important changes are made, affected members should be notified and asked to check the fixture again.',
+                    ),
+                  ],
+                ),
+
+
+                _buildSection(
                   key: _rinksKey,
-                  title: '6. Rink Allocation and Physical Rinks',
+                  title: '7. Rink Allocation and Physical Rinks',
                   children: [
                     _p(
                       'The system separates reserving rink capacity from assigning exact physical rinks.',
@@ -407,7 +479,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
 
                 _buildSection(
                   key: _publishingKey,
-                  title: '7. Publishing Teams and Fixture Sheets',
+                  title: '8. Publishing Teams and Fixture Sheets',
                   children: [
                     _p(
                       'Publishing a fixture makes the selected team or players visible to the relevant members.',
@@ -428,7 +500,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
 
                 _buildSection(
                   key: _notificationsKey,
-                  title: '8. Notifications and Communication',
+                  title: '9. Notifications and Communication',
                   children: [
                     _p(
                       'The app is designed to notify the right people when important fixture events happen.',
@@ -459,7 +531,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
 
                 _buildSection(
                   key: _internalKey,
-                  title: '9. Member Booked Internal Fixtures',
+                  title: '10. Member Booked Internal Fixtures',
                   children: [
                     _p(
                       'Some internal Fixture Types allow members to create their own smaller fixtures, such as singles matches, pairs games, practice matches or internal competition games.',
@@ -484,7 +556,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
 
                 _buildSection(
                   key: _captainsKey,
-                  title: '10. Captains and Vice-Captains',
+                  title: '11. Captains and Vice-Captains',
                   children: [
                     _p(
                       'Captains and vice-captains allow responsibility for a fixture to be shared without giving every user full admin rights.',

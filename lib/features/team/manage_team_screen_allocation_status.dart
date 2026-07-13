@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../rinks/rinks_setup_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -278,6 +280,80 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return memberProfileId;
   }
 
+  Map<String, dynamic>? _selectedRowForAssignment(
+    Map<String, dynamic>? assignment,
+  ) {
+    final memberProfileId = assignment?['member_profile_id']?.toString();
+    if (memberProfileId == null || memberProfileId.isEmpty) return null;
+
+    for (final row in _selected) {
+      if (row['member_profile_id']?.toString() == memberProfileId) {
+        return row;
+      }
+    }
+
+    return null;
+  }
+
+  String _assignmentAcceptance(Map<String, dynamic>? assignment) {
+    final selectedRow = _selectedRowForAssignment(assignment);
+    return (selectedRow?['acceptance'] ?? 'pending')
+        .toString()
+        .toLowerCase()
+        .trim();
+  }
+
+  Color? _assignmentBackgroundColor(Map<String, dynamic>? assignment) {
+    if (assignment == null ||
+        assignment['member_profile_id']?.toString().trim().isNotEmpty != true) {
+      return null;
+    }
+
+    switch (_assignmentAcceptance(assignment)) {
+      case 'accepted':
+        return Colors.green.shade100;
+      case 'declined':
+        return Colors.red.shade100;
+      case 'pending':
+      default:
+        return Colors.orange.shade100;
+    }
+  }
+
+  Color _assignmentForegroundColor(Map<String, dynamic>? assignment) {
+    if (assignment == null ||
+        assignment['member_profile_id']?.toString().trim().isNotEmpty != true) {
+      return Theme.of(context).colorScheme.onSurface;
+    }
+
+    switch (_assignmentAcceptance(assignment)) {
+      case 'accepted':
+        return Colors.green.shade900;
+      case 'declined':
+        return Colors.red.shade900;
+      case 'pending':
+      default:
+        return Colors.orange.shade900;
+    }
+  }
+
+  Color? _assignmentBorderColor(Map<String, dynamic>? assignment) {
+    if (assignment == null ||
+        assignment['member_profile_id']?.toString().trim().isNotEmpty != true) {
+      return null;
+    }
+
+    switch (_assignmentAcceptance(assignment)) {
+      case 'accepted':
+        return Colors.green.shade400;
+      case 'declined':
+        return Colors.red.shade400;
+      case 'pending':
+      default:
+        return Colors.orange.shade400;
+    }
+  }
+
   List<Map<String, dynamic>> _assignableSelectedRows() {
     final rows = _selected
         .where((s) {
@@ -295,6 +371,94 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     });
 
     return rows;
+  }
+
+  Map<String, dynamic>? _poolRowForMember(String memberProfileId) {
+    for (final row in _pool) {
+      if (row['member_profile_id']?.toString() == memberProfileId) {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  String _rsvpStatusForMember(String memberProfileId) {
+    final row = _poolRowForMember(memberProfileId);
+    return (row?['rsvp_status'] ?? row?['status'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+  }
+
+  Future<bool> _confirmUnavailablePlayerSelection(
+    String memberProfileId,
+  ) async {
+    final status = _rsvpStatusForMember(memberProfileId);
+    if (status != 'no') return true;
+
+    final poolRow = _poolRowForMember(memberProfileId);
+    final profile = poolRow?['member_profiles'] as Map<String, dynamic>?;
+    final name = _displayNameWithPreferredPosition(profile);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Player marked not available'),
+        content: Text(
+          name.isNotEmpty
+              ? '$name has already indicated that they are not available for this match.\n\nAre you sure you wish to select them?'
+              : 'This player has already indicated that they are not available for this match.\n\nAre you sure you wish to select them?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Select anyway'),
+          ),
+        ],
+      ),
+    );
+
+    return confirmed == true;
+  }
+
+  MapEntry<String, MapEntry<int, Map<String, dynamic>>>?
+  _assignmentEntryForMember(String memberProfileId) {
+    for (final rinkEntry in _assignmentsByRink.entries) {
+      for (final positionEntry in rinkEntry.value.entries) {
+        if (positionEntry.value['member_profile_id']?.toString() ==
+            memberProfileId) {
+          return MapEntry(rinkEntry.key, positionEntry);
+        }
+      }
+    }
+    return null;
+  }
+
+  String? _assignmentLocationLabelForMember(String memberProfileId) {
+    final assignmentEntry = _assignmentEntryForMember(memberProfileId);
+    if (assignmentEntry == null) return null;
+
+    final rinkId = assignmentEntry.key;
+    final position = assignmentEntry.value.key;
+
+    Map<String, dynamic>? rink;
+    for (final r in _rinks) {
+      if (r['id']?.toString() == rinkId) {
+        rink = r;
+        break;
+      }
+    }
+
+    final teamNo = rink?['fixture_rink_no']?.toString() ?? '';
+    final playersPerRink = _asInt(rink?['players_per_rink']);
+    final positionLabel = _positionLabel(position, playersPerRink);
+
+    if (teamNo.isEmpty) return positionLabel;
+    return 'Team $teamNo • $positionLabel';
   }
 
   List<Map<String, dynamic>> _currentAssignmentPayload() {
@@ -353,7 +517,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       });
 
       await _saveCurrentAssignments();
-      await _load();
     } catch (e) {
       if (mounted) {
         setState(() => _assignmentsByRink = previous);
@@ -442,7 +605,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       });
 
       await _saveCurrentAssignments();
-      await _load();
     } catch (e) {
       if (mounted) {
         setState(() => _assignmentsByRink = previous);
@@ -498,17 +660,45 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                           .toLowerCase();
                       final name = _displayNameWithPreferredPosition(profile);
 
-                      return ListTile(
-                        title: Text(name),
-                        subtitle: role == 'reserve'
-                            ? const Text('Reserve')
-                            : null,
-                        trailing: role == 'reserve'
-                            ? const Icon(Icons.swap_vert)
-                            : null,
-                        onTap: memberId == null || memberId.isEmpty
-                            ? null
-                            : () => Navigator.of(context).pop(memberId),
+                      final assignedLabel = memberId == null
+                          ? null
+                          : _assignmentLocationLabelForMember(memberId);
+                      final isAssigned = assignedLabel != null;
+                      final isReserve = role == 'reserve';
+
+                      final Color? tileColor = isReserve
+                          ? Colors.orange.shade100
+                          : isAssigned
+                          ? Colors.green.shade100
+                          : null;
+
+                      final Color? iconColor = isReserve
+                          ? Colors.orange.shade800
+                          : isAssigned
+                          ? Colors.green.shade800
+                          : null;
+
+                      return Card(
+                        color: tileColor,
+                        margin: const EdgeInsets.symmetric(vertical: 3),
+                        child: ListTile(
+                          title: Text(name),
+                          subtitle: Text(
+                            isReserve
+                                ? 'Reserve'
+                                : isAssigned
+                                ? assignedLabel
+                                : 'Not yet positioned',
+                          ),
+                          trailing: isReserve
+                              ? Icon(Icons.swap_vert, color: iconColor)
+                              : isAssigned
+                              ? Icon(Icons.check_circle, color: iconColor)
+                              : null,
+                          onTap: memberId == null || memberId.isEmpty
+                              ? null
+                              : () => Navigator.of(context).pop(memberId),
+                        ),
                       );
                     },
                   ),
@@ -822,7 +1012,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final assignmentRows = await client
           .from('fixture_rink_assignments')
           .select(
-            'fixture_rink_id, position, member_profile_id, member_profiles(display_name, first_name, last_name, preferred_position)',
+            'fixture_rink_id, position, member_profile_id, member_profiles!fixture_rink_assignments_member_profile_id_fkey(display_name, first_name, last_name, preferred_position)',
           )
           .eq('fixture_id', fixtureId);
 
@@ -1341,6 +1531,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
       final currentlySelected = existingAny?['is_selected'] == true;
 
+      if (!currentlySelected) {
+        final confirmedAvailable = await _confirmUnavailablePlayerSelection(
+          memberId,
+        );
+        if (!confirmedAvailable) return;
+      }
+
       if (existingAny == null) {
         await client.from('team_selection_members').insert({
           'team_selection_id': _selectionId,
@@ -1424,6 +1621,43 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       final oldRole = (existing?['role'] ?? '').toString().toLowerCase().trim();
       final newRole = role.toLowerCase().trim();
 
+      final assignmentLocation = _assignmentLocationLabelForMember(memberId);
+      final hasTeamPosition = assignmentLocation != null;
+
+      if (newRole == 'reserve' && hasTeamPosition) {
+        final selectedRow = _selected.firstWhere(
+          (r) => r['member_profile_id']?.toString() == memberId,
+          orElse: () => <String, dynamic>{},
+        );
+
+        final profile = selectedRow['member_profiles'] as Map<String, dynamic>?;
+        final name = _displayNameWithPreferredPosition(profile);
+
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Remove player from team?'),
+            content: Text(
+              name.isNotEmpty
+                  ? '$name is currently assigned to $assignmentLocation.\n\nMaking this member a reserve will remove them from that team position. Do you want to continue?'
+                  : 'This member is currently assigned to $assignmentLocation.\n\nMaking them a reserve will remove them from that team position. Do you want to continue?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Make reserve'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true) return;
+      }
+
       debugPrint('SETROLE memberId=$memberId');
       debugPrint('SETROLE existing=$existing');
       debugPrint('SETROLE oldRole=$oldRole newRole=$newRole');
@@ -1434,6 +1668,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .update({'role': role})
           .eq('team_selection_id', _selectionId!)
           .eq('member_profile_id', memberId);
+
+      if (newRole == 'reserve' && hasTeamPosition) {
+        for (final byPosition in _assignmentsByRink.values) {
+          byPosition.removeWhere(
+            (_, row) => row['member_profile_id']?.toString() == memberId,
+          );
+        }
+        _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
+        await _saveCurrentAssignments();
+      }
 
       if (oldRole == 'reserve' && newRole == 'player') {
         debugPrint('SETROLE reserve->player trigger fired for $memberId');
@@ -1491,14 +1735,198 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         });
       }
 
-      await _load();
+      if (!mounted) return;
+      setState(() {
+        for (final row in _selected) {
+          if (row['member_profile_id']?.toString() == memberId) {
+            row['role'] = role;
+            break;
+          }
+        }
+      });
     } catch (e, st) {
       debugPrint('SETROLE error: $e');
       debugPrint('SETROLE stack: $st');
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Set role error: $e')));
     }
+  }
+
+
+  Map<String, dynamic>? _assignmentForSelectedMember(String memberProfileId) {
+    for (final rinkEntry in _assignmentsByRink.entries) {
+      for (final positionEntry in rinkEntry.value.entries) {
+        if (positionEntry.value['member_profile_id']?.toString() ==
+            memberProfileId) {
+          return {
+            'fixture_rink_id': rinkEntry.key,
+            'position': positionEntry.key,
+            ...positionEntry.value,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _rinkForAssignment(
+    Map<String, dynamic>? assignment,
+  ) {
+    final rinkId = assignment?['fixture_rink_id']?.toString();
+    if (rinkId == null || rinkId.isEmpty) return null;
+
+    for (final rink in _rinks) {
+      if (rink['id']?.toString() == rinkId) {
+        return rink;
+      }
+    }
+    return null;
+  }
+
+  bool _isSelectedMemberAllocated(Map<String, dynamic> selectedRow) {
+    final role = (selectedRow['role'] ?? 'player')
+        .toString()
+        .toLowerCase()
+        .trim();
+
+    if (role == 'reserve') return true;
+
+    final memberId = selectedRow['member_profile_id']?.toString();
+    if (memberId == null || memberId.isEmpty) return false;
+
+    return _assignmentForSelectedMember(memberId) != null;
+  }
+
+  String _selectedMemberPlacementLabel(Map<String, dynamic> selectedRow) {
+    final role = (selectedRow['role'] ?? 'player')
+        .toString()
+        .toLowerCase()
+        .trim();
+
+    if (role == 'reserve') return 'Reserve';
+
+    final memberId = selectedRow['member_profile_id']?.toString();
+    if (memberId == null || memberId.isEmpty) return 'Not allocated';
+
+    final assignment = _assignmentForSelectedMember(memberId);
+    if (assignment == null) return 'Not allocated';
+
+    final rink = _rinkForAssignment(assignment);
+    final teamNo = rink?['fixture_rink_no']?.toString() ?? '';
+    final position = _asInt(assignment['position']);
+    final playersPerRink = _asInt(rink?['players_per_rink']);
+
+    String location;
+    if (role == 'opponent') {
+      final opponentNo = position >= 100 ? position - 100 : position;
+      location = 'Opponent $opponentNo';
+    } else if (role == 'marker') {
+      location = 'Marker';
+    } else {
+      location = _positionLabel(position, playersPerRink);
+    }
+
+    return teamNo.isEmpty ? location : 'Team $teamNo • $location';
+  }
+
+  Future<void> _returnUnallocatedMemberToPool(
+    Map<String, dynamic> selectedRow,
+  ) async {
+    final memberId = selectedRow['member_profile_id']?.toString();
+    if (memberId == null || memberId.isEmpty) return;
+
+    final profile = selectedRow['member_profiles'] as Map<String, dynamic>?;
+    final name = _fallbackDisplayName(profile);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Return member to pool?'),
+        content: Text(
+          '$name is selected but has not been allocated to a team position.\n\n'
+          'Return this member to the available pool?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Return to pool'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await _removeSelected(memberId);
+  }
+
+  List<String> _unallocatedSelectedPlayerNames() {
+    final assignedIds = <String>{};
+
+    for (final byPosition in _assignmentsByRink.values) {
+      for (final assignment in byPosition.values) {
+        final memberId = assignment['member_profile_id']?.toString().trim();
+        if (memberId != null && memberId.isNotEmpty) {
+          assignedIds.add(memberId);
+        }
+      }
+    }
+
+    final names = <String>[];
+
+    for (final row in _selected) {
+      final memberId = row['member_profile_id']?.toString().trim();
+      if (memberId == null || memberId.isEmpty) continue;
+
+      final role = (row['role'] ?? '').toString().toLowerCase().trim();
+      if (role == 'reserve') continue;
+      if (assignedIds.contains(memberId)) continue;
+
+      final profile = row['member_profiles'] is Map<String, dynamic>
+          ? row['member_profiles'] as Map<String, dynamic>
+          : row['member_profiles'] is Map
+          ? Map<String, dynamic>.from(row['member_profiles'] as Map)
+          : null;
+
+      names.add(_fallbackDisplayName(profile));
+    }
+
+    names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return names;
+  }
+
+  Future<void> _showUnallocatedSelectedPlayersDialog(
+    List<String> playerNames,
+  ) async {
+    final shownNames = playerNames.take(8).join('\n');
+    final extraCount = playerNames.length - playerNames.take(8).length;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Team selection not complete'),
+        content: Text(
+          playerNames.length == 1
+              ? '${playerNames.first} has been selected but has not been assigned to a team position or marked as a reserve.\n\nPlease assign them to a position, make them a reserve, or remove them before publishing.'
+              : 'These selected players have not been assigned to a team position or marked as reserves:\n\n$shownNames${extraCount > 0 ? '\n...and $extraCount more' : ''}\n\nPlease assign them to positions, make them reserves, or remove them before publishing.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _isUnallocatedSelectedPlayersError(Object error) {
+    return error.toString().contains('UNALLOCATED_SELECTED_PLAYERS');
   }
 
   List<int>? _parseIncompleteTeamError(Object error) {
@@ -1551,14 +1979,107 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     );
   }
 
+  Future<Map<String, dynamic>> _buildPublicationTeamSheetAttachment() async {
+    if (_selectionId == null) throw Exception('Team selection not ready');
+
+    final fixtureId = widget.fixture['id']?.toString();
+    if (fixtureId == null || fixtureId.isEmpty) {
+      throw Exception('Fixture id not found');
+    }
+
+    final svc = TeamSheetService(_client);
+
+    final clubName = (widget.fixture['club_name'] ?? 'Club').toString();
+    final opponentName = (widget.fixture['opponent_name'] ?? 'Opponent')
+        .toString();
+    final startAt = DateTime.parse(widget.fixture['start_at'].toString());
+    final isHome = widget.fixture['is_home'] == true;
+    final section = (widget.fixture['section'] ?? '').toString();
+
+    final data = await svc.loadTeamSheetData(
+      fixtureId: fixtureId,
+      teamSelectionId: _selectionId!,
+      clubName: clubName,
+      opponentName: opponentName,
+      startAt: startAt,
+      isHome: isHome,
+      section: section,
+      primaryColor: 0xFF0B3D91,
+      secondaryColor: 0xFFFFD200,
+      dress: 'Greys/Whites or Blacks',
+      notes: null,
+    );
+
+    final pdfBytes = await buildTeamSheetPdf(data);
+
+    final d = toClubTime(data.startAt);
+    final when =
+        '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
+    final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\|?*]'), '-');
+    final safeOpp = data.opponentName.replaceAll(RegExp(r'[<>:"/\|?*]'), '-');
+
+    return {
+      'name': '$safeClub v $safeOpp - $when.pdf',
+      'contentType': 'application/pdf',
+      'contentBytes': base64Encode(pdfBytes),
+    };
+  }
+
+  Future<int> _attachPublicationTeamSheetToQueuedEmails() async {
+    if (_selectionId == null) throw Exception('Team selection not ready');
+
+    final fixtureId = widget.fixture['id']?.toString();
+    if (fixtureId == null || fixtureId.isEmpty) {
+      throw Exception('Fixture id not found');
+    }
+
+    final attachment = await _buildPublicationTeamSheetAttachment();
+
+    final result = await _client.rpc(
+      'attach_publication_team_sheet',
+      params: {
+        'p_fixture_id': fixtureId,
+        'p_team_selection_id': _selectionId!,
+        'p_attachment': attachment,
+      },
+    );
+
+    if (result is int) return result;
+    return int.tryParse(result?.toString() ?? '') ?? 0;
+  }
+
+  Future<int> _processPublicationNotifications() async {
+    final result = await _client.rpc(
+      'process_notification_queue',
+      params: {'p_limit': 50},
+    );
+
+    if (result is int) return result;
+    return int.tryParse(result?.toString() ?? '') ?? 0;
+  }
+
   Future<void> _publish() async {
     if (!_canPublishTeam) return;
     if (_selectionId == null) return;
+
+    final unallocatedPlayers = _unallocatedSelectedPlayerNames();
+    if (unallocatedPlayers.isNotEmpty) {
+      await _showUnallocatedSelectedPlayersDialog(unallocatedPlayers);
+      return;
+    }
 
     try {
       try {
         await _publishTeamSelection(allowIncomplete: false);
       } catch (e) {
+        if (_isUnallocatedSelectedPlayersError(e)) {
+          if (!mounted) return;
+          await _showUnallocatedSelectedPlayersDialog(const [
+            'One or more selected players',
+          ]);
+          return;
+        }
+
         final incomplete = _parseIncompleteTeamError(e);
         if (incomplete == null) rethrow;
 
@@ -1573,12 +2094,28 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         await _publishTeamSelection(allowIncomplete: true);
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Team published')));
+      var processedCount = 0;
+      var attachedCount = 0;
+      Object? preparationError;
+
+      try {
+        processedCount = await _processPublicationNotifications();
+        attachedCount = await _attachPublicationTeamSheetToQueuedEmails();
+      } catch (e) {
+        preparationError = e;
+        debugPrint('Publish preparation warning: $e');
       }
-      await _load();
+
+      if (!mounted) return;
+      setState(() => _status = 'published');
+
+      final message = preparationError == null
+          ? 'Team published. $processedCount notification(s) processed; team sheet attached to $attachedCount email(s).'
+          : 'Team published, but preparing notifications/team sheet needs checking: $preparationError';
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1650,7 +2187,23 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .eq('fixture_id', fixtureId)
           .eq('member_profile_id', memberProfileId);
 
-      await _load();
+      if (!mounted) return;
+
+      setState(() {
+        _selected.removeWhere(
+          (r) => r['member_profile_id']?.toString() == memberProfileId,
+        );
+
+        // If the player was already assigned to a team/position, remove that
+        // local assignment as well. The database delete above has already made
+        // the persisted state match this.
+        for (final byPosition in _assignmentsByRink.values) {
+          byPosition.removeWhere(
+            (_, row) => row['member_profile_id']?.toString() == memberProfileId,
+          );
+        }
+        _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1745,6 +2298,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           return acceptance == 'accepted';
         case 'declined':
           return acceptance == 'declined';
+        case 'not_allocated':
+          return !_isSelectedMemberAllocated(s);
         default:
           return true;
       }
@@ -1980,6 +2535,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         ),
         Expanded(
           child: OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              backgroundColor: _assignmentBackgroundColor(assignment),
+              foregroundColor: _assignmentForegroundColor(assignment),
+              side: _assignmentBorderColor(assignment) == null
+                  ? null
+                  : BorderSide(color: _assignmentBorderColor(assignment)!),
+            ),
             onPressed: _canAssignRinks && !_savingAssignments
                 ? () => _selectAssignmentSlot(
                     context: context,
@@ -2234,6 +2796,12 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                             setState(() => _selectedFilter = 'reserves'),
                       ),
                     ChoiceChip(
+                      label: const Text('Not Allocated'),
+                      selected: _selectedFilter == 'not_allocated',
+                      onSelected: (_) =>
+                          setState(() => _selectedFilter = 'not_allocated'),
+                    ),
+                    ChoiceChip(
                       label: const Text('Pending'),
                       selected: _selectedFilter == 'pending',
                       onSelected: (_) =>
@@ -2287,6 +2855,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                     final role = s['role']?.toString() ?? 'player';
                     final acceptance = s['acceptance']?.toString() ?? 'pending';
                     final phone = (mp?['phone'] as String?) ?? '';
+                    final isAllocated = _isSelectedMemberAllocated(s);
+                    final placementLabel = _selectedMemberPlacementLabel(s);
 
                     final acceptedByProfile =
                         s['accepted_by_profile'] as Map<String, dynamic>?;
@@ -2339,6 +2909,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
+                              placementLabel,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: isAllocated
+                                    ? Theme.of(context).colorScheme.onSurface
+                                    : Colors.red.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
                               acceptance == 'accepted'
                                   ? 'Accepted'
                                   : acceptance == 'declined'
@@ -2360,60 +2940,83 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                         trailing:
                             !_canModifySelection && !_canForceAcceptSelection
                             ? null
-                            : PopupMenuButton<String>(
-                                onSelected: (v) async {
-                                  if (v == 'player' ||
-                                      v == 'reserve' ||
-                                      v == 'opponent' ||
-                                      v == 'marker') {
-                                    if (_canModifySelection) {
-                                      await _setRole(memberId, v);
-                                    }
-                                  } else if (v == 'accept') {
-                                    if (_canForceAcceptSelection) {
-                                      await _acceptOnBehalf(memberId);
-                                    }
-                                  } else if (v == 'remind') {
-                                    await _sendAcceptanceReminders([s]);
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  if (_canEditSelection)
-                                    const PopupMenuItem(
-                                      value: 'player',
-                                      child: Text('Make player'),
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!isAllocated && _canModifySelection)
+                                    TextButton.icon(
+                                      onPressed: () =>
+                                          _returnUnallocatedMemberToPool(s),
+                                      icon: const Icon(
+                                        Icons.undo,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Return to pool'),
                                     ),
-                                  if (_canEditSelection &&
-                                      _isInternalFixture &&
-                                      _isPreselectFixture)
-                                    const PopupMenuItem(
-                                      value: 'opponent',
-                                      child: Text('Make opponent'),
-                                    ),
-                                  if (_canEditSelection &&
-                                      _isInternalFixture &&
-                                      _isPreselectFixture)
-                                    const PopupMenuItem(
-                                      value: 'marker',
-                                      child: Text('Make marker'),
-                                    ),
-                                  if (_canEditSelection &&
-                                      !(_isInternalFixture &&
-                                          _isPreselectFixture))
-                                    const PopupMenuItem(
-                                      value: 'reserve',
-                                      child: Text('Make reserve'),
-                                    ),
-                                  if (_canForceAccept)
-                                    const PopupMenuItem(
-                                      value: 'accept',
-                                      child: Text('Accept'),
-                                    ),
-                                  if (_canEditSelection)
-                                    const PopupMenuItem(
-                                      value: 'remind',
-                                      child: Text('Send reminder'),
-                                    ),
+                                  PopupMenuButton<String>(
+                                    onSelected: (v) async {
+                                      if (v == 'player' ||
+                                          v == 'reserve' ||
+                                          v == 'opponent' ||
+                                          v == 'marker') {
+                                        if (_canModifySelection) {
+                                          await _setRole(memberId, v);
+                                        }
+                                      } else if (v == 'accept') {
+                                        if (_canForceAcceptSelection) {
+                                          await _acceptOnBehalf(memberId);
+                                        }
+                                      } else if (v == 'remind') {
+                                        await _sendAcceptanceReminders([s]);
+                                      } else if (v == 'return_to_pool') {
+                                        await _returnUnallocatedMemberToPool(s);
+                                      }
+                                    },
+                                    itemBuilder: (_) => [
+                                      if (_canEditSelection)
+                                        const PopupMenuItem(
+                                          value: 'player',
+                                          child: Text('Make player'),
+                                        ),
+                                      if (_canEditSelection &&
+                                          _isInternalFixture &&
+                                          _isPreselectFixture)
+                                        const PopupMenuItem(
+                                          value: 'opponent',
+                                          child: Text('Make opponent'),
+                                        ),
+                                      if (_canEditSelection &&
+                                          _isInternalFixture &&
+                                          _isPreselectFixture)
+                                        const PopupMenuItem(
+                                          value: 'marker',
+                                          child: Text('Make marker'),
+                                        ),
+                                      if (_canEditSelection &&
+                                          !(_isInternalFixture &&
+                                              _isPreselectFixture))
+                                        const PopupMenuItem(
+                                          value: 'reserve',
+                                          child: Text('Make reserve'),
+                                        ),
+                                      if (!isAllocated &&
+                                          _canModifySelection)
+                                        const PopupMenuItem(
+                                          value: 'return_to_pool',
+                                          child: Text('Return to pool'),
+                                        ),
+                                      if (_canForceAccept)
+                                        const PopupMenuItem(
+                                          value: 'accept',
+                                          child: Text('Accept'),
+                                        ),
+                                      if (_canEditSelection)
+                                        const PopupMenuItem(
+                                          value: 'remind',
+                                          child: Text('Send reminder'),
+                                        ),
+                                    ],
+                                  ),
                                 ],
                               ),
                       ),

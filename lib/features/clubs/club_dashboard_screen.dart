@@ -978,7 +978,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             MaterialPageRoute(
               builder: (_) => MonthOverviewScreen(
                 clubId: widget.clubId,
-                clubName: widget.clubName ?? 'Club Diary',
+                clubName: widget.clubName,
                 initialDate: DateTime.now(),
               ),
             ),

@@ -1,4 +1,4 @@
-package com.example.bowls_saas
+package totalleisuresolutions.bowls
 
 import io.flutter.embedding.android.FlutterActivity
 

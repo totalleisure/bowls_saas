@@ -56,7 +56,7 @@ class TeamSheetService {
     final poolRows = await client
         .from('team_selection_members')
         .select(
-          'member_profile_id, role, acceptance, member_profiles(display_name, phone)',
+          'member_profile_id, role, acceptance, member_profiles!team_selection_members_member_profile_id_fkey(display_name, phone)',
         )
         .eq('team_selection_id', teamSelectionId)
         .inFilter('role', ['player', 'reserve']);

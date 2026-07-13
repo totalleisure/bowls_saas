@@ -54,5 +54,15 @@ begin
     published_by_member_profile_id = v_current_member
   where id = p_team_selection_id
     and fixture_id = p_fixture_id;
+
+  if not found then
+    raise exception 'Team selection not found for this fixture.';
+  end if;
+
+  perform public.queue_team_publication_communications(
+    p_fixture_id,
+    p_team_selection_id,
+    p_allow_incomplete
+  ); 
 end;
 $$;
