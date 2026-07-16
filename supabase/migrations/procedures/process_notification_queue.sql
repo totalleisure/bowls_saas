@@ -33,7 +33,11 @@ declare
 
   v_selected_position int;
   v_selected_role text;
-  v_selected_role_text text;  
+  v_selected_role_text text;
+
+  v_captain_name text;
+  v_captain_email text;
+  v_captain_phone text;
 begin
   for r in
     select *
@@ -465,6 +469,30 @@ begin
             else ''
           end;
 
+        select
+          coalesce(
+            nullif(btrim(mp.display_name), ''),
+            nullif(
+              btrim(
+                coalesce(mp.first_name, '')
+                || ' '
+                || coalesce(mp.last_name, '')
+              ),
+              ''
+            ),
+            'Fixture captain'
+          ),
+          coalesce(nullif(btrim(mp.email_address), ''), 'Not recorded'),
+          coalesce(nullif(btrim(mp.phone), ''), 'Not recorded')
+        into
+          v_captain_name,
+          v_captain_email,
+          v_captain_phone
+        from public.fixtures f
+        left join public.member_profiles mp
+          on mp.id = f.captain_member_profile_id
+        where f.id = r.fixture_id;
+
         v_body :=
           'A volunteer marker is required for '
           || v_fixture_label
@@ -521,7 +549,16 @@ begin
         v_body :=
           v_body
           || chr(10) || chr(10)
-          || 'Please contact the fixture captain if you can help.';
+          || 'Please contact the fixture captain if you can help.'
+          || chr(10)
+          || 'Captain: '
+          || coalesce(v_captain_name, 'Fixture captain')
+          || chr(10)
+          || 'Email: '
+          || coalesce(v_captain_email, 'Not recorded')
+          || chr(10)
+          || 'Telephone: '
+          || coalesce(v_captain_phone, 'Not recorded');
 
       elsif r.event_type = 'fixture_moved' then
         v_source := 'Fixture Moved';

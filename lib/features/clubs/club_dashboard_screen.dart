@@ -9,6 +9,7 @@ import 'package:bowls_saas/features/diary/rinks_day_view.dart';
 import 'package:bowls_saas/features/diary/month_overview_screen.dart';
 
 import '../members/members_screen.dart';
+import '../communications/member_options_menu.dart';
 import '../fixtures/fixture_display.dart';
 import '../fixtures/fixture_details_page.dart';
 import '../help/player_help_screen.dart';
@@ -470,6 +471,21 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         });
       }
     }
+  }
+
+  Future<void> _openMemberOptions() async {
+    await showMemberOptionsMenu(
+      context: context,
+      clubId: widget.clubId,
+      clubName: widget.clubName,
+      openMembershipDetails: () async {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => MembersScreen(clubId: widget.clubId),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _openFilter() async {
@@ -1605,15 +1621,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
           IconButton(
             icon: const Icon(Icons.groups),
-            tooltip: 'Club Members',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MembersScreen(clubId: widget.clubId),
-                ),
-              );
-            },
+            tooltip: 'Membership and Volunteer Lists',
+            onPressed: _openMemberOptions,
           ),
 
           if (canAccessAdmin)

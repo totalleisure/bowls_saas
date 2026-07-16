@@ -112,6 +112,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   String? _eventVenueId;
 
+  // Club Events reuse the fixture captain fields as organiser roles.
+  String? _eventOrganiserMemberProfileId;
+  String? _eventViceOrganiserMemberProfileId;
+
   // Players, Opponents, Markers
   List<Map<String, dynamic>> _clubMembers = [];
   final Map<String, String?> _playerSelections = {};
@@ -388,7 +392,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                 return ListTile(
                   title: Text(dateText),
                   subtitle: Text(
-                    opponentName == null
+                    _isEventStyleFixture
+                        ? 'Club event'
+                        : opponentName == null
                         ? 'Internal fixture'
                         : '${d.isHome ? 'Home' : 'Away'} against $opponentName',
                   ),
@@ -420,6 +426,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       final selectionMode = _selectedFixtureSelectionMode.trim().toLowerCase();
 
       final requiresOpponent =
+          !_isEventStyleFixture &&
           selectionMode != 'preselect' &&
           selectionMode != 'open' &&
           selectionMode != 'opensession' &&
@@ -522,6 +529,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     required String? orientation,
     required String? fixtureLabel,
     required String? captainMemberProfileId,
+    required String? viceCaptainMemberProfileId,
     required bool createTeamSelection,
     required List<Map<String, dynamic>> homeRinkLabels,
     required List<Map<String, dynamic>> rinkAssignments,
@@ -542,13 +550,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'p_team_name': fixtureLabel?.trim().isEmpty == true
             ? null
             : fixtureLabel?.trim(),
+        // Every non-rink Club Event collects Yes / No / Maybe responses.
+        // Existing rink-based RSVP workflows retain their current behaviour.
         'p_requires_rsvp':
-            usesRinks && (!_isTeamFixture && !_isPreselectFixture),
+            !usesRinks || (!_isTeamFixture && !_isPreselectFixture),
         'p_venue_id': venueId,
         'p_opponent_venue_id': opponentVenueId,
         'p_green_area_id': usesRinks && isHome ? greenAreaId : null,
         'p_orientation': orientation,
         'p_captain_member_profile_id': captainMemberProfileId,
+        'p_vice_captain_member_profile_id': viceCaptainMemberProfileId,
         'p_notes': _notesCtrl.text.trim().isEmpty
             ? null
             : _notesCtrl.text.trim(),
@@ -579,22 +590,61 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       throw Exception('Please select a start and end time.');
     }
 
+    final selectedFixtureType = _fixtureTypeById(_fixtureTypeId);
+    final isInternalFixtureType = selectedFixtureType?['is_internal'] == true;
+    final usesRinks = selectedFixtureType?['uses_rinks'] != false;
+
+    final startAt = _combineRepeatDateWithOriginalTime(repeatDate.date);
+    final duration = _endAtLocal!.difference(_startAtLocal!);
+    final endAt = startAt.add(duration);
+
+    if (!usesRinks) {
+      if (_teamNameCtrl.text.trim().isEmpty) {
+        throw Exception('Please enter an event name.');
+      }
+
+      if (_eventVenueId == null || _eventVenueId!.trim().isEmpty) {
+        throw Exception('Please select an event venue.');
+      }
+
+      if (_eventOrganiserMemberProfileId == null ||
+          _eventOrganiserMemberProfileId!.trim().isEmpty) {
+        throw Exception('Please select an organiser.');
+      }
+
+      final fixtureId = await _createFixtureWithSetupRpc(
+        startAtLocal: startAt,
+        endAtLocal: endAt,
+        isHome: true,
+        venueId: _eventVenueId!,
+        opponentVenueId: null,
+        usesRinks: false,
+        greenAreaId: null,
+        orientation: null,
+        fixtureLabel: _teamNameCtrl.text.trim(),
+        captainMemberProfileId: _eventOrganiserMemberProfileId,
+        viceCaptainMemberProfileId: _eventViceOrganiserMemberProfileId,
+        createTeamSelection: false,
+        homeRinkLabels: const [],
+        rinkAssignments: const [],
+        teamSelectionMembers: const [],
+      );
+
+      return RepeatFixtureCreateOutcome(
+        fixtureId: fixtureId,
+        message: 'Event created successfully',
+      );
+    }
+
     if (_homeVenueId == null) {
       throw Exception('Please select a home venue.');
     }
-
-    final selectedFixtureType = _fixtureTypeById(_fixtureTypeId);
-    final isInternalFixtureType = selectedFixtureType?['is_internal'] == true;
 
     if (!isInternalFixtureType &&
         (repeatDate.opponentVenueId == null ||
             repeatDate.opponentVenueId!.trim().isEmpty)) {
       throw Exception('Please select an opponent venue.');
     }
-
-    final startAt = _combineRepeatDateWithOriginalTime(repeatDate.date);
-    final duration = _endAtLocal!.difference(_startAtLocal!);
-    final endAt = startAt.add(duration);
 
     final isHome = isInternalFixtureType ? true : repeatDate.isHome;
 
@@ -699,6 +749,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           : null,
       fixtureLabel: fixtureLabel,
       captainMemberProfileId: null,
+      viceCaptainMemberProfileId: null,
       createTeamSelection: false,
       homeRinkLabels: homeRinkLabels,
       rinkAssignments: const [],
@@ -1354,6 +1405,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
         _teamNameCtrl.text = name;
         _eventVenueId ??= _homeVenueId ?? _opponentVenueId;
+        _eventOrganiserMemberProfileId ??= _currentMemberId;
       }
 
       if (isInternal) {
@@ -1449,6 +1501,114 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (match.isEmpty) return 'Select player';
 
     return _memberLabel(match.first);
+  }
+
+  String _selectedMemberOrPrompt(
+    String? memberProfileId,
+    String prompt,
+  ) {
+    if (memberProfileId == null || memberProfileId.isEmpty) return prompt;
+
+    final match = _clubMembers.where(
+      (m) => m['id'].toString() == memberProfileId,
+    );
+    if (match.isEmpty) return prompt;
+
+    return _memberLabel(match.first);
+  }
+
+  Future<void> _pickEventOrganiser({required bool vice}) async {
+    final currentId = vice
+        ? _eventViceOrganiserMemberProfileId
+        : _eventOrganiserMemberProfileId;
+    final otherId = vice
+        ? _eventOrganiserMemberProfileId
+        : _eventViceOrganiserMemberProfileId;
+
+    final selected = await Navigator.of(context).push<List<String>?>(
+      MaterialPageRoute(
+        builder: (_) => ClubMemberPickerPage(
+          clubId: widget.clubId,
+          title: vice ? 'Select Deputy Organiser' : 'Select Organiser',
+          fixtureId: null,
+          useFixtureSection: false,
+          initialSectionFilter: MemberPickerSectionFilter.open,
+          allowMultiple: false,
+          initialSelectedIds: {
+            if (currentId != null && currentId.isNotEmpty) currentId,
+          },
+          excludeMemberProfileIds: {
+            if (otherId != null && otherId.isNotEmpty) otherId,
+          },
+        ),
+      ),
+    );
+
+    if (!mounted || selected == null) return;
+
+    final memberId = selected.isEmpty ? null : selected.first;
+
+    setState(() {
+      if (vice) {
+        _eventViceOrganiserMemberProfileId = memberId;
+      } else {
+        _eventOrganiserMemberProfileId = memberId;
+      }
+    });
+    _markDirty();
+  }
+
+  Widget _buildEventOrganisersSection() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Event organisers',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'The organiser and deputy can manage the event and see member responses.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _pickEventOrganiser(vice: false),
+              icon: const Icon(Icons.person_outline),
+              label: Text(
+                'Organiser: ${_selectedMemberOrPrompt(_eventOrganiserMemberProfileId, 'Select organiser')}',
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => _pickEventOrganiser(vice: true),
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              label: Text(
+                'Deputy: ${_selectedMemberOrPrompt(_eventViceOrganiserMemberProfileId, 'Optional')}',
+              ),
+            ),
+            if (_eventViceOrganiserMemberProfileId != null &&
+                _eventViceOrganiserMemberProfileId!.isNotEmpty)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _eventViceOrganiserMemberProfileId = null;
+                    });
+                    _markDirty();
+                  },
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Remove deputy'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   String _selectedOpponentLabel(String key) {
@@ -2434,14 +2594,33 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (_startAtLocal == null) {
         throw Exception('Please select a start date/time.');
       }
+      if (_endAtLocal == null) {
+        throw Exception('Please select an end date/time.');
+      }
+      if (!_endAtLocal!.isAfter(_startAtLocal!)) {
+        throw Exception('The end time must be after the start time.');
+      }
 
       final selectedFixtureType = _fixtureTypeById(_fixtureTypeId);
       final isInternalFixtureType = selectedFixtureType?['is_internal'] == true;
       final usesRinks = selectedFixtureType?['uses_rinks'] == true;
 
       if (!usesRinks) {
+        if (_teamNameCtrl.text.trim().isEmpty) {
+          throw Exception('Please enter an event name.');
+        }
         if (_eventVenueId == null || _eventVenueId!.trim().isEmpty) {
           throw Exception('Please select a venue.');
+        }
+        if (_eventOrganiserMemberProfileId == null ||
+            _eventOrganiserMemberProfileId!.trim().isEmpty) {
+          throw Exception('Please select an organiser.');
+        }
+        if (_eventOrganiserMemberProfileId ==
+            _eventViceOrganiserMemberProfileId) {
+          throw Exception(
+            'The organiser and deputy organiser must be different members.',
+          );
         }
       } else {
         if (_homeVenueId == null) {
@@ -2483,8 +2662,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         throw Exception('Please select a team.');
       }
 
-      final captainMemberProfileId = _simpleBookingMode
-          ? _currentMemberId
+      final captainMemberProfileId = _isEventStyleFixture
+          ? _eventOrganiserMemberProfileId
+          : (_simpleBookingMode ? _currentMemberId : null);
+
+      final viceCaptainMemberProfileId = _isEventStyleFixture
+          ? _eventViceOrganiserMemberProfileId
           : null;
 
       debugPrint(
@@ -2602,6 +2785,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
             : null,
         fixtureLabel: fixtureLabel,
         captainMemberProfileId: captainMemberProfileId,
+        viceCaptainMemberProfileId: viceCaptainMemberProfileId,
         createTeamSelection: _isPreselectFixture,
         homeRinkLabels: homeRinkLabels,
         rinkAssignments: rinkAssignments,
@@ -3592,9 +3776,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           TextField(
                             controller: _teamNameCtrl,
                             decoration: const InputDecoration(
-                              labelText: 'Fixture Label',
+                              labelText: 'Event name',
                               hintText:
-                                  'e.g. AGM Meeting, Summer Barbecue, Quiz Night',
+                                  'e.g. AGM, Summer Barbecue, Quiz Night',
                               border: OutlineInputBorder(),
                             ),
                           ),
@@ -3676,6 +3860,32 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               ),
                             ),
                           ),
+                          const SizedBox(height: 12),
+
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: const Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.how_to_reg_outlined),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Members will be able to respond Yes, No or Maybe. '
+                                    'The organiser can use these responses to monitor attendance numbers.',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          _buildEventOrganisersSection(),
                           const SizedBox(height: 12),
 
                           TextFormField(

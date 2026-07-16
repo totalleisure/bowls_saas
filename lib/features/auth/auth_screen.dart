@@ -320,6 +320,107 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  bool _looksLikeConnectionFailure(Object error) {
+    final text = error.toString().toLowerCase();
+
+    return text.contains('authretryablefetchexception') ||
+        text.contains('failed host lookup') ||
+        text.contains('socketexception') ||
+        text.contains('no address associated with hostname') ||
+        text.contains('network is unreachable') ||
+        text.contains('connection timed out') ||
+        text.contains('connection timeout') ||
+        text.contains('connection refused') ||
+        text.contains('connection closed') ||
+        text.contains('clientexception') ||
+        text.contains('failed to fetch');
+  }
+
+  String _friendlyAuthMessage(Object error, {required bool signingUp}) {
+    final text = error.toString().toLowerCase();
+
+    if (_looksLikeConnectionFailure(error)) {
+      return 'The app cannot contact the Bowls Club service. '
+          'Please check that Wi-Fi or mobile data is switched on, then try again. '
+          'Your account details have not been removed.';
+    }
+
+    if (text.contains('invalid login credentials') ||
+        text.contains('invalid credentials')) {
+      return 'The email address or password was not recognised. '
+          'Please check both entries and try again.';
+    }
+
+    if (text.contains('email not confirmed')) {
+      return 'Your email address has not yet been confirmed. '
+          'Please open the confirmation email and follow its link before signing in.';
+    }
+
+    if (text.contains('user already registered') ||
+        text.contains('already been registered')) {
+      return 'An account already exists for this email address. '
+          'Please use Sign In instead.';
+    }
+
+    if (text.contains('password') &&
+        (text.contains('weak') || text.contains('least'))) {
+      return 'The password is not strong enough. Please choose a longer password and try again.';
+    }
+
+    return signingUp
+        ? 'Registration could not be completed. Please check the details and try again.'
+        : 'Sign in could not be completed. Please check the details and try again.';
+  }
+
+  Future<void> _showAuthFailure({
+    required Object error,
+    required bool signingUp,
+    Future<void> Function()? retry,
+  }) async {
+    debugPrint('${signingUp ? 'SIGN UP' : 'SIGN IN'} ERROR: $error');
+
+    if (!mounted) return;
+
+    final connectionFailure = _looksLikeConnectionFailure(error);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(
+          connectionFailure
+              ? Icons.wifi_off_rounded
+              : Icons.error_outline_rounded,
+          size: 44,
+          color: connectionFailure ? Colors.orange.shade800 : Colors.red,
+        ),
+        title: Text(
+          connectionFailure
+              ? 'Unable to connect'
+              : (signingUp ? 'Registration unsuccessful' : 'Sign in unsuccessful'),
+        ),
+        content: Text(
+          _friendlyAuthMessage(error, signingUp: signingUp),
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+          if (retry != null)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                Future<void>.microtask(retry);
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _quickSignIn(String email) async {
     setState(() => _loading = true);
     try {
@@ -328,13 +429,15 @@ class _AuthScreenState extends State<AuthScreen> {
         password: _debugPassword,
       );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Quick sign in error: $e')));
-      }
-    } finally {
       if (mounted) setState(() => _loading = false);
+      await _showAuthFailure(
+        error: e,
+        signingUp: false,
+        retry: () => _quickSignIn(email),
+      );
+      return;
+    } finally {
+      if (mounted && _loading) setState(() => _loading = false);
     }
   }
 
@@ -352,13 +455,15 @@ class _AuthScreenState extends State<AuthScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Sign up error: $e')));
-      }
-    } finally {
       if (mounted) setState(() => _loading = false);
+      await _showAuthFailure(
+        error: e,
+        signingUp: true,
+        retry: _signUp,
+      );
+      return;
+    } finally {
+      if (mounted && _loading) setState(() => _loading = false);
     }
   }
 
@@ -370,13 +475,15 @@ class _AuthScreenState extends State<AuthScreen> {
         password: _password.text,
       );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Sign in error: $e')));
-      }
-    } finally {
       if (mounted) setState(() => _loading = false);
+      await _showAuthFailure(
+        error: e,
+        signingUp: false,
+        retry: _signIn,
+      );
+      return;
+    } finally {
+      if (mounted && _loading) setState(() => _loading = false);
     }
   }
 

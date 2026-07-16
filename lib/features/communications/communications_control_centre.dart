@@ -7,7 +7,12 @@ import '../../services/fixture_readiness_service.dart';
 import '../fixtures/fixture_details_page.dart';
 
 class CommunicationsControlCentreScreen extends StatefulWidget {
-  const CommunicationsControlCentreScreen({super.key});
+  const CommunicationsControlCentreScreen({
+    super.key,
+    required this.clubId,
+  });
+
+  final String clubId;
 
   @override
   State<CommunicationsControlCentreScreen> createState() =>
@@ -1123,6 +1128,7 @@ class _CommunicationsControlCentreScreenState
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
                                   child: CommunicationsFixtureSelector(
+                                    clubId: widget.clubId,
                                     selectedFixtureId: _selectedFixtureId,
                                     onSelected: _loadHealthForFixture,
                                   ),

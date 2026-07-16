@@ -252,16 +252,10 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
     final players = _parseInt(_playersController.text);
     final duration = _parseInt(_durationController.text);
 
-    // RSVP is the participation mode for events that do not use rinks.
-    // Normalise older records before validating them.
-    if (!_usesRinks && _teamSelectionEnabled) {
-      _selectionMode = 'rsvp';
-    }
-
     if (_teamSelectionEnabled &&
         (_selectionMode == null || _selectionMode!.trim().isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please choose a participation mode')),
+        const SnackBar(content: Text('Please choose Team, RSVP or Practice')),
       );
       return;
     }
@@ -290,11 +284,8 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
     }
 
     if (!_usesRinks) {
-      // Non-rink events may still collect Yes / No / Maybe responses.
-      // RSVP is the only participation mode that makes sense without rinks.
-      if (_teamSelectionEnabled) {
-        _selectionMode = 'rsvp';
-      }
+      _teamSelectionEnabled = false;
+      _selectionMode = null;
       _bookableByMembers = false;
       _section = 'open';
       _dressCode = 'open';
@@ -311,8 +302,8 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
         'name': _nameController.text.trim(),
         'is_internal': _isInternal,
         'uses_rinks': _usesRinks,
-        'default_rinks_required': _usesRinks ? rinks : null,
-        'default_players_per_rink': _usesRinks ? players : null,
+        'default_rinks_required': rinks,
+        'default_players_per_rink': players,
         'default_duration_minutes': duration,
         'dress_code': _dressCode,
         'team_selection_enabled': _teamSelectionEnabled,
@@ -500,11 +491,8 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                                         _usesRinks = v;
 
                                         if (!_usesRinks) {
-                                          // Keep member participation available.
-                                          // A non-rink event can collect RSVP replies.
-                                          if (_teamSelectionEnabled) {
-                                            _selectionMode = 'rsvp';
-                                          }
+                                          _teamSelectionEnabled = false;
+                                          _selectionMode = null;
                                           _bookableByMembers = false;
                                           _section = 'open';
                                           _dressCode = 'open';
@@ -560,7 +548,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                               const Padding(
                                 padding: EdgeInsets.only(top: 8),
                                 child: Text(
-                                  'This event will not reserve rinks, but it can still collect member RSVPs.',
+                                  'This will behave as an event/information fixture and will not require rinks.',
                                   style: TextStyle(fontStyle: FontStyle.italic),
                                 ),
                               ),
@@ -578,55 +566,36 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                               ),
                               contentPadding: EdgeInsets.zero,
                             ),
-                            const SizedBox(height: 8),
-                            SwitchListTile(
-                              value: _teamSelectionEnabled,
-                              onChanged: widget.readOnly
-                                  ? null
-                                  : (v) {
-                                      setState(() {
-                                        _teamSelectionEnabled = v;
-                                        if (!v) {
-                                          _selectionMode = null;
-                                        } else if (!_usesRinks) {
-                                          _selectionMode = 'rsvp';
-                                        } else {
-                                          _selectionMode ??= 'rsvp';
-                                        }
-                                        _markDirty();
-                                      });
-                                    },
-                              title: Text(
-                                _usesRinks
-                                    ? 'Member participation / team selection'
-                                    : 'Collect member RSVPs',
-                              ),
-                              subtitle: Text(
-                                _usesRinks
-                                    ? 'Choose whether members RSVP, a team is selected, or members pre-select places.'
-                                    : 'Allows members to answer Yes, No or Maybe so organisers can see expected attendance.',
-                              ),
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            if (_teamSelectionEnabled) ...[
+                            if (_usesRinks) ...[
                               const SizedBox(height: 8),
-                              if (!_usesRinks)
-                                const ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: Icon(Icons.how_to_reg_outlined),
-                                  title: Text('RSVP attendance'),
-                                  subtitle: Text(
-                                    'Members will be offered Yes, No and Maybe responses.',
-                                  ),
-                                )
-                              else
+                              SwitchListTile(
+                                value: _teamSelectionEnabled,
+                                onChanged: widget.readOnly
+                                    ? null
+                                    : (v) {
+                                        setState(() {
+                                          _teamSelectionEnabled = v;
+                                          if (!v) {
+                                            _selectionMode = null;
+                                          } else {
+                                            _selectionMode ??= 'rsvp';
+                                          }
+                                          _markDirty();
+                                        });
+                                      },
+                                title: const Text('Team Selection'),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+
+                              if (_teamSelectionEnabled) ...[
+                                const SizedBox(height: 8),
                                 DropdownButtonFormField<String>(
                                   value: _selectionMode,
-                                  decoration: _dec('Participation mode'),
+                                  decoration: _dec('Selection mode'),
                                   items: const [
                                     DropdownMenuItem(
                                       value: 'team',
-                                      child: Text('Team selection'),
+                                      child: Text('Team'),
                                     ),
                                     DropdownMenuItem(
                                       value: 'rsvp',
@@ -648,6 +617,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                                           _markDirty();
                                         },
                                 ),
+                              ],
                             ],
                           ],
                         ),

@@ -79,6 +79,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   String? _myTeamSelectionStatus;
   bool _loadingMyTeamSelection = false;
 
+  // Club Event attendance
+  List<Map<String, dynamic>> _eventRsvps = [];
+  bool _loadingEventRsvps = false;
+
   // Team name editing
   final TextEditingController _teamNameCtrl = TextEditingController();
   bool _savingTeamName = false;
@@ -139,13 +143,36 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return ct is Map<String, dynamic> ? ct : null;
   }
 
+  bool get _isEventStyleFixture =>
+      _selectedCompetitionType?['uses_rinks'] == false;
+
+  bool get _canManageEventAttendance =>
+      _isEventStyleFixture &&
+      (_canEditAdminFixtureDetails ||
+          _isFixtureCaptain ||
+          _isFixtureViceCaptain);
+
+  bool get _canEditEventInformation =>
+      _isEventStyleFixture &&
+      (_isSuperuser ||
+          _isClubAdmin ||
+          _isAdmin ||
+          _isSuper ||
+          _isFixtureCaptain ||
+          _isFixtureViceCaptain);
+
   String get _fixtureMessageSenderName {
+    if (_isEventStyleFixture) {
+      if (_isFixtureCaptain) return 'Organiser';
+      if (_isFixtureViceCaptain) return 'Deputy Organiser';
+    }
+
     if (_isFixtureCaptain) return 'Captain';
     if (_isFixtureViceCaptain) return 'Vice-Captain';
     if (_isSelector) return 'Selector';
     if (_isClubAdmin) return 'Club Admin';
     if (_isSuperuser) return 'Superuser';
-    return 'Club official';
+    return _isEventStyleFixture ? 'Club event organiser' : 'Club official';
   }
 
   String get _selectedCompetitionSelectionMode =>
@@ -527,6 +554,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _loadGreenAreas() async {
+    if (_isEventStyleFixture) {
+      if (!mounted) return;
+      setState(() {
+        _greenAreas = [];
+        _greenAreaId = null;
+        _orientation = null;
+        _rinkAvailability = [];
+        _rinkAvailabilityError = null;
+      });
+      return;
+    }
+
     debugPrint(
       'GREEN LOAD DETAILS: '
       'isHome=$_isHome '
@@ -652,7 +691,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Selection not allowed'),
+        title: Text(
+          _isEventStyleFixture
+              ? 'Event update not allowed'
+              : 'Selection not allowed',
+        ),
         content: Text(message),
         actions: [
           TextButton(
@@ -1659,8 +1702,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       await _loadTeamNameLocked();
       await _loadTeams();
       await _loadMyRsvp();
-      if (_usesSimpleBookingWorkflow) {
+
+      if (_usesSimpleBookingWorkflow || _isEventStyleFixture) {
         await _loadClubMembers();
+      }
+
+      if (_isEventStyleFixture && _canManageEventAttendance) {
+        await _loadEventRsvps();
       }
 
       final fixtureRinksRequired =
@@ -1670,7 +1718,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         await _loadMemberPreselectData();
       }
 
-      await _loadFixtureReadiness();
+      if (_isEventStyleFixture) {
+        if (mounted) {
+          setState(() {
+            _readiness = null;
+            _loadingReadiness = false;
+          });
+        }
+      } else {
+        await _loadFixtureReadiness();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1761,10 +1818,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _initPage() async {
     await _load();
-    await _loadGreenAreas();
-    await _loadUserPermissions();
 
-    _loadMyRsvp();
+    if (!_isEventStyleFixture) {
+      await _loadGreenAreas();
+    }
+
+    await _loadUserPermissions();
+    await _loadMyRsvp();
+
+    if (_isEventStyleFixture && _canManageEventAttendance) {
+      await _loadEventRsvps();
+    }
   }
 
   @override
@@ -2152,6 +2216,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       }
     }
     await _loadMyRsvp();
+
+    if (_isEventStyleFixture && _canManageEventAttendance) {
+      await _loadEventRsvps();
+    }
   }
 
   Future<void> _loadMyRsvp() async {
@@ -2172,6 +2240,504 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     } catch (_) {
       // ignore load errors for now (no highlight is fine)
     }
+  }
+
+  Future<void> _editEventInformation() async {
+    if (!_canEditEventInformation) return;
+
+    final controller = TextEditingController(
+      text: (_fixture?['notes'] ?? '').toString(),
+    );
+
+    final updatedText = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit event information'),
+        content: SizedBox(
+          width: 560,
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 5,
+            maxLines: 12,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Event information',
+              hintText: 'Add details, instructions, timings or other information for members.',
+              alignLabelWithHint: true,
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              controller.text,
+            ),
+            icon: const Icon(Icons.save),
+            label: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+
+    if (updatedText == null || !mounted) return;
+
+    final notes = updatedText.trim();
+
+    try {
+      await _client
+          .from('fixtures')
+          .update({'notes': notes.isEmpty ? null : notes})
+          .eq('id', widget.fixtureId);
+
+      _didChangeFixture = true;
+      await _reloadPreservingScroll();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Event information updated.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update event information: $e')),
+      );
+    }
+  }
+
+  Future<void> _loadEventRsvps() async {
+    if (!_isEventStyleFixture || !_canManageEventAttendance) {
+      if (!mounted) return;
+      setState(() {
+        _eventRsvps = [];
+        _loadingEventRsvps = false;
+      });
+      return;
+    }
+
+    setState(() => _loadingEventRsvps = true);
+
+    try {
+      final rsvpRowsRaw = await _client
+          .from('fixture_rsvps')
+          .select('member_profile_id, status, responded_at')
+          .eq('fixture_id', widget.fixtureId);
+
+      final rsvpRows = List<Map<String, dynamic>>.from(rsvpRowsRaw);
+      final profilesById = <String, Map<String, dynamic>>{
+        for (final member in _clubMembers)
+          if (member['id']?.toString().isNotEmpty == true)
+            member['id'].toString(): member,
+      };
+
+      for (final row in rsvpRows) {
+        final memberId = row['member_profile_id']?.toString();
+        row['member'] = memberId == null ? null : profilesById[memberId];
+      }
+
+      const statusOrder = {'yes': 0, 'maybe': 1, 'no': 2};
+
+      rsvpRows.sort((a, b) {
+        final aStatus = (a['status'] ?? '').toString().toLowerCase();
+        final bStatus = (b['status'] ?? '').toString().toLowerCase();
+
+        final statusCompare =
+            (statusOrder[aStatus] ?? 99).compareTo(statusOrder[bStatus] ?? 99);
+        if (statusCompare != 0) return statusCompare;
+
+        final aMember = a['member'];
+        final bMember = b['member'];
+
+        final aLabel = aMember is Map<String, dynamic>
+            ? _memberLabel(aMember)
+            : 'Unknown member';
+        final bLabel = bMember is Map<String, dynamic>
+            ? _memberLabel(bMember)
+            : 'Unknown member';
+
+        return aLabel.compareTo(bLabel);
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _eventRsvps = rsvpRows;
+        _loadingEventRsvps = false;
+      });
+    } catch (e) {
+      debugPrint('Event RSVP summary load failed: $e');
+
+      if (!mounted) return;
+      setState(() {
+        _eventRsvps = [];
+        _loadingEventRsvps = false;
+      });
+    }
+  }
+
+  String _eventOfficialLabel(String? memberProfileId, String emptyLabel) {
+    if (memberProfileId == null || memberProfileId.isEmpty) {
+      return emptyLabel;
+    }
+
+    for (final member in _clubMembers) {
+      if (member['id']?.toString() == memberProfileId) {
+        return _memberLabel(member);
+      }
+    }
+
+    return emptyLabel;
+  }
+
+  Future<void> _pickEventOfficial({required bool deputy}) async {
+    if (!_canAssignCaptaincy) return;
+
+    final fieldName = deputy
+        ? 'vice_captain_member_profile_id'
+        : 'captain_member_profile_id';
+
+    final currentId = _fixture?[fieldName]?.toString();
+
+    final selected = await Navigator.of(context).push<List<String>?>(
+      MaterialPageRoute(
+        builder: (_) => ClubMemberPickerPage(
+          clubId: _fixture!['club_id'].toString(),
+          title: deputy ? 'Select Deputy Organiser' : 'Select Organiser',
+          fixtureId: widget.fixtureId,
+          useFixtureSection: false,
+          initialSectionFilter: MemberPickerSectionFilter.open,
+          allowMultiple: false,
+          initialSelectedIds: {
+            if (currentId != null && currentId.isNotEmpty) currentId,
+          },
+        ),
+      ),
+    );
+
+    if (!mounted || selected == null) return;
+
+    final selectedId = selected.isEmpty ? null : selected.first;
+    final otherId = _fixture?[
+      deputy
+          ? 'captain_member_profile_id'
+          : 'vice_captain_member_profile_id'
+    ]?.toString();
+
+    if (selectedId != null &&
+        selectedId.isNotEmpty &&
+        selectedId == otherId) {
+      await _showSaveErrorDialog(
+        'The Organiser and Deputy Organiser must be different members.',
+      );
+      return;
+    }
+
+    if (!deputy && (selectedId == null || selectedId.isEmpty)) {
+      await _showSaveErrorDialog('A Club Event must have an Organiser.');
+      return;
+    }
+
+    try {
+      await _client
+          .from('fixtures')
+          .update({fieldName: selectedId})
+          .eq('id', widget.fixtureId);
+
+      _didChangeFixture = true;
+      await _reloadPreservingScroll();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            deputy
+                ? (selectedId == null
+                      ? 'Deputy Organiser cleared.'
+                      : 'Deputy Organiser updated.')
+                : 'Organiser updated.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update event organiser: $e')),
+      );
+    }
+  }
+
+  String _eventRsvpStatusLabel(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'yes':
+        return 'Yes';
+      case 'maybe':
+        return 'Maybe';
+      case 'no':
+        return 'No';
+      default:
+        return 'No response';
+    }
+  }
+
+  Color _eventRsvpColor(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'yes':
+        return Colors.green;
+      case 'maybe':
+        return Colors.orange;
+      case 'no':
+        return Colors.red;
+      default:
+        return Colors.blueGrey;
+    }
+  }
+
+  Widget _buildEventOrganisersCard() {
+    final organiserId = _fixture?['captain_member_profile_id']?.toString();
+    final deputyId = _fixture?['vice_captain_member_profile_id']?.toString();
+
+    final organiserName = _eventOfficialLabel(
+      organiserId,
+      (_fixture?['captain']?['display_name'] ?? 'No organiser selected')
+          .toString(),
+    );
+
+    final deputyName = _eventOfficialLabel(
+      deputyId,
+      (_fixture?['vice']?['display_name'] ?? 'No deputy organiser')
+          .toString(),
+    );
+
+    Widget officialControl({
+      required String title,
+      required String name,
+      required bool deputy,
+    }) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _canAssignCaptaincy
+            ? () => _pickEventOfficial(deputy: deputy)
+            : null,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 72),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.black12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                deputy ? Icons.person_outline : Icons.event_available_outlined,
+                size: 21,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+              if (_canAssignCaptaincy) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.edit_outlined, size: 18),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: officialControl(
+                title: 'Organiser',
+                name: organiserName,
+                deputy: false,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: officialControl(
+                title: 'Deputy Organiser',
+                name: deputyName,
+                deputy: true,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEventAttendanceSummary() {
+    if (!_canManageEventAttendance) return const SizedBox.shrink();
+
+    int count(String status) => _eventRsvps
+        .where(
+          (row) =>
+              (row['status'] ?? '').toString().trim().toLowerCase() == status,
+        )
+        .length;
+
+    final yesCount = count('yes');
+    final maybeCount = count('maybe');
+    final noCount = count('no');
+
+    return Card(
+      child: ExpansionTile(
+        leading: const Icon(Icons.groups_outlined),
+        title: Text(
+          'Attendance responses',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          _loadingEventRsvps
+              ? 'Loading responses...'
+              : '$yesCount Yes · $maybeCount Maybe · $noCount No',
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              tooltip: 'Refresh responses',
+              onPressed: _loadingEventRsvps ? null : _loadEventRsvps,
+              icon: const Icon(Icons.refresh),
+            ),
+          ),
+          if (_loadingEventRsvps)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_eventRsvps.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('No members have responded yet.'),
+              ),
+            )
+          else
+            for (final response in _eventRsvps)
+              Builder(
+                builder: (context) {
+                  final status = (response['status'] ?? '').toString();
+                  final member = response['member'];
+                  final name = member is Map<String, dynamic>
+                      ? _memberLabel(member)
+                      : 'Unknown member';
+                  final respondedAtRaw = response['responded_at']?.toString();
+                  final respondedAt =
+                      respondedAtRaw == null || respondedAtRaw.isEmpty
+                      ? null
+                      : DateTime.tryParse(respondedAtRaw);
+
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      status == 'yes'
+                          ? Icons.check_circle
+                          : status == 'maybe'
+                          ? Icons.help
+                          : Icons.cancel,
+                      color: _eventRsvpColor(status),
+                    ),
+                    title: Text(name),
+                    subtitle: respondedAt == null
+                        ? null
+                        : Text(
+                            'Responded ${_formatLocalDisplay(respondedAt.toLocal())}',
+                          ),
+                    trailing: Text(
+                      _eventRsvpStatusLabel(status),
+                      style: TextStyle(
+                        color: _eventRsvpColor(status),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  );
+                },
+              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEventRsvpCard() {
+    final canRespond =
+        _canRsvpToFixture && _isEligibleForFixtureSection(_fixture!);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Will you be attending?',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _myRsvp == null
+                  ? 'Please let the organisers know whether you plan to attend.'
+                  : 'Your current response is ${_eventRsvpStatusLabel(_myRsvp!)}.',
+            ),
+            const SizedBox(height: 14),
+            if (canRespond)
+              Wrap(
+                spacing: 12,
+                runSpacing: 10,
+                children: [
+                  _rsvpChoiceButton('yes', 'Yes'),
+                  _rsvpChoiceButton('maybe', 'Maybe'),
+                  _rsvpChoiceButton('no', 'No'),
+                ],
+              )
+            else
+              const Text(
+                'RSVP responses are available to active club members.',
+                style: TextStyle(fontStyle: FontStyle.italic),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _editStartTime() async {
@@ -2209,12 +2775,19 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Change fixture date/time?'),
+        title: Text(
+          _isEventStyleFixture
+              ? 'Change event date/time?'
+              : 'Change fixture date/time?',
+        ),
         content: Text(
-          'Change fixture to:\n'
-          '${_formatLocalDateTime(newStart)} – ${DateFormat('HH:mm').format(newEnd)}\n\n'
-          'Any physical rink assignments will be cleared. '
-          'Teams and player assignments will remain unchanged.',
+          _isEventStyleFixture
+              ? 'Change event to:\n'
+                    '${_formatLocalDateTime(newStart)} – ${DateFormat('HH:mm').format(newEnd)}'
+              : 'Change fixture to:\n'
+                    '${_formatLocalDateTime(newStart)} – ${DateFormat('HH:mm').format(newEnd)}\n\n'
+                    'Any physical rink assignments will be cleared. '
+                    'Teams and player assignments will remain unchanged.',
         ),
         actions: [
           TextButton(
@@ -2249,16 +2822,26 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         },
       );
 
-      await _clearPhysicalRinkAssignments();
+      if (!_isEventStyleFixture) {
+        await _clearPhysicalRinkAssignments();
+      }
 
       _didChangeFixture = true;
 
-      await _reloadRinksPreservingScroll();
+      if (_isEventStyleFixture) {
+        await _reloadPreservingScroll();
+      } else {
+        await _reloadRinksPreservingScroll();
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Fixture date/time updated. Rinks were unassigned.'),
+        SnackBar(
+          content: Text(
+            _isEventStyleFixture
+                ? 'Event date/time updated.'
+                : 'Fixture date/time updated. Rinks were unassigned.',
+          ),
         ),
       );
     } catch (e) {
@@ -2281,6 +2864,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _loadRinkAvailability() async {
+    if (_isEventStyleFixture) {
+      if (!mounted) return;
+      setState(() {
+        _rinkAvailability = [];
+        _rinkAvailabilityError = null;
+        _loadingRinkAvailability = false;
+      });
+      return;
+    }
+
     if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
       setState(() {
         _rinkAvailability = [];
@@ -2422,12 +3015,19 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Change fixture end time?'),
+        title: Text(
+          _isEventStyleFixture
+              ? 'Change event end time?'
+              : 'Change fixture end time?',
+        ),
         content: Text(
-          'Change fixture end time to:\n'
-          '${DateFormat('HH:mm').format(newEnd)}\n\n'
-          'Any physical rink assignments will be cleared. '
-          'Teams and player assignments will remain unchanged.',
+          _isEventStyleFixture
+              ? 'Change event end time to:\n'
+                    '${DateFormat('HH:mm').format(newEnd)}'
+              : 'Change fixture end time to:\n'
+                    '${DateFormat('HH:mm').format(newEnd)}\n\n'
+                    'Any physical rink assignments will be cleared. '
+                    'Teams and player assignments will remain unchanged.',
         ),
         actions: [
           TextButton(
@@ -2450,17 +3050,27 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           .update({'end_at': clubTimeToUtc(newEnd).toIso8601String()})
           .eq('id', widget.fixtureId);
 
-      await _clearPhysicalRinkAssignments();
+      if (!_isEventStyleFixture) {
+        await _clearPhysicalRinkAssignments();
+      }
 
       _didChangeFixture = true;
 
-      await _reloadRinksPreservingScroll();
+      if (_isEventStyleFixture) {
+        await _reloadPreservingScroll();
+      } else {
+        await _reloadRinksPreservingScroll();
+      }
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Fixture end time updated. Rinks were unassigned.'),
+        SnackBar(
+          content: Text(
+            _isEventStyleFixture
+                ? 'Event end time updated.'
+                : 'Fixture end time updated. Rinks were unassigned.',
+          ),
         ),
       );
     } catch (e) {
@@ -2492,15 +3102,29 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Widget _rsvpChoiceButton(String status, String label) {
     final isSelected = _myRsvp == status;
 
-    return ElevatedButton(
+    final selectedColor = switch (status) {
+      'yes' => Colors.green,
+      'maybe' => Colors.orange,
+      'no' => Colors.red,
+      _ => Theme.of(context).colorScheme.primary,
+    };
+
+    return ElevatedButton.icon(
       style: isSelected
           ? ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.primary,
+              backgroundColor: selectedColor,
               foregroundColor: Colors.white,
             )
           : null,
       onPressed: () => _setRsvp(status, label),
-      child: Text(label),
+      icon: Icon(
+        status == 'yes'
+            ? Icons.check
+            : status == 'maybe'
+            ? Icons.help_outline
+            : Icons.close,
+      ),
+      label: Text(label),
     );
   }
 
@@ -3778,7 +4402,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         .replaceAll('-', '_')
         .replaceAll(' ', '_');
 
-    final usesRinks = competitionType?['uses_rinks'] == true;
+    final usesRinks = competitionType?['uses_rinks'] != false;
     final isEventStyleFixture = !usesRinks;
 
     final isPreselectFixture = selectionMode == 'preselect';
@@ -3926,7 +4550,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               onPressed: _confirmAndDelete, // make sure this method exists
             ),
           IconButton(
-            tooltip: 'Send Fixture Message',
+            tooltip: isEventStyleFixture
+                ? 'Send Event Message'
+                : 'Send Fixture Message',
             icon: const Icon(Icons.message),
             onPressed: !_canEditFixtureOperationalDetails
                 ? null
@@ -3937,8 +4563,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         builder: (_) => FixtureMessageScreen(
                           fixtureId: widget.fixtureId,
                           currentMemberProfileId: _currentMemberId,
-                          senderName:
-                              _fixtureMessageSenderName ?? 'A club member',
+                          senderName: _fixtureMessageSenderName,
                         ),
                       ),
                     );
@@ -3982,8 +4607,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           ),
 
           const SizedBox(height: 12),
-          _buildFixtureReadinessCard(),
-          const SizedBox(height: 16),
+          if (!isEventStyleFixture) ...[
+            _buildFixtureReadinessCard(),
+            const SizedBox(height: 16),
+          ],
 
           Text(
             matchHeader,
@@ -4023,31 +4650,43 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           ),
 
           if (isEventStyleFixture) ...[
-            const SizedBox(height: 20),
-
-            if (isEventStyleFixture) ...[
-              const SizedBox(height: 20),
-              Card(
-                child: ListTile(
-                  title: const Text('Venue'),
-                  subtitle: Text(venue.isEmpty ? 'No venue set' : venue),
-                ),
+            const SizedBox(height: 12),
+            _buildEventRsvpCard(),
+            const SizedBox(height: 4),
+            Card(
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.location_on_outlined),
+                title: const Text('Venue'),
+                subtitle: Text(venue.isEmpty ? 'No venue set' : venue),
               ),
-            ],
-
+            ),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Event information',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Event information',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        if (_canEditEventInformation)
+                          TextButton.icon(
+                            onPressed: _editEventInformation,
+                            icon: const Icon(Icons.edit_outlined),
+                            label: const Text('Edit'),
+                          ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Text(
                       (fixture['notes'] ?? '').toString().trim().isEmpty
                           ? 'No information has been added.'
@@ -4057,6 +4696,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 ),
               ),
             ),
+            _buildEventOrganisersCard(),
           ],
           const SizedBox(height: 20),
 
@@ -4211,7 +4851,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Fixture timing',
+                    isEventStyleFixture ? 'Event timing' : 'Fixture timing',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -4269,6 +4909,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ),
           ),
           const SizedBox(height: 20),
+
+          if (isEventStyleFixture) ...[
+            _buildEventAttendanceSummary(),
+            const SizedBox(height: 8),
+          ],
 
           if (!isEventStyleFixture) ...[
             if (!isOpenSessionFixture && canRespondToTeamSelection) ...[

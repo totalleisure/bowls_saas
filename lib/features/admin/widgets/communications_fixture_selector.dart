@@ -6,10 +6,12 @@ import '../../fixtures/fixture_display.dart';
 class CommunicationsFixtureSelector extends StatefulWidget {
   const CommunicationsFixtureSelector({
     super.key,
+    required this.clubId,
     required this.selectedFixtureId,
     required this.onSelected,
   });
 
+  final String clubId;
   final String? selectedFixtureId;
   final ValueChanged<Map<String, dynamic>> onSelected;
 
@@ -68,6 +70,7 @@ class _CommunicationsFixtureSelectorState
               opponent_venue:venues!fixtures_opponent_venue_id_fkey(name)
             )
           ''')
+          .eq('fixtures.club_id', widget.clubId)
           .order('created_at', ascending: false)
           .limit(200);
 

@@ -4,6 +4,7 @@ import '../members/members_screen.dart';
 import '../fixtures/fixtures_screen.dart';
 import '../team/teams_screen.dart';
 import '../config/green_areas_screen.dart';
+import '../communications/mailing_lists_screen.dart';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -187,6 +188,26 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
               },
             ),
           ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.mark_email_read_outlined),
+              title: const Text('Mailing Lists'),
+              subtitle: const Text(
+                'Manage recipient groups and group communications',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MailingListsScreen(
+                      clubId: widget.clubId,
+                      clubName: widget.clubName,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
           if (_isSuperuser) ...[
             Card(
               child: ListTile(
@@ -212,7 +233,9 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const CommunicationsControlCentreScreen(),
+                      builder: (_) => CommunicationsControlCentreScreen(
+                        clubId: widget.clubId,
+                      ),
                     ),
                   );
                 },

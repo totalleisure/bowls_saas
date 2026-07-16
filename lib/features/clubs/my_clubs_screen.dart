@@ -19,6 +19,7 @@ class MyClubsScreen extends StatefulWidget {
 class _MyClubsScreenState extends State<MyClubsScreen> {
   bool _loading = true;
   String? _error;
+  String? _errorTitle;
   String? _displayName;
   List<Map<String, dynamic>> _clubs = [];
 
@@ -33,59 +34,227 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  bool _looksLikeConnectionError(Object error) {
+    final text = error.toString().toLowerCase();
+
+    return text.contains('authretryablefetchexception') ||
+        text.contains('socketexception') ||
+        text.contains('failed host lookup') ||
+        text.contains('no address associated with hostname') ||
+        text.contains('network is unreachable') ||
+        text.contains('connection timed out') ||
+        text.contains('connection closed') ||
+        text.contains('clientexception') ||
+        text.contains('semaphore timeout');
+  }
+
+  bool _looksLikeTimeout(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('timeout') || text.contains('timed out');
+  }
+
+  String _friendlyLoadErrorTitle(Object error) {
+    if (_looksLikeConnectionError(error) || _looksLikeTimeout(error)) {
+      return 'Unable to connect';
+    }
+
+    return 'Unable to load your clubs';
+  }
+
+  String _friendlyLoadError(Object error) {
+    if (_looksLikeTimeout(error)) {
+      return 'The Bowls Club service is taking longer than expected to '
+          'respond. Please wait a moment and tap Retry.';
+    }
+
+    if (_looksLikeConnectionError(error)) {
+      return 'The app could not contact the Bowls Club service. Your internet '
+          'connection may still be working, so please wait a moment and tap '
+          'Retry.';
+    }
+
+    return 'Your club information could not be loaded. Please tap Retry. '
+        'If the problem continues, close and reopen the app.';
+  }
+
+  Future<void> _loadOnce() async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No signed-in user is available.');
+    }
+
+    var loadedIsSuperuser = false;
 
     try {
-      final client = Supabase.instance.client;
-      final user = client.auth.currentUser!;
-
-      try {
-        final superuserRow = await client
-            .from('app_superusers')
-            .select('user_id')
-            .eq('user_id', user.id)
-            .maybeSingle()
-            .timeout(const Duration(seconds: 10));
-
-        _isSuperuser = superuserRow != null;
-      } catch (e) {
-        debugPrint('Superuser check failed: $e');
-        _isSuperuser = false;
-      }
-
-      final profile = await client
-          .from('member_profiles')
-          .select('id, display_name')
+      final superuserRow = await client
+          .from('app_superusers')
+          .select('user_id')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 10));
 
-      _displayName = profile['display_name'] as String;
-
-      // Clubs via memberships
-      final myId = (await client.rpc('my_member_profile_id')).toString();
-
-      final memberships = await client
-          .from('club_memberships')
-          .select(
-            'clubs(id, name, branding_set_no, primary_colour, secondary_colour)',
-          )
-          .eq('member_profile_id', myId)
-          .eq('is_active', true);
-
-      _clubs = memberships
-          .map<Map<String, dynamic>>((m) => m['clubs'] as Map<String, dynamic>)
-          .toList();
+      loadedIsSuperuser = superuserRow != null;
     } catch (e) {
-      _error = '$e';
-    } finally {
-      if (mounted) {
-        setState(() => _loading = false);
+      debugPrint('Superuser check failed: $e');
+
+      // A temporary connection failure should retry the whole load rather
+      // than silently treating a superuser as an ordinary member.
+      if (_looksLikeConnectionError(e) || _looksLikeTimeout(e)) {
+        rethrow;
       }
     }
+
+    final profile = await client
+        .from('member_profiles')
+        .select('id, display_name')
+        .eq('user_id', user.id)
+        .single()
+        .timeout(const Duration(seconds: 15));
+
+    final loadedDisplayName =
+        (profile['display_name'] ?? '').toString().trim();
+
+    // Clubs via memberships
+    final myId = (await client
+            .rpc('my_member_profile_id')
+            .timeout(const Duration(seconds: 15)))
+        .toString();
+
+    final memberships = await client
+        .from('club_memberships')
+        .select(
+          'clubs(id, name, branding_set_no, primary_colour, secondary_colour)',
+        )
+        .eq('member_profile_id', myId)
+        .eq('is_active', true)
+        .timeout(const Duration(seconds: 15));
+
+    final loadedClubs = memberships
+        .where((m) => m['clubs'] is Map<String, dynamic>)
+        .map<Map<String, dynamic>>(
+          (m) => Map<String, dynamic>.from(
+            m['clubs'] as Map<String, dynamic>,
+          ),
+        )
+        .toList();
+
+    _isSuperuser = loadedIsSuperuser;
+    _displayName = loadedDisplayName;
+    _clubs = loadedClubs;
+  }
+
+  Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+        _errorTitle = null;
+      });
+    }
+
+    Object? failure;
+    StackTrace? failureStack;
+
+    // One quiet automatic retry deals with many short-lived DNS and Wi-Fi
+    // interruptions without bothering the member.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        await _loadOnce();
+
+        if (!mounted) return;
+
+        setState(() {
+          _loading = false;
+          _error = null;
+          _errorTitle = null;
+        });
+        return;
+      } catch (e, stackTrace) {
+        failure = e;
+        failureStack = stackTrace;
+
+        debugPrint(
+          'MyClubsScreen load attempt ${attempt + 1} failed: $e',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+
+        final canRetry =
+            attempt == 0 &&
+            (_looksLikeConnectionError(e) || _looksLikeTimeout(e));
+
+        if (!canRetry) break;
+
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+      }
+    }
+
+    if (!mounted) return;
+
+    final error = failure ?? Exception('Unknown club loading error');
+
+    setState(() {
+      _loading = false;
+      _errorTitle = _friendlyLoadErrorTitle(error);
+      _error = _friendlyLoadError(error);
+    });
+
+    if (failureStack != null) {
+      debugPrintStack(stackTrace: failureStack);
+    }
+  }
+
+  Widget _buildLoadErrorCard() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.cloud_off_outlined,
+                    size: 52,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    _errorTitle ?? 'Unable to load your clubs',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _error ?? 'Please try again.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: _loading ? null : _load,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your sign-in and club information have not been removed.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   String _blankBackgroundImageForWidth(BuildContext context) {
@@ -196,7 +365,11 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
       appBar: AppBar(
         title: const Text('My clubs'),
         actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          IconButton(
+            tooltip: 'Refresh clubs',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh),
+          ),
           IconButton(onPressed: _signOut, icon: const Icon(Icons.logout)),
         ],
       ),
@@ -218,7 +391,7 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
           _loading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-              ? Center(child: Text('Error: $_error'))
+              ? _buildLoadErrorCard()
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [

@@ -186,7 +186,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin Help & User Guide'),
+        title: const Text('Admin User Guide'),
       ),
       body: Stack(
         children: [
@@ -223,7 +223,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Bowls App Admin Guide',
+                        'Bowls App Admin User Guide',
                         style:
                             Theme.of(context).textTheme.headlineSmall?.copyWith(
                                   fontWeight: FontWeight.w900,
@@ -231,7 +231,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                       ),
                       const SizedBox(height: 10),
                       _p(
-                        'This guide explains how club admins and selectors set up and manage the Bowls App, from venues and greens through to fixtures, teams, rinks, captains and notifications.',
+                        'This user guide explains how club admins, selectors, fixture secretaries and captains set up and manage the Bowls App, from venues and greens through to fixtures, teams, rinks, captains and notifications.',
                       ),
                       const SizedBox(height: 8),
                       _topicButton('1. First Club Setup', _setupKey),
@@ -428,11 +428,11 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                     _bullet('Allocate reserves where appropriate.'),
                     _subHeading('Publishing the team'),
                     _p(
-                      'Publishing is the point at which selected members are formally told that they have been chosen. The fixture appears on their dashboard and they are asked to accept or decline their selection.',
+                      'Publishing is the point at which selected members are formally told that they have been chosen. The fixture appears on their dashboard and they are asked to accept or decline their selection. Selected members should also receive the fixture sheet by email, where email delivery is enabled.',
                     ),
                     _bullet('Selected members receive an in-app notification.'),
                     _bullet('Selected members receive an email where email is enabled.'),
-                    _bullet('The email should include the fixture sheet.'),
+                    _bullet('The email should include the fixture sheet as a PDF attachment or link, depending on the club email setup.'),
                     _bullet('The fixture sheet shows the fixture details, selected players, positions, reserves, captain details and rink information where entered.'),
                     _subHeading('Monitoring replies and sending reminders'),
                     _p(

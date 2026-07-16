@@ -181,7 +181,7 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Help & User Guide'),
+        title: const Text('User Guide'),
       ),
       body: Stack(
         children: [
@@ -223,7 +223,7 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Bowls App Player Guide',
+                        'Bowls App Player User Guide',
                         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.w800,
                             ),
@@ -259,13 +259,17 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _p(
                       'The Bowls App helps you keep track of matches, club activity, competitions, team selection and green usage.',
                     ),
-                    _subHeading('Registering'),
-                    _bullet('Open the app and choose Register if you are a new user.'),
-                    _bullet('Enter your email address and create a password.'),
-                    _bullet('Follow any confirmation steps if your club has enabled them.'),
+                    _subHeading('Installing the App'),
+                    _bullet('iPhone and iPad users should install the app from the Apple App Store.'),
+                    _bullet('Android users should install the app from the Google Play Store once the Android version has been published by the club.'),
+                    _subHeading('Your Login Details'),
+                    _bullet('Your username is your registered club email address.'),
+                    _bullet('Your initial password will be sent to that registered email address.'),
+                    _bullet('If you cannot find the email, check your Junk or Spam folder.'),
+                    _bullet('If your email address has changed, contact the club so your member record can be updated.'),
                     _subHeading('Logging In'),
-                    _bullet('Enter your email address and password on the login screen.'),
-                    _bullet('After logging in, you will be taken to your home area or dashboard.'),
+                    _bullet('Open the app and enter your registered email address and password.'),
+                    _bullet('After logging in, you will be taken to your dashboard.'),
                     _subHeading('Need Help'),
                     _bullet('Use the Need Help button on the login screen if you want guidance before signing in.'),
                   ],
@@ -338,6 +342,14 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _p(
                       'Fixtures may appear in slightly different ways depending on the type of match and how your club runs selection.',
                     ),
+                    _subHeading('Team fixtures'),
+                    _p(
+                      'For team fixtures, you may see the fixture before the team has been selected. This allows you to declare availability early, giving the fixture captain a clearer view of who can play before selection begins.',
+                    ),
+                    _bullet('Available means you can play and wish to be considered.'),
+                    _bullet('Not available means you cannot play on that date.'),
+                    _bullet('Once the team is published, selected players are asked to accept or decline.'),
+                    _bullet('Selected players should also receive the fixture sheet by email where email is enabled.'),
                     _subHeading('RSVP Stage'),
                     _bullet('Yes means you are available and wish to be considered.'),
                     _bullet('Maybe means you may be available but are not certain.'),
@@ -357,13 +369,14 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                   title: '6. Notifications',
                   children: [
                     _p(
-                      'The app is designed to keep players and captains informed as fixtures move through their life-cycle. Some notification delivery channels are still being completed, but the expected behaviour is set out below.',
+                      'The app is designed to keep players and captains informed as fixtures move through their life-cycle. Important messages may appear as in-app notifications and may also be sent by email to your registered email address.',
                     ),
                     _subHeading('Players may receive notifications when'),
                     _bullet('they are selected for a fixture or team match'),
                     _bullet('they are made a reserve'),
                     _bullet('they are asked to act as a marker or umpire'),
                     _bullet('a fixture is first published'),
+                    _bullet('a fixture sheet is issued by email'),
                     _bullet('a date, time, rink or team arrangement changes'),
                     _bullet('they are promoted from reserve to player'),
                     _subHeading('Captains may receive notifications when'),
