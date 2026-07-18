@@ -11,6 +11,7 @@ import '../clubs/my_clubs_screen.dart';
 import '../../core/utils/date_format.dart';
 
 import 'register_screen.dart';
+import 'forgot_password_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -396,7 +397,9 @@ class _AuthScreenState extends State<AuthScreen> {
         title: Text(
           connectionFailure
               ? 'Unable to connect'
-              : (signingUp ? 'Registration unsuccessful' : 'Sign in unsuccessful'),
+              : (signingUp
+                    ? 'Registration unsuccessful'
+                    : 'Sign in unsuccessful'),
         ),
         content: Text(
           _friendlyAuthMessage(error, signingUp: signingUp),
@@ -456,15 +459,19 @@ class _AuthScreenState extends State<AuthScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _loading = false);
-      await _showAuthFailure(
-        error: e,
-        signingUp: true,
-        retry: _signUp,
-      );
+      await _showAuthFailure(error: e, signingUp: true, retry: _signUp);
       return;
     } finally {
       if (mounted && _loading) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _openForgotPassword() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(initialEmail: _email.text.trim()),
+      ),
+    );
   }
 
   Future<void> _signIn() async {
@@ -476,11 +483,7 @@ class _AuthScreenState extends State<AuthScreen> {
       );
     } catch (e) {
       if (mounted) setState(() => _loading = false);
-      await _showAuthFailure(
-        error: e,
-        signingUp: false,
-        retry: _signIn,
-      );
+      await _showAuthFailure(error: e, signingUp: false, retry: _signIn);
       return;
     } finally {
       if (mounted && _loading) setState(() => _loading = false);
@@ -647,7 +650,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         children: [
                           _buildOverlayField(
                             controller: _email,
-                            hintText: 'Username',
+                            hintText: 'Email address',
                             keyboardType: TextInputType.emailAddress,
                             height: fieldHeight,
                           ),
@@ -693,33 +696,56 @@ class _AuthScreenState extends State<AuthScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 10),
-                          Center(
-                            child: TextButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => const PlayerHelpScreen(
-                                      showAdminGuide: false,
-                                    ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 8,
+                            children: [
+                              TextButton(
+                                onPressed: _loading
+                                    ? null
+                                    : _openForgotPassword,
+                                child: const Text(
+                                  'Forgotten password?',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    shadows: [
+                                      Shadow(
+                                        blurRadius: 4,
+                                        color: Colors.black38,
+                                        offset: Offset(0, 1),
+                                      ),
+                                    ],
                                   ),
-                                );
-                              },
-                              child: const Text(
-                                'Need Help?',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  shadows: [
-                                    Shadow(
-                                      blurRadius: 4,
-                                      color: Colors.black38,
-                                      offset: Offset(0, 1),
-                                    ),
-                                  ],
                                 ),
                               ),
-                            ),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const PlayerHelpScreen(
+                                        showAdminGuide: false,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Text(
+                                  'User Guide',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    shadows: [
+                                      Shadow(
+                                        blurRadius: 4,
+                                        color: Colors.black38,
+                                        offset: Offset(0, 1),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           if (_loading) ...[
                             const SizedBox(height: 12),

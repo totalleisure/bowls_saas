@@ -1568,8 +1568,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         title: Text(widget.clubName),
         actions: [
           IconButton(
-            tooltip: 'Help',
-            icon: const Icon(Icons.help_outline),
+            tooltip: 'User Guide',
+            icon: const Icon(Icons.fiber_manual_record_outlined),
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(

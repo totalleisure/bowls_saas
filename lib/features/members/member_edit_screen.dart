@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../auth/account_security_screen.dart';
+
 class MemberEditScreen extends StatefulWidget {
   final String memberProfileId;
   final Map<String, dynamic> initial;
@@ -69,7 +71,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
   bool _hasUnsavedChanges = false;
 
-  bool get _canEditEmailAndMobile => widget.canManageMembers;
+  bool get _canEditMobile => widget.canManageMembers || widget.isOwnRecord;
 
   bool get _canSeeAdminFields => widget.canManageMembers;
   String? _originalRole;
@@ -202,11 +204,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
         'show_address_in_directory': _showAddressInDirectory,
       };
 
-      if (_canEditEmailAndMobile) {
-        payload['email_address'] = _email.text.trim().isEmpty
-            ? null
-            : _email.text.trim();
-
+      if (_canEditMobile) {
         payload['phone'] = _phone.text.trim().isEmpty
             ? null
             : _phone.text.trim();
@@ -310,6 +308,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     TextEditingController c, {
     TextInputType? type,
     bool enabled = true,
+    bool readOnly = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -317,7 +316,8 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
         controller: c,
         keyboardType: type,
         enabled: enabled,
-        onChanged: (_) => _markDirty(),
+        readOnly: readOnly,
+        onChanged: readOnly ? null : (_) => _markDirty(),
         style: const TextStyle(
           color: Colors.black,
           fontWeight: FontWeight.w500,
@@ -375,6 +375,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     required ValueChanged<bool> onDirectoryChanged,
     TextInputType? type,
     bool enabled = true,
+    bool readOnly = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -382,7 +383,13 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: _field(label, controller, type: type, enabled: enabled),
+            child: _field(
+              label,
+              controller,
+              type: type,
+              enabled: enabled,
+              readOnly: readOnly,
+            ),
           ),
           const SizedBox(width: 8),
           Padding(
@@ -400,6 +407,44 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                 Icon(Icons.groups, size: 18, color: Colors.green.shade700),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openEmailAction() async {
+    if (widget.isOwnRecord) {
+      final changedEmail = await Navigator.of(context).push<String>(
+        MaterialPageRoute(builder: (_) => const AccountSecurityScreen()),
+      );
+
+      if (changedEmail != null && changedEmail.trim().isNotEmpty && mounted) {
+        // AccountSecurityScreen returns the exact email confirmed by Supabase.
+        // Update this controller directly instead of immediately querying the
+        // profile row and risking a stale value during the route transition.
+        setState(() {
+          _email.text = changedEmail.trim();
+        });
+      }
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.security_outlined, size: 44),
+        title: const Text('Assist with email change'),
+        content: const Text(
+          'A member’s login email belongs to their platform account and may '
+          'cover more than one club. Ask the member to open Account and Security '
+          'and use Change login email. If they cannot access their old email, '
+          'the change must be handled through the protected platform recovery process.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
           ),
         ],
       ),
@@ -474,13 +519,15 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Active member'),
                   value: _active,
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() {
-                      _active = value;
-                    });
-                    _markDirty();
-                  },
+                  onChanged: widget.canManageMembers
+                      ? (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _active = value;
+                          });
+                          _markDirty();
+                        }
+                      : null,
                 ),
                 Text(
                   'Basic details',
@@ -505,22 +552,35 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                 const SizedBox(height: 8),
 
                 _fieldWithDirectoryOption(
-                  label: 'Email',
+                  label: 'Login email (read only)',
                   controller: _email,
                   type: TextInputType.emailAddress,
-                  enabled: _canEditEmailAndMobile,
+                  readOnly: true,
                   showInDirectory: _showEmailInDirectory,
                   onDirectoryChanged: (v) {
                     setState(() => _showEmailInDirectory = v);
                     _markDirty();
                   },
                 ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: _openEmailAction,
+                    icon: const Icon(Icons.alternate_email),
+                    label: Text(
+                      widget.isOwnRecord
+                          ? 'Change login email'
+                          : 'Assist with email change',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
 
                 _fieldWithDirectoryOption(
                   label: 'Mobile phone',
                   controller: _phone,
                   type: TextInputType.phone,
-                  enabled: _canEditEmailAndMobile,
+                  enabled: _canEditMobile,
                   showInDirectory: _showMobileInDirectory,
                   onDirectoryChanged: (v) {
                     setState(() => _showMobileInDirectory = v);

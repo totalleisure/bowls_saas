@@ -45,8 +45,22 @@ class _MembersScreenState extends State<MembersScreen> {
       final first = (mp['first_name'] ?? '').toString().toLowerCase();
       final last = (mp['last_name'] ?? '').toString().toLowerCase();
       final displayName = (mp['display_name'] ?? '').toString().toLowerCase();
-      final email = (mp['email_address'] ?? '').toString().toLowerCase();
-      final phone = (mp['phone'] ?? '').toString().toLowerCase();
+      final memberProfileId = row['member_profile_id']?.toString();
+      final isOwnRecord = memberProfileId == _myMemberProfileId;
+      final canSearchEmail =
+          _canManageMembers ||
+          isOwnRecord ||
+          mp['show_email_in_directory'] == true;
+      final canSearchPhone =
+          _canManageMembers ||
+          isOwnRecord ||
+          mp['show_mobile_in_directory'] == true;
+      final email = canSearchEmail
+          ? (mp['email_address'] ?? '').toString().toLowerCase()
+          : '';
+      final phone = canSearchPhone
+          ? (mp['phone'] ?? '').toString().toLowerCase()
+          : '';
       final role = (row['role'] ?? '').toString().toLowerCase();
       final position = (mp['preferred_position'] ?? '')
           .toString()
@@ -168,7 +182,29 @@ class _MembersScreenState extends State<MembersScreen> {
 
       final list = (res as List).cast<Map<String, dynamic>>();
 
+      // For the signed-in member, Auth is the master source for the login
+      // email. Use it immediately in the displayed row so the list never shows
+      // the old profile copy after a successfully confirmed email change.
+      final authEmail = _client.auth.currentUser?.email?.trim() ?? '';
+      if (myProfileId != null && authEmail.isNotEmpty) {
+        for (final row in list) {
+          if (row['member_profile_id']?.toString() != myProfileId) continue;
+
+          final profile =
+              (row['member_profiles'] as Map?)?.cast<String, dynamic>() ??
+              <String, dynamic>{};
+          profile['email_address'] = authEmail;
+          row['member_profiles'] = profile;
+          break;
+        }
+      }
+
       list.sort((a, b) {
+        final aIsMe = a['member_profile_id']?.toString() == myProfileId;
+        final bIsMe = b['member_profile_id']?.toString() == myProfileId;
+
+        if (aIsMe != bIsMe) return aIsMe ? -1 : 1;
+
         final ap =
             (a['member_profiles'] as Map?)?.cast<String, dynamic>() ?? const {};
         final bp =
@@ -409,7 +445,7 @@ class _MembersScreenState extends State<MembersScreen> {
         ? _scrollController.offset
         : 0;
 
-    final updated = await Navigator.push<bool>(
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => MemberEditScreen(
@@ -426,18 +462,19 @@ class _MembersScreenState extends State<MembersScreen> {
       ),
     );
 
-    if (updated == true) {
-      await _load();
+    // MemberEditScreen can launch Account and Security, where the login
+    // email may change outside the ordinary member-profile save action.
+    // Always reload on return so the list cannot retain a stale email value.
+    await _load();
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scrollController.hasClients) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
 
-        final max = _scrollController.position.maxScrollExtent;
-        final target = _savedScrollOffset.clamp(0, max).toDouble();
+      final max = _scrollController.position.maxScrollExtent;
+      final target = _savedScrollOffset.clamp(0, max).toDouble();
 
-        _scrollController.jumpTo(target);
-      });
-    }
+      _scrollController.jumpTo(target);
+    });
   }
 
   Widget _filterChip(String value, String label) {
@@ -598,14 +635,18 @@ class _MembersScreenState extends State<MembersScreen> {
                             final role = (row['role'] ?? 'member').toString();
                             final active = (row['is_active'] ?? true) as bool;
 
+                            final isOwnRecord =
+                                memberProfileId == _myMemberProfileId;
                             final showPhoneFlag =
-                                (mp['show_phone_in_directory'] ?? true) as bool;
+                                mp['show_mobile_in_directory'] == true;
                             final showEmailFlag =
-                                (mp['show_email_in_directory'] ?? true) as bool;
+                                mp['show_email_in_directory'] == true;
 
                             final isAdminViewer = _canManageMembers;
-                            final showPhone = isAdminViewer || showPhoneFlag;
-                            final showEmail = isAdminViewer || showEmailFlag;
+                            final showPhone =
+                                isOwnRecord || isAdminViewer || showPhoneFlag;
+                            final showEmail =
+                                isOwnRecord || isAdminViewer || showEmailFlag;
 
                             final preferredPosition =
                                 (mp['preferred_position'] ?? '')
@@ -622,8 +663,6 @@ class _MembersScreenState extends State<MembersScreen> {
                                     last,
                                   ].where((e) => e.isNotEmpty).join(' ');
 
-                            final isOwnRecord =
-                                memberProfileId == _myMemberProfileId;
                             final canOpenEdit =
                                 _canManageMembers || isOwnRecord;
 
@@ -633,6 +672,7 @@ class _MembersScreenState extends State<MembersScreen> {
                               child: ListTile(
                                 title: Text(
                                   '${name.isEmpty ? '(no name)' : name}'
+                                  '${isOwnRecord ? ' — You' : ''}'
                                   '${preferredPositionLabel == null ? '' : ' (Preferred: $preferredPositionLabel)'}',
                                 ),
                                 subtitle: Column(
@@ -655,9 +695,10 @@ class _MembersScreenState extends State<MembersScreen> {
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if ((mp['sex_at_birth'] ?? '')
-                                        .toString()
-                                        .isEmpty) ...[
+                                    if (_canManageMembers &&
+                                        (mp['sex_at_birth'] ?? '')
+                                            .toString()
+                                            .isEmpty) ...[
                                       SizedBox(
                                         height: 32,
                                         child: FilledButton(

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../auth/account_security_screen.dart';
 import 'member_mailing_lists_screen.dart';
 
 enum MemberOptionsAction {
   membershipDetails,
+  accountSecurity,
   volunteerLists,
 }
 
@@ -31,6 +33,16 @@ Future<void> showMemberOptionsMenu({
               ),
             ),
             ListTile(
+              leading: const Icon(Icons.security_outlined),
+              title: const Text('Account and Security'),
+              subtitle: const Text(
+                'Change your login email or request a password reset',
+              ),
+              onTap: () => Navigator.of(sheetContext).pop(
+                MemberOptionsAction.accountSecurity,
+              ),
+            ),
+            ListTile(
               leading: const Icon(Icons.groups_outlined),
               title: const Text('Volunteer Lists'),
               subtitle: const Text(
@@ -51,6 +63,11 @@ Future<void> showMemberOptionsMenu({
   switch (action) {
     case MemberOptionsAction.membershipDetails:
       await openMembershipDetails();
+      break;
+    case MemberOptionsAction.accountSecurity:
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const AccountSecurityScreen()),
+      );
       break;
     case MemberOptionsAction.volunteerLists:
       await Navigator.of(context).push(
