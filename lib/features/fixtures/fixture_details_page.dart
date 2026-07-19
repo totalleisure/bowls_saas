@@ -20,6 +20,7 @@ import '../../core/widgets/club_member_picker_page.dart';
 import '../../features/fixtures/fixture_rsvp_section.dart';
 import '../../features/clubs/club_access.dart';
 import '../../services/fixture_readiness_service.dart';
+import '../../data/repositories/fixtures_repository.dart';
 
 String _formatLocalDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
@@ -109,6 +110,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   final GlobalKey _rinksSectionKey = GlobalKey();
 
   final _client = Supabase.instance.client;
+  late final FixturesRepository _fixturesRepository;
 
   List<Map<String, dynamic>> _greenAreas = [];
   String? _greenAreaId;
@@ -1842,6 +1844,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   @override
   void initState() {
     super.initState();
+    _fixturesRepository = FixturesRepository(_client);
     _initPage();
   }
 
@@ -1927,10 +1930,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     });
 
     try {
-      await Supabase.instance.client
-          .from('fixtures')
-          .update({'start_at': clubTimeToUtc(newLocal).toIso8601String()})
-          .eq('id', widget.fixtureId);
+      await _fixturesRepository.updateFixtureStartAt(
+        fixtureId: widget.fixtureId,
+        startAtUtc: clubTimeToUtc(newLocal),
+      );
 
       _didChangeFixture = true;
 
@@ -2072,10 +2075,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     setState(() => _loading = true);
 
     try {
-      await _client.rpc(
-        'delete_fixture',
-        params: {'p_fixture_id': widget.fixtureId},
-      );
+      await _fixturesRepository.deleteFixture(widget.fixtureId);
 
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -2318,10 +2318,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final notes = updatedText.trim();
 
     try {
-      await _client
-          .from('fixtures')
-          .update({'notes': notes.isEmpty ? null : notes})
-          .eq('id', widget.fixtureId);
+      await _fixturesRepository.updateFixtureNotes(
+        fixtureId: widget.fixtureId,
+        notes: notes.isEmpty ? null : notes,
+      );
 
       _didChangeFixture = true;
       await _reloadPreservingScroll();

@@ -24,4 +24,31 @@ class FixturesRepository {
 
     return response;
   }
+  Future<void> updateFixtureStartAt({
+    required String fixtureId,
+    required DateTime startAtUtc,
+  }) async {
+    await _client
+        .from('fixtures')
+        .update({'start_at': startAtUtc.toIso8601String()})
+        .eq('id', fixtureId);
+  }
+
+  Future<void> updateFixtureNotes({
+    required String fixtureId,
+    required String? notes,
+  }) async {
+    await _client
+        .from('fixtures')
+        .update({'notes': notes})
+        .eq('id', fixtureId);
+  }
+
+  Future<void> deleteFixture(String fixtureId) async {
+    await _client.rpc(
+      'delete_fixture',
+      params: {'p_fixture_id': fixtureId},
+    );
+  }
+
 }
