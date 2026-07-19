@@ -13,12 +13,10 @@ class DashboardFilterScreen extends StatefulWidget {
   });
 
   @override
-  State<DashboardFilterScreen> createState() =>
-      _DashboardFilterScreenState();
+  State<DashboardFilterScreen> createState() => _DashboardFilterScreenState();
 }
 
-class _DashboardFilterScreenState
-    extends State<DashboardFilterScreen> {
+class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
   late DashboardFixtureFilter _draft;
 
   @override
@@ -38,8 +36,7 @@ class _DashboardFilterScreenState
       final section = (t['section'] ?? '').toString().toLowerCase().trim();
       final isInternal = t['is_internal'] == true;
 
-      if (_draft.sections.isNotEmpty &&
-          !_draft.sections.contains(section)) {
+      if (_draft.sections.isNotEmpty && !_draft.sections.contains(section)) {
         return false;
       }
 
@@ -147,8 +144,7 @@ class _DashboardFilterScreenState
         final name = (t['name'] ?? '').toString();
         final selected = _draft.fixtureTypeIds.contains(id);
 
-        final colourScheme =
-            t['colour_scheme'] as Map<String, dynamic>?;
+        final colourScheme = t['colour_scheme'] as Map<String, dynamic>?;
 
         final bg = _colorFromHex(
           colourScheme?['background_hex']?.toString(),
@@ -196,10 +192,7 @@ class _DashboardFilterScreenState
         label: Text(_changed ? 'Save' : 'Return'),
         icon: Icon(_changed ? Icons.check : Icons.arrow_back),
         onPressed: () {
-          Navigator.pop(
-            context,
-            _changed ? _draft : widget.initialFilter,
-          );
+          Navigator.pop(context, _changed ? _draft : widget.initialFilter);
         },
       ),
 
@@ -347,9 +340,9 @@ class _DashboardFilterScreenState
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600, // 👈 match your tags weight
-                    color: selected ? Colors.red.shade700 : null,
-                  ),
+                fontWeight: FontWeight.w600, // 👈 match your tags weight
+                color: selected ? Colors.red.shade700 : null,
+              ),
             ),
           ),
         ),
@@ -364,10 +357,7 @@ class _DashboardFilterScreenState
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Period',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+            const Text('Period', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Wrap(
               spacing: spacing,
@@ -389,21 +379,13 @@ class _DashboardFilterScreenState
   // SHARED UI
   // --------------------------
 
-  Widget _buildBlock({
-    required String title,
-    required List<Widget> children,
-  }) {
+  Widget _buildBlock({required String title, required List<Widget> children}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: children,
-        ),
+        Wrap(spacing: 8, runSpacing: 8, children: children),
       ],
     );
   }
@@ -428,7 +410,7 @@ class _DashboardFilterScreenState
           .from('competition_types')
           .select(
             'id, name, section, is_internal, tags, '
-            'colour_scheme:fixture_colour_schemes(name, background_hex, foreground_hex)'
+            'colour_scheme:fixture_colour_schemes(name, background_hex, foreground_hex)',
           )
           .eq('club_id', widget.clubId)
           .order('name');
@@ -444,8 +426,11 @@ class _DashboardFilterScreenState
       }
 
       _allTypes = byId.values.toList()
-        ..sort((a, b) =>
-            (a['name'] ?? '').toString().compareTo((b['name'] ?? '').toString()));
+        ..sort(
+          (a, b) => (a['name'] ?? '').toString().compareTo(
+            (b['name'] ?? '').toString(),
+          ),
+        );
     } catch (e) {
       debugPrint('Error loading fixture types: $e');
     }
@@ -456,5 +441,4 @@ class _DashboardFilterScreenState
       });
     }
   }
-
 }

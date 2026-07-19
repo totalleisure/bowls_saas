@@ -1754,7 +1754,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     }
   }
 
-
   Map<String, dynamic>? _assignmentForSelectedMember(String memberProfileId) {
     for (final rinkEntry in _assignmentsByRink.entries) {
       for (final positionEntry in rinkEntry.value.entries) {
@@ -1771,9 +1770,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return null;
   }
 
-  Map<String, dynamic>? _rinkForAssignment(
-    Map<String, dynamic>? assignment,
-  ) {
+  Map<String, dynamic>? _rinkForAssignment(Map<String, dynamic>? assignment) {
     final rinkId = assignment?['fixture_rink_id']?.toString();
     if (rinkId == null || rinkId.isEmpty) return null;
 
@@ -2947,10 +2944,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                     TextButton.icon(
                                       onPressed: () =>
                                           _returnUnallocatedMemberToPool(s),
-                                      icon: const Icon(
-                                        Icons.undo,
-                                        size: 18,
-                                      ),
+                                      icon: const Icon(Icons.undo, size: 18),
                                       label: const Text('Return to pool'),
                                     ),
                                   PopupMenuButton<String>(
@@ -2999,8 +2993,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                           value: 'reserve',
                                           child: Text('Make reserve'),
                                         ),
-                                      if (!isAllocated &&
-                                          _canModifySelection)
+                                      if (!isAllocated && _canModifySelection)
                                         const PopupMenuItem(
                                           value: 'return_to_pool',
                                           child: Text('Return to pool'),

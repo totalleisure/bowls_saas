@@ -34,14 +34,17 @@ class TeamPermissions {
 
     final isActive = cm?['is_active'] == true;
     final role = cm?['role']?.toString(); // enum comes back as string
-    final isAdminOrSelector = isActive && (role == 'admin' || role == 'selector');
+    final isAdminOrSelector =
+        isActive && (role == 'admin' || role == 'selector');
 
     if (isAdminOrSelector) return true;
 
     // 3) Am I captain/vice/manager for THIS team?
     final team = await _client
         .from('teams')
-        .select('captain_member_profile_id, vice_captain_member_profile_id, manager_member_profile_id')
+        .select(
+          'captain_member_profile_id, vice_captain_member_profile_id, manager_member_profile_id',
+        )
         .eq('id', teamId)
         .maybeSingle();
 
@@ -51,6 +54,8 @@ class TeamPermissions {
     final viceId = team['vice_captain_member_profile_id']?.toString();
     final managerId = team['manager_member_profile_id']?.toString();
 
-    return myProfileId == captainId || myProfileId == viceId || myProfileId == managerId;
+    return myProfileId == captainId ||
+        myProfileId == viceId ||
+        myProfileId == managerId;
   }
 }

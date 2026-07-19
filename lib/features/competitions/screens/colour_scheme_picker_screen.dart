@@ -77,25 +77,23 @@ class _ColourSchemePickerScreenState extends State<ColourSchemePickerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final preview =
-        widget.previewText.trim().isEmpty ? 'Example Name' : widget.previewText;
+    final preview = widget.previewText.trim().isEmpty
+        ? 'Example Name'
+        : widget.previewText;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Choose colours'),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : _rows.isEmpty
-                  ? const Center(child: Text('No colour schemes found'))
+          ? Center(child: Text('Error: $_error'))
+          : _rows.isEmpty
+          ? const Center(child: Text('No colour schemes found'))
           : ListView(
               padding: const EdgeInsets.all(12),
               children: [
@@ -111,7 +109,11 @@ class _ColourSchemePickerScreenState extends State<ColourSchemePickerScreen> {
                   Builder(
                     builder: (context) {
                       final sectionRows = _rows
-                          .where((r) => _sectionForSortOrder(r.sortOrder) == sectionName)
+                          .where(
+                            (r) =>
+                                _sectionForSortOrder(r.sortOrder) ==
+                                sectionName,
+                          )
                           .toList();
 
                       if (sectionRows.isEmpty) {
@@ -125,9 +127,8 @@ class _ColourSchemePickerScreenState extends State<ColourSchemePickerScreen> {
                             padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
                             child: Text(
                               sectionName,
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
                             ),
                           ),
                           GridView.builder(
@@ -136,14 +137,15 @@ class _ColourSchemePickerScreenState extends State<ColourSchemePickerScreen> {
                             itemCount: sectionRows.length,
                             gridDelegate:
                                 const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 190,
-                              mainAxisExtent: 104,
-                              mainAxisSpacing: 10,
-                              crossAxisSpacing: 10,
-                            ),
+                                  maxCrossAxisExtent: 190,
+                                  mainAxisExtent: 104,
+                                  mainAxisSpacing: 10,
+                                  crossAxisSpacing: 10,
+                                ),
                             itemBuilder: (context, index) {
                               final row = sectionRows[index];
-                              final selected = row.id == widget.initialSelectedId;
+                              final selected =
+                                  row.id == widget.initialSelectedId;
 
                               return InkWell(
                                 onTap: () => Navigator.of(context).pop(row),
@@ -154,7 +156,9 @@ class _ColourSchemePickerScreenState extends State<ColourSchemePickerScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                     side: BorderSide(
                                       color: selected
-                                          ? Theme.of(context).colorScheme.primary
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.primary
                                           : Colors.black12,
                                       width: selected ? 2 : 1,
                                     ),
@@ -162,7 +166,8 @@ class _ColourSchemePickerScreenState extends State<ColourSchemePickerScreen> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(10),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           row.name,
@@ -195,7 +200,6 @@ class _ColourSchemePickerScreenState extends State<ColourSchemePickerScreen> {
                 ],
               ],
             ),
-                  
     );
   }
 }

@@ -5,21 +5,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ForgotPasswordScreen extends StatefulWidget {
   final String initialEmail;
 
-  const ForgotPasswordScreen({
-    super.key,
-    this.initialEmail = '',
-  });
+  const ForgotPasswordScreen({super.key, this.initialEmail = ''});
 
   @override
-  State<ForgotPasswordScreen> createState() =>
-      _ForgotPasswordScreenState();
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-enum _RecoveryStep {
-  requestCode,
-  verifyCode,
-  choosePassword,
-}
+enum _RecoveryStep { requestCode, verifyCode, choosePassword }
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   late final TextEditingController _email;
@@ -71,7 +63,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           'Please check your internet connection and try again.';
     }
 
-    if (text.contains('rate limit') || text.contains('over_email_send_rate_limit')) {
+    if (text.contains('rate limit') ||
+        text.contains('over_email_send_rate_limit')) {
       return 'A code was requested too recently. Please wait a minute and try again.';
     }
 
@@ -116,9 +109,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyError(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -151,9 +144,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _step = _RecoveryStep.choosePassword);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyError(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyError(error))));
     } finally {
       if (mounted) setState(() => _working = false);
     }

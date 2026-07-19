@@ -14,6 +14,3 @@ class BowlsApp extends StatelessWidget {
     );
   }
 }
-
-
-

@@ -1503,10 +1503,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return _memberLabel(match.first);
   }
 
-  String _selectedMemberOrPrompt(
-    String? memberProfileId,
-    String prompt,
-  ) {
+  String _selectedMemberOrPrompt(String? memberProfileId, String prompt) {
     if (memberProfileId == null || memberProfileId.isEmpty) return prompt;
 
     final match = _clubMembers.where(
@@ -3777,8 +3774,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             controller: _teamNameCtrl,
                             decoration: const InputDecoration(
                               labelText: 'Event name',
-                              hintText:
-                                  'e.g. AGM, Summer Barbecue, Quiz Night',
+                              hintText: 'e.g. AGM, Summer Barbecue, Quiz Night',
                               border: OutlineInputBorder(),
                             ),
                           ),

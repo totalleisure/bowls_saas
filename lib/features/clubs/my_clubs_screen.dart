@@ -113,14 +113,14 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
         .single()
         .timeout(const Duration(seconds: 15));
 
-    final loadedDisplayName =
-        (profile['display_name'] ?? '').toString().trim();
+    final loadedDisplayName = (profile['display_name'] ?? '').toString().trim();
 
     // Clubs via memberships
-    final myId = (await client
-            .rpc('my_member_profile_id')
-            .timeout(const Duration(seconds: 15)))
-        .toString();
+    final myId =
+        (await client
+                .rpc('my_member_profile_id')
+                .timeout(const Duration(seconds: 15)))
+            .toString();
 
     final memberships = await client
         .from('club_memberships')
@@ -134,9 +134,7 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
     final loadedClubs = memberships
         .where((m) => m['clubs'] is Map<String, dynamic>)
         .map<Map<String, dynamic>>(
-          (m) => Map<String, dynamic>.from(
-            m['clubs'] as Map<String, dynamic>,
-          ),
+          (m) => Map<String, dynamic>.from(m['clubs'] as Map<String, dynamic>),
         )
         .toList();
 
@@ -175,9 +173,7 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
         failure = e;
         failureStack = stackTrace;
 
-        debugPrint(
-          'MyClubsScreen load attempt ${attempt + 1} failed: $e',
-        );
+        debugPrint('MyClubsScreen load attempt ${attempt + 1} failed: $e');
         debugPrintStack(stackTrace: stackTrace);
 
         final canRetry =

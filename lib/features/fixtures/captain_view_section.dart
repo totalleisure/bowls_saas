@@ -49,9 +49,10 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
     try {
       final fixtureId = widget.fixture['id'] as String;
       final clubId = widget.fixture['club_id'] as String;
-      
+
       final captainId = widget.fixture['captain_member_profile_id'] as String?;
-      final viceCaptainId = widget.fixture['vice_captain_member_profile_id'] as String?;
+      final viceCaptainId =
+          widget.fixture['vice_captain_member_profile_id'] as String?;
 
       final myId = await _getMyProfileId();
       _myProfileId = myId;
@@ -67,17 +68,18 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
           .eq('member_profile_id', myId)
           .eq('is_active', true);
 
-      final isAdmin = List<Map<String, dynamic>>.from(adminRows)
-          .any((r) => (r['role']?.toString() ?? '') == 'admin');
+      final isAdmin = List<Map<String, dynamic>>.from(
+        adminRows,
+      ).any((r) => (r['role']?.toString() ?? '') == 'admin');
 
       // superuser?
       final userId = Supabase.instance.client.auth.currentUser?.id;
       final superRows = userId == null
           ? <dynamic>[]
           : await Supabase.instance.client
-              .from('app_superusers')
-              .select('user_id')
-              .eq('user_id', userId);
+                .from('app_superusers')
+                .select('user_id')
+                .eq('user_id', userId);
 
       final isSuper = (superRows as List).isNotEmpty;
 
@@ -101,7 +103,7 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
         return;
       }
 
-/*       // 1) Load RSVPs for this fixture
+      /*       // 1) Load RSVPs for this fixture
       final rsvpRows = await Supabase.instance.client
           .from('fixture_rsvps')
           .select('status, responded_at, member_profiles(display_name)')
@@ -122,7 +124,7 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
       // Build a set of member_profile_ids who responded
 
       final respondedIds = <String>{};
-/*
+      /*
       for (final r in rsvps) {
         // r has member_profiles but not member_profile_id; we need it.
         // Easiest: fetch member_profile_id as well in RSVP query.
@@ -132,7 +134,9 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
       // Re-load RSVPs including member_profile_id (fix above)
       final rsvpRows2 = await Supabase.instance.client
           .from('fixture_rsvps')
-          .select('member_profile_id, status, responded_at, member_profiles(display_name)')
+          .select(
+            'member_profile_id, status, responded_at, member_profiles(display_name)',
+          )
           .eq('fixture_id', fixtureId);
 
       final rsvps2 = List<Map<String, dynamic>>.from(rsvpRows2);
@@ -260,7 +264,9 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
                 },
                 title: Text('No response yet (${_noResponse.length})'),
                 children: _noResponse.map((r) {
-                  final name = (r['member_profiles']?['display_name'] as String?) ?? '(no name)';
+                  final name =
+                      (r['member_profiles']?['display_name'] as String?) ??
+                      '(no name)';
                   return ListTile(
                     dense: true,
                     visualDensity: VisualDensity.compact,
@@ -276,5 +282,3 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
     );
   }
 }
-
-

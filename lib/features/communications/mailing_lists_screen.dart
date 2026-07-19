@@ -141,9 +141,7 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
     );
   }
 
-  Future<void> _showListDialog({
-    Map<String, dynamic>? existing,
-  }) async {
+  Future<void> _showListDialog({Map<String, dynamic>? existing}) async {
     final isEditing = existing != null;
 
     final nameController = TextEditingController(
@@ -154,8 +152,7 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
     );
 
     bool isActive = existing?['is_active'] == true || !isEditing;
-    bool allowSelfSubscription =
-        existing?['allow_self_subscription'] == true;
+    bool allowSelfSubscription = existing?['allow_self_subscription'] == true;
     bool dialogSaving = false;
     String? dialogError;
 
@@ -198,9 +195,7 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
                       .update(values)
                       .eq('id', existing['id']);
                 } else {
-                  await Supabase.instance.client
-                      .from('mailing_lists')
-                      .insert({
+                  await Supabase.instance.client.from('mailing_lists').insert({
                     'club_id': widget.clubId,
                     ...values,
                   });
@@ -223,9 +218,7 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
             }
 
             return AlertDialog(
-              title: Text(
-                isEditing ? 'Edit Mailing List' : 'New Mailing List',
-              ),
+              title: Text(isEditing ? 'Edit Mailing List' : 'New Mailing List'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -288,8 +281,7 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
                               });
                             },
                     ),
-                    if ((existing?['system_key']?.toString() ?? '')
-                        .isNotEmpty)
+                    if ((existing?['system_key']?.toString() ?? '').isNotEmpty)
                       const Padding(
                         padding: EdgeInsets.only(top: 8),
                         child: Align(
@@ -362,8 +354,8 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
                   !isActive
                       ? 'This list is inactive'
                       : activeMemberCount == 0
-                          ? 'Add members before sending'
-                          : 'Send an app message, email, or both',
+                      ? 'Add members before sending'
+                      : 'Send an app message, email, or both',
                 ),
                 onTap: canSend
                     ? () => Navigator.of(context).pop('message')
@@ -424,9 +416,9 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
                         child: Text(
                           _error!,
                           style: TextStyle(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onErrorContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onErrorContainer,
                           ),
                         ),
                       ),
@@ -466,10 +458,9 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
                               if (list['is_active'] != true) 'Inactive',
                             ].join('\n'),
                           ),
-                          isThreeLine:
-                              (list['description']?.toString() ?? '')
-                                  .trim()
-                                  .isNotEmpty,
+                          isThreeLine: (list['description']?.toString() ?? '')
+                              .trim()
+                              .isNotEmpty,
                           trailing: IconButton(
                             tooltip: 'List options',
                             onPressed: () => _showActions(list),

@@ -7,12 +7,17 @@ import 'package:share_plus/share_plus.dart';
 
 import 'open_file_helpers.dart';
 
-Future<File> _writePdfToDownloads(Uint8List bytes, {required String filename}) async {
+Future<File> _writePdfToDownloads(
+  Uint8List bytes, {
+  required String filename,
+}) async {
   // On Windows this usually resolves to the user's Downloads folder
-  final baseDir = await getDownloadsDirectory()
-      ?? await getApplicationDocumentsDirectory();
+  final baseDir =
+      await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
 
-  final outDir = Directory('${baseDir.path}${Platform.pathSeparator}Bowls Team Sheets');
+  final outDir = Directory(
+    '${baseDir.path}${Platform.pathSeparator}Bowls Team Sheets',
+  );
   if (!await outDir.exists()) {
     await outDir.create(recursive: true);
   }
@@ -34,7 +39,10 @@ Future<String> shareTeamSheetPdf(
   if (Platform.isWindows) {
     file = await _writePdfToDownloads(pdfBytes, filename: filename);
   } else {
-    file = await _writeTempPdf(pdfBytes, filename: filename); // <-- use temp on Android/iOS
+    file = await _writeTempPdf(
+      pdfBytes,
+      filename: filename,
+    ); // <-- use temp on Android/iOS
   }
 
   final len = await file.length();
@@ -47,9 +55,7 @@ Future<String> shareTeamSheetPdf(
 
   final xfile = XFile(file.path, mimeType: 'application/pdf', name: filename);
 
-  await SharePlus.instance.share(
-    ShareParams(text: message, files: [xfile]),
-  );
+  await SharePlus.instance.share(ShareParams(text: message, files: [xfile]));
 
   return file.path;
 }
@@ -57,7 +63,9 @@ Future<String> shareTeamSheetPdf(
 Future<void> revealFileInExplorer(String filePath) async {
   if (Platform.isWindows) {
     // Note: "/select," must be part of the same argument
-    await Process.run('explorer.exe', ['/select,${filePath.replaceAll('/', r'\')}']);
+    await Process.run('explorer.exe', [
+      '/select,${filePath.replaceAll('/', r'\')}',
+    ]);
     return;
   }
 

@@ -139,7 +139,7 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
     final selectionId = selection?['id']?.toString();
 
     if (selectionId == null || selectionId.isEmpty) {
-    return;
+      return;
     }
 
     _teamSelectionId = selectionId;
@@ -251,7 +251,9 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Message sent to ${recipients.length} recipient(s).')),
+        SnackBar(
+          content: Text('Message sent to ${recipients.length} recipient(s).'),
+        ),
       );
       Navigator.pop(context);
     } catch (e) {
@@ -268,85 +270,85 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
     final selectedCount = _selectedRecipients.length;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Send Fixture Message'),
-      ),
+      appBar: AppBar(title: const Text('Send Fixture Message')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null && _fixture == null
-              ? Center(child: Text(_error!))
-              : ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    if (_error != null) ...[
-                      Text(
-                        _error!,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    TextField(
-                      controller: _titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Title',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _messageController,
-                      maxLines: 5,
-                      decoration: const InputDecoration(
-                        labelText: 'Message',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Send to',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    CheckboxListTile(
-                      value: _includePlayers,
-                      title: const Text('Players'),
-                      onChanged: (v) => setState(() => _includePlayers = v ?? false),
-                    ),
-                    CheckboxListTile(
-                      value: _includeReserves,
-                      title: const Text('Reserves'),
-                      onChanged: (v) => setState(() => _includeReserves = v ?? false),
-                    ),
-                    CheckboxListTile(
-                      value: _includeOpponents,
-                      title: const Text('Opponents'),
-                      onChanged: (v) => setState(() => _includeOpponents = v ?? false),
-                    ),
-                    CheckboxListTile(
-                      value: _includeMarkers,
-                      title: const Text('Markers'),
-                      onChanged: (v) => setState(() => _includeMarkers = v ?? false),
-                    ),
-                    CheckboxListTile(
-                      value: _includeCaptainVice,
-                      title: const Text('Captain / Vice-Captain'),
-                      onChanged: (v) => setState(() => _includeCaptainVice = v ?? false),
-                    ),
-                    const SizedBox(height: 12),
-                    Text('Recipients selected: $selectedCount'),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      icon: _sending
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send),
-                      label: const Text('Send Message'),
-                      onPressed: _sending ? null : _send,
-                    ),
-                  ],
+          ? Center(child: Text(_error!))
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (_error != null) ...[
+                  Text(_error!, style: const TextStyle(color: Colors.red)),
+                  const SizedBox(height: 12),
+                ],
+                TextField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _messageController,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Message',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Send to',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                CheckboxListTile(
+                  value: _includePlayers,
+                  title: const Text('Players'),
+                  onChanged: (v) =>
+                      setState(() => _includePlayers = v ?? false),
+                ),
+                CheckboxListTile(
+                  value: _includeReserves,
+                  title: const Text('Reserves'),
+                  onChanged: (v) =>
+                      setState(() => _includeReserves = v ?? false),
+                ),
+                CheckboxListTile(
+                  value: _includeOpponents,
+                  title: const Text('Opponents'),
+                  onChanged: (v) =>
+                      setState(() => _includeOpponents = v ?? false),
+                ),
+                CheckboxListTile(
+                  value: _includeMarkers,
+                  title: const Text('Markers'),
+                  onChanged: (v) =>
+                      setState(() => _includeMarkers = v ?? false),
+                ),
+                CheckboxListTile(
+                  value: _includeCaptainVice,
+                  title: const Text('Captain / Vice-Captain'),
+                  onChanged: (v) =>
+                      setState(() => _includeCaptainVice = v ?? false),
+                ),
+                const SizedBox(height: 12),
+                Text('Recipients selected: $selectedCount'),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  icon: _sending
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send),
+                  label: const Text('Send Message'),
+                  onPressed: _sending ? null : _send,
+                ),
+              ],
+            ),
     );
   }
 }

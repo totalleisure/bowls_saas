@@ -59,18 +59,11 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
   }
 
   Future<void> _init() async {
-    await Future.wait([
-      _loadTeamDetails(),
-      _loadPool(),
-      _loadCanEdit(),
-    ]);
+    await Future.wait([_loadTeamDetails(), _loadPool(), _loadCanEdit()]);
   }
 
   Future<void> _refreshAll() async {
-    await Future.wait([
-      _loadTeamDetails(),
-      _loadPool(),
-    ]);
+    await Future.wait([_loadTeamDetails(), _loadPool()]);
   }
 
   Future<void> _loadCanEdit() async {
@@ -103,10 +96,7 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
     final ln = _clean(mp['last_name']?.toString());
     final preferred = _clean(mp['preferred_position']?.toString());
 
-    final name = [
-      if (ln.isNotEmpty) ln,
-      if (fn.isNotEmpty) fn,
-    ].join(', ');
+    final name = [if (ln.isNotEmpty) ln, if (fn.isNotEmpty) fn].join(', ');
 
     final safeName = name.isEmpty ? '(No name)' : name;
     return preferred.isEmpty ? safeName : '$safeName ($preferred)';
@@ -251,22 +241,25 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
     setState(() => _savingTeam = true);
 
     try {
-      await _client.from('teams').update({
-        'name': _teamNameController.text.trim(),
-        'section': _section,
-        'manager_member_profile_id': _managerMemberProfileId,
-        'captain_member_profile_id': _captainMemberProfileId,
-        'vice_captain_member_profile_id': _viceCaptainMemberProfileId,
-        'description': _descriptionController.text.trim().isEmpty
-            ? null
-            : _descriptionController.text.trim(),
-      }).eq('id', widget.teamId);
+      await _client
+          .from('teams')
+          .update({
+            'name': _teamNameController.text.trim(),
+            'section': _section,
+            'manager_member_profile_id': _managerMemberProfileId,
+            'captain_member_profile_id': _captainMemberProfileId,
+            'vice_captain_member_profile_id': _viceCaptainMemberProfileId,
+            'description': _descriptionController.text.trim().isEmpty
+                ? null
+                : _descriptionController.text.trim(),
+          })
+          .eq('id', widget.teamId);
 
       if (!mounted) return;
       setState(() => _savingTeam = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Team details saved')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Team details saved')));
       await _loadTeamDetails();
     } catch (e) {
       if (!mounted) return;
@@ -281,17 +274,21 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
     try {
       await _client
           .from('team_members')
-          .update({'is_active': isActive}).eq('id', teamMemberId);
+          .update({'is_active': isActive})
+          .eq('id', teamMemberId);
       await _loadPool();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
     }
   }
 
-  Future<void> _pickTeamRole({required String title, required String role}) async {
+  Future<void> _pickTeamRole({
+    required String title,
+    required String role,
+  }) async {
     final selectedIds = await Navigator.of(context).push<List<String>?>(
       MaterialPageRoute(
         builder: (_) => ClubMemberPickerPage(
@@ -341,7 +338,8 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
       MaterialPageRoute(
         builder: (_) => ClubMemberPickerPage(
           clubId: widget.clubId,
-          title: 'Add players to ${_teamNameController.text.trim().isEmpty ? widget.teamName : _teamNameController.text.trim()}',
+          title:
+              'Add players to ${_teamNameController.text.trim().isEmpty ? widget.teamName : _teamNameController.text.trim()}',
           teamId: null,
           fixtureId: null,
           useFixtureSection: false,
@@ -371,9 +369,9 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to add players: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to add players: $e')));
     }
   }
 
@@ -417,9 +415,9 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
           children: [
             Text(
               'Team details',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -456,7 +454,8 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
             _buildRolePicker(
               label: 'Manager',
               value: _managerName,
-              onPick: () => _pickTeamRole(title: 'Select Manager', role: 'manager'),
+              onPick: () =>
+                  _pickTeamRole(title: 'Select Manager', role: 'manager'),
               onClear: () => setState(() {
                 _managerMemberProfileId = null;
                 _managerName = '';
@@ -466,7 +465,8 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
             _buildRolePicker(
               label: 'Captain',
               value: _captainName,
-              onPick: () => _pickTeamRole(title: 'Select Captain', role: 'captain'),
+              onPick: () =>
+                  _pickTeamRole(title: 'Select Captain', role: 'captain'),
               onClear: () => setState(() {
                 _captainMemberProfileId = null;
                 _captainName = '';
@@ -476,7 +476,8 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
             _buildRolePicker(
               label: 'Vice Captain',
               value: _viceCaptainName,
-              onPick: () => _pickTeamRole(title: 'Select Vice Captain', role: 'vice'),
+              onPick: () =>
+                  _pickTeamRole(title: 'Select Vice Captain', role: 'vice'),
               onClear: () => setState(() {
                 _viceCaptainMemberProfileId = null;
                 _viceCaptainName = '';
@@ -524,9 +525,9 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
           Expanded(
             child: Text(
               'Team members / pool ($visibleCount)',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           Text(_sectionLabel(_section)),
@@ -543,7 +544,9 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Team — ${_teamNameController.text.trim().isEmpty ? widget.teamName : _teamNameController.text.trim()}'),
+        title: Text(
+          'Team — ${_teamNameController.text.trim().isEmpty ? widget.teamName : _teamNameController.text.trim()}',
+        ),
         actions: [
           PopupMenuButton<String>(
             onSelected: (v) {
@@ -564,95 +567,99 @@ class _TeamPoolScreenState extends State<TeamPoolScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    Text('Error:\n$_error'),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _refreshAll,
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                )
-              : RefreshIndicator(
-                  onRefresh: _refreshAll,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 88),
-                    itemCount: visibleRows.isEmpty ? 3 : visibleRows.length + 2,
-                    separatorBuilder: (_, i) {
-                      if (i < 2) return const SizedBox.shrink();
-                      return const Divider(height: 1);
-                    },
-                    itemBuilder: (context, i) {
-                      if (i == 0) {
-                        return Column(
-                          children: [
-                            if (!_checkingPerms && !_canEdit)
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                                child: Material(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Text(
-                                      'Read-only: only club Admin/Selector or this team’s Captain/Vice/Manager can edit this team.',
-                                      style: Theme.of(context).textTheme.bodyMedium,
-                                    ),
-                                  ),
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text('Error:\n$_error'),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: _refreshAll,
+                  child: const Text('Retry'),
+                ),
+              ],
+            )
+          : RefreshIndicator(
+              onRefresh: _refreshAll,
+              child: ListView.separated(
+                padding: const EdgeInsets.only(bottom: 88),
+                itemCount: visibleRows.isEmpty ? 3 : visibleRows.length + 2,
+                separatorBuilder: (_, i) {
+                  if (i < 2) return const SizedBox.shrink();
+                  return const Divider(height: 1);
+                },
+                itemBuilder: (context, i) {
+                  if (i == 0) {
+                    return Column(
+                      children: [
+                        if (!_checkingPerms && !_canEdit)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                            child: Material(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  'Read-only: only club Admin/Selector or this team’s Captain/Vice/Manager can edit this team.',
+                                  style: Theme.of(context).textTheme.bodyMedium,
                                 ),
                               ),
-                            _buildTeamDetailsCard(),
-                          ],
-                        );
-                      }
+                            ),
+                          ),
+                        _buildTeamDetailsCard(),
+                      ],
+                    );
+                  }
 
-                      if (i == 1) return _buildPoolHeader(visibleRows.length);
+                  if (i == 1) return _buildPoolHeader(visibleRows.length);
 
-                      if (i == 2 && visibleRows.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text('No team members in this pool yet.'),
-                        );
-                      }
+                  if (i == 2 && visibleRows.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('No team members in this pool yet.'),
+                    );
+                  }
 
-                      final rowIndex = i - 2;
-                      if (rowIndex < 0 || rowIndex >= visibleRows.length) {
-                        return const SizedBox.shrink();
-                      }
+                  final rowIndex = i - 2;
+                  if (rowIndex < 0 || rowIndex >= visibleRows.length) {
+                    return const SizedBox.shrink();
+                  }
 
-                      final row = visibleRows[rowIndex];
-                      final mp = row['member_profiles'] as Map<String, dynamic>?;
-                      final name = _memberDisplayName(mp);
+                  final row = visibleRows[rowIndex];
+                  final mp = row['member_profiles'] as Map<String, dynamic>?;
+                  final name = _memberDisplayName(mp);
 
-                      final phone = (mp?['phone'] ?? '').toString();
-                      final email = (mp?['email_address'] ?? '').toString();
-                      final isActive = row['is_active'] == true;
+                  final phone = (mp?['phone'] ?? '').toString();
+                  final email = (mp?['email_address'] ?? '').toString();
+                  final isActive = row['is_active'] == true;
 
-                      return ListTile(
-                        title: Text(name),
-                        subtitle: Text([
-                          if (phone.isNotEmpty) phone,
-                          if (email.isNotEmpty) email,
-                          if (!isActive) 'INACTIVE',
-                        ].join(' • ')),
-                        trailing: !_canEdit
-                            ? null
-                            : isActive
-                                ? TextButton.icon(
-                                    onPressed: () => _setActive(row['id'].toString(), false),
-                                    icon: const Icon(Icons.remove_circle_outline),
-                                    label: const Text('Remove'),
-                                  )
-                                : TextButton.icon(
-                                    onPressed: () => _setActive(row['id'].toString(), true),
-                                    icon: const Icon(Icons.restore),
-                                    label: const Text('Reactivate'),
-                                  ),
-                      );
-                    },
-                  ),
-                ),
+                  return ListTile(
+                    title: Text(name),
+                    subtitle: Text(
+                      [
+                        if (phone.isNotEmpty) phone,
+                        if (email.isNotEmpty) email,
+                        if (!isActive) 'INACTIVE',
+                      ].join(' • '),
+                    ),
+                    trailing: !_canEdit
+                        ? null
+                        : isActive
+                        ? TextButton.icon(
+                            onPressed: () =>
+                                _setActive(row['id'].toString(), false),
+                            icon: const Icon(Icons.remove_circle_outline),
+                            label: const Text('Remove'),
+                          )
+                        : TextButton.icon(
+                            onPressed: () =>
+                                _setActive(row['id'].toString(), true),
+                            icon: const Icon(Icons.restore),
+                            label: const Text('Reactivate'),
+                          ),
+                  );
+                },
+              ),
+            ),
       floatingActionButton: (_canEdit && !_checkingPerms)
           ? FloatingActionButton.extended(
               onPressed: _openAddPlayers,

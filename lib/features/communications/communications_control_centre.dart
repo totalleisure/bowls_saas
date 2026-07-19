@@ -7,10 +7,7 @@ import '../../services/fixture_readiness_service.dart';
 import '../fixtures/fixture_details_page.dart';
 
 class CommunicationsControlCentreScreen extends StatefulWidget {
-  const CommunicationsControlCentreScreen({
-    super.key,
-    required this.clubId,
-  });
+  const CommunicationsControlCentreScreen({super.key, required this.clubId});
 
   final String clubId;
 
@@ -194,9 +191,7 @@ class _CommunicationsControlCentreScreenState
         throw Exception('The selected fixture is missing publication details.');
       }
 
-      final service = FixtureCommunicationsService(
-        Supabase.instance.client,
-      );
+      final service = FixtureCommunicationsService(Supabase.instance.client);
       final result = await service.repairPublicationCommunications(
         fixture: fixture,
         teamSelectionId: teamSelectionId,
@@ -229,9 +224,7 @@ class _CommunicationsControlCentreScreenState
 
     if (!_isSelectedPublished || fixture == null || teamSelectionId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Select a published fixture first.'),
-        ),
+        const SnackBar(content: Text('Select a published fixture first.')),
       );
       return;
     }
@@ -247,9 +240,7 @@ class _CommunicationsControlCentreScreenState
     setState(() => _busyRebuildTeamSheets = true);
 
     try {
-      final service = FixtureCommunicationsService(
-        Supabase.instance.client,
-      );
+      final service = FixtureCommunicationsService(Supabase.instance.client);
       final attached = await service.rebuildTeamSheetAttachment(
         fixture: fixture,
         teamSelectionId: teamSelectionId,
@@ -257,21 +248,18 @@ class _CommunicationsControlCentreScreenState
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Team sheet attached to $attached email(s).'),
-        ),
+        SnackBar(content: Text('Team sheet attached to $attached email(s).')),
       );
       await _refreshSelectedFixture();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Rebuild team sheets failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Rebuild team sheets failed: $e')));
     } finally {
       if (mounted) setState(() => _busyRebuildTeamSheets = false);
     }
   }
-
 
   Map<String, dynamic>? _healthRow(String item) {
     final wanted = item.trim().toLowerCase();
@@ -428,15 +416,15 @@ class _CommunicationsControlCentreScreenState
         params: {'p_limit': 200},
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Messages prepared.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Messages prepared.')));
       await _refreshSelectedFixture();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Preparation failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Preparation failed: $e')));
     } finally {
       if (mounted) setState(() => _busyContinuePreparation = false);
     }
@@ -456,14 +444,13 @@ class _CommunicationsControlCentreScreenState
       await _refreshSelectedFixture();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Email sending failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Email sending failed: $e')));
     } finally {
       if (mounted) setState(() => _busySendEmails = false);
     }
   }
-
 
   Future<void> _retryFailedEmails() async {
     final fixtureId = _selectedFixtureId;
@@ -493,15 +480,15 @@ class _CommunicationsControlCentreScreenState
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed emails retried.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed emails retried.')));
       await _refreshSelectedFixture();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Retry failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Retry failed: $e')));
     } finally {
       if (mounted) setState(() => _busyRetryFailedEmails = false);
     }
@@ -531,14 +518,16 @@ class _CommunicationsControlCentreScreenState
     return '$dd/$mm/$yyyy $hh:$min';
   }
 
-  bool get _fixtureNeedsCorrection =>
-      _readiness?.nextAction == 'open_fixture';
+  bool get _fixtureNeedsCorrection => _readiness?.nextAction == 'open_fixture';
 
   bool get _isSelectedPublished => _selectedSelectionStatus == 'published';
 
   int get _checkCount => _healthRows
-      .where((row) => _displayStateForRow(row) == 'attention' ||
-          _displayStateForRow(row) == 'failed')
+      .where(
+        (row) =>
+            _displayStateForRow(row) == 'attention' ||
+            _displayStateForRow(row) == 'failed',
+      )
       .length;
 
   String _overallHealthText() => _nextStepTitle;
@@ -647,7 +636,9 @@ class _CommunicationsControlCentreScreenState
                         Text(_nextStepInstruction),
                         if (_readiness?.blockingIssues.isNotEmpty == true) ...[
                           const SizedBox(height: 8),
-                          for (final issue in _readiness!.blockingIssues.take(4))
+                          for (final issue in _readiness!.blockingIssues.take(
+                            4,
+                          ))
                             Padding(
                               padding: const EdgeInsets.only(bottom: 3),
                               child: Row(
@@ -679,7 +670,8 @@ class _CommunicationsControlCentreScreenState
   }
 
   Widget _buildMaintenanceCard() {
-    final busy = _busyRepair ||
+    final busy =
+        _busyRepair ||
         _busyRebuildTeamSheets ||
         _busyContinuePreparation ||
         _busySendEmails ||
@@ -731,9 +723,7 @@ class _CommunicationsControlCentreScreenState
                 )
               : const Icon(Icons.picture_as_pdf),
           label: Text(
-            _busyRebuildTeamSheets
-                ? 'Preparing...' 
-                : 'Prepare Team Sheets',
+            _busyRebuildTeamSheets ? 'Preparing...' : 'Prepare Team Sheets',
           ),
         );
         break;
@@ -964,9 +954,10 @@ class _CommunicationsControlCentreScreenState
               DataColumn(label: Text('PDF')),
             ],
             rows: _detailRows.map((row) {
-              final emailStatus =
-                  (row['email_status']?.toString() ?? 'Missing').toLowerCase();
-              final appStatus = row['app_notification']?.toString() ?? 'Missing';
+              final emailStatus = (row['email_status']?.toString() ?? 'Missing')
+                  .toLowerCase();
+              final appStatus =
+                  row['app_notification']?.toString() ?? 'Missing';
               final sheetStatus = row['team_sheet']?.toString() ?? 'Missing';
 
               final appOk = appStatus == 'Created';
@@ -980,18 +971,18 @@ class _CommunicationsControlCentreScreenState
               final overallIcon = failed
                   ? Icons.error
                   : (!appOk || !sheetOk)
-                      ? Icons.warning_amber_rounded
-                      : pending
-                          ? Icons.schedule
-                          : Icons.check_circle;
+                  ? Icons.warning_amber_rounded
+                  : pending
+                  ? Icons.schedule
+                  : Icons.check_circle;
 
               final overallColor = failed
                   ? Colors.red
                   : (!appOk || !sheetOk)
-                      ? Colors.orange
-                      : pending
-                          ? Colors.blue
-                          : Colors.green;
+                  ? Colors.orange
+                  : pending
+                  ? Colors.blue
+                  : Colors.green;
 
               return DataRow(
                 cells: [
@@ -1024,7 +1015,6 @@ class _CommunicationsControlCentreScreenState
       ],
     );
   }
-
 
   Widget _recipientEmailState(
     String status, {

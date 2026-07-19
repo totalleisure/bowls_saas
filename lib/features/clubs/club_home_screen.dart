@@ -217,9 +217,7 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const QueueAdminScreen(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const QueueAdminScreen()),
                   );
                 },
               ),
@@ -228,7 +226,9 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
               child: ListTile(
                 leading: const Icon(Icons.support_agent),
                 title: const Text('Communications Control Centre'),
-                subtitle: const Text('Monitor and repair fixture communications'),
+                subtitle: const Text(
+                  'Monitor and repair fixture communications',
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.of(context).push(

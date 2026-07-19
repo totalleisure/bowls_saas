@@ -4,10 +4,7 @@ import 'admin_help_screen.dart';
 class PlayerHelpScreen extends StatefulWidget {
   final bool showAdminGuide;
 
-  const PlayerHelpScreen({
-    super.key,
-    this.showAdminGuide = false,
-  });
+  const PlayerHelpScreen({super.key, this.showAdminGuide = false});
 
   @override
   State<PlayerHelpScreen> createState() => _PlayerHelpScreenState();
@@ -51,7 +48,7 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
       return 'assets/images/blank_bg_phone_2.png';
     }
   }
-  
+
   Widget _buildSection({
     required GlobalKey key,
     required String title,
@@ -72,9 +69,9 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
         children: [
           Text(
             title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 12),
           ...children,
@@ -118,8 +115,9 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
           Expanded(
             child: Text(
               text,
-              style:
-                  Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.4),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(height: 1.4),
             ),
           ),
         ],
@@ -147,8 +145,8 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                 child: Text(
                   label,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               const Icon(Icons.chevron_right),
@@ -164,9 +162,9 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
       padding: const EdgeInsets.only(top: 12, bottom: 8),
       child: Text(
         text,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -180,9 +178,7 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('User Guide'),
-      ),
+      appBar: AppBar(title: const Text('User Guide')),
       body: Stack(
         children: [
           Positioned.fill(
@@ -194,9 +190,7 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
             ),
           ),
           Positioned.fill(
-            child: Container(
-              color: Colors.white.withOpacity(0.65),
-            ),
+            child: Container(color: Colors.white.withOpacity(0.65)),
           ),
           SingleChildScrollView(
             controller: _scrollController,
@@ -224,9 +218,8 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     children: [
                       Text(
                         'Bowls App Player User Guide',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 10),
                       _p(
@@ -235,18 +228,30 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                       const SizedBox(height: 8),
                       _topicButton('1. Getting Started', _gettingStartedKey),
                       _topicButton('2. What the App Does', _whatAppDoesKey),
-                      _topicButton('3. Dashboard Overview', _dashboardOverviewKey),
-                      _topicButton('4. Your Journey as a Player', _playerJourneyKey),
-                      _topicButton('5. Fixtures and Match Interaction', _fixturesKey),
+                      _topicButton(
+                        '3. Dashboard Overview',
+                        _dashboardOverviewKey,
+                      ),
+                      _topicButton(
+                        '4. Your Journey as a Player',
+                        _playerJourneyKey,
+                      ),
+                      _topicButton(
+                        '5. Fixtures and Match Interaction',
+                        _fixturesKey,
+                      ),
                       _topicButton('6. Notifications', _notificationsKey),
-                      _topicButton('7. Internal Match Fixtures', _internalFixturesKey),
+                      _topicButton(
+                        '7. Internal Match Fixtures',
+                        _internalFixturesKey,
+                      ),
                       _topicButton('8. Fixture Sheets', _fixtureSheetsKey),
                       _topicButton('9. Common Questions', _commonQuestionsKey),
                       if (widget.showAdminGuide)
                         _topicButton(
                           '10. Club Admin & Selector Guide',
                           _adminGuideKey,
-                        ),                      
+                        ),
                     ],
                   ),
                 ),
@@ -260,18 +265,36 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                       'The Bowls App helps you keep track of matches, club activity, competitions, team selection and green usage.',
                     ),
                     _subHeading('Installing the App'),
-                    _bullet('iPhone and iPad users should install the app from the Apple App Store.'),
-                    _bullet('Android users should install the app from the Google Play Store once the Android version has been published by the club.'),
+                    _bullet(
+                      'iPhone and iPad users should install the app from the Apple App Store.',
+                    ),
+                    _bullet(
+                      'Android users should install the app from the Google Play Store once the Android version has been published by the club.',
+                    ),
                     _subHeading('Your Login Details'),
-                    _bullet('Your username is your registered club email address.'),
-                    _bullet('Your initial password will be sent to that registered email address.'),
-                    _bullet('If you cannot find the email, check your Junk or Spam folder.'),
-                    _bullet('If your email address has changed, contact the club so your member record can be updated.'),
+                    _bullet(
+                      'Your username is your registered club email address.',
+                    ),
+                    _bullet(
+                      'Your initial password will be sent to that registered email address.',
+                    ),
+                    _bullet(
+                      'If you cannot find the email, check your Junk or Spam folder.',
+                    ),
+                    _bullet(
+                      'If your email address has changed, contact the club so your member record can be updated.',
+                    ),
                     _subHeading('Logging In'),
-                    _bullet('Open the app and enter your registered email address and password.'),
-                    _bullet('After logging in, you will be taken to your dashboard.'),
+                    _bullet(
+                      'Open the app and enter your registered email address and password.',
+                    ),
+                    _bullet(
+                      'After logging in, you will be taken to your dashboard.',
+                    ),
                     _subHeading('Need Help'),
-                    _bullet('Use the Need Help button on the login screen if you want guidance before signing in.'),
+                    _bullet(
+                      'Use the Need Help button on the login screen if you want guidance before signing in.',
+                    ),
                   ],
                 ),
 
@@ -324,11 +347,19 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _p(
                       'Most players move through the app in a simple journey from invitation to confirmed match.',
                     ),
-                    _bullet('First, you may be invited to a fixture and asked to RSVP or declare availability.'),
-                    _bullet('Next, a captain or selector reviews the responses.'),
-                    _bullet('If selected, the fixture moves into the acceptance stage for you.'),
+                    _bullet(
+                      'First, you may be invited to a fixture and asked to RSVP or declare availability.',
+                    ),
+                    _bullet(
+                      'Next, a captain or selector reviews the responses.',
+                    ),
+                    _bullet(
+                      'If selected, the fixture moves into the acceptance stage for you.',
+                    ),
                     _bullet('You then accept or decline your place.'),
-                    _bullet('Once accepted, the fixture appears in your upcoming accepted fixtures list.'),
+                    _bullet(
+                      'Once accepted, the fixture appears in your upcoming accepted fixtures list.',
+                    ),
                     _p(
                       'The quicker and clearer your responses are, the easier it is for captains and selectors to organise teams.',
                     ),
@@ -346,21 +377,41 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _p(
                       'For team fixtures, you may see the fixture before the team has been selected. This allows you to declare availability early, giving the fixture captain a clearer view of who can play before selection begins.',
                     ),
-                    _bullet('Available means you can play and wish to be considered.'),
-                    _bullet('Not available means you cannot play on that date.'),
-                    _bullet('Once the team is published, selected players are asked to accept or decline.'),
-                    _bullet('Selected players should also receive the fixture sheet by email where email is enabled.'),
+                    _bullet(
+                      'Available means you can play and wish to be considered.',
+                    ),
+                    _bullet(
+                      'Not available means you cannot play on that date.',
+                    ),
+                    _bullet(
+                      'Once the team is published, selected players are asked to accept or decline.',
+                    ),
+                    _bullet(
+                      'Selected players should also receive the fixture sheet by email where email is enabled.',
+                    ),
                     _subHeading('RSVP Stage'),
-                    _bullet('Yes means you are available and wish to be considered.'),
-                    _bullet('Maybe means you may be available but are not certain.'),
+                    _bullet(
+                      'Yes means you are available and wish to be considered.',
+                    ),
+                    _bullet(
+                      'Maybe means you may be available but are not certain.',
+                    ),
                     _bullet('No means you are unavailable.'),
                     _subHeading('Selection Stage'),
-                    _bullet('If chosen, you may be selected as a player, reserve, marker or umpire depending on the fixture type.'),
+                    _bullet(
+                      'If chosen, you may be selected as a player, reserve, marker or umpire depending on the fixture type.',
+                    ),
                     _subHeading('Acceptance Stage'),
-                    _bullet('When selected, you should accept promptly if you can play.'),
-                    _bullet('If you cannot play, decline as soon as possible so changes can be made.'),
+                    _bullet(
+                      'When selected, you should accept promptly if you can play.',
+                    ),
+                    _bullet(
+                      'If you cannot play, decline as soon as possible so changes can be made.',
+                    ),
                     _subHeading('Changes'),
-                    _bullet('If teams, rinks, dates or times change after publication, you may receive an update and should check the fixture again.'),
+                    _bullet(
+                      'If teams, rinks, dates or times change after publication, you may receive an update and should check the fixture again.',
+                    ),
                   ],
                 ),
 
@@ -382,7 +433,9 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _subHeading('Captains may receive notifications when'),
                     _bullet('a player accepts their place'),
                     _bullet('a player declines their place'),
-                    _bullet('changes happen to a fixture they are responsible for'),
+                    _bullet(
+                      'changes happen to a fixture they are responsible for',
+                    ),
                     _subHeading('Notification channels'),
                     _bullet('In-app notifications'),
                     _bullet('Email notifications where enabled'),
@@ -398,7 +451,6 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                   key: _internalFixturesKey,
                   title: '7. Booking Internal Match Fixtures',
                   children: [
-
                     _p(
                       'Some internal fixtures can be arranged directly by members using a simplified booking process designed for friendly games, practice matches and club competitions.',
                     ),
@@ -501,7 +553,6 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _p(
                       'For the smoothest experience: agree the date first, book the rink second and add players third.',
                     ),
-
                   ],
                 ),
 
@@ -515,8 +566,12 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _bullet('Check the date and start time carefully'),
                     _bullet('Check whether the match is home or away'),
                     _bullet('Check your rink and team position if shown'),
-                    _bullet('Check the captain and any important contact information'),
-                    _bullet('Check again nearer the day in case any updates have been made'),
+                    _bullet(
+                      'Check the captain and any important contact information',
+                    ),
+                    _bullet(
+                      'Check again nearer the day in case any updates have been made',
+                    ),
                   ],
                 ),
 
@@ -532,7 +587,9 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                     _p(
                       'In many cases yes, provided selection or publication has not passed the point where changes are locked down.',
                     ),
-                    _subHeading('What should I do if I accepted and can no longer play?'),
+                    _subHeading(
+                      'What should I do if I accepted and can no longer play?',
+                    ),
                     _p(
                       'You should tell the fixture captain or club organiser as soon as possible.',
                     ),

@@ -170,14 +170,9 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       final client = Supabase.instance.client;
 
       // Reauthenticate explicitly before changing a sensitive credential.
-      await client.auth.signInWithPassword(
-        email: email,
-        password: values[0],
-      );
+      await client.auth.signInWithPassword(email: email, password: values[0]);
 
-      await client.auth.updateUser(
-        UserAttributes(password: values[1]),
-      );
+      await client.auth.updateUser(UserAttributes(password: values[1]));
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -185,9 +180,9 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyAuthError(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyAuthError(error))));
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -325,9 +320,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       // The Supabase Change Email template must contain {{ .Token }} rather
       // than a clickable confirmation link. Secure email change should be
       // disabled so a single code is sent to the new address.
-      await client.auth.updateUser(
-        UserAttributes(email: proposedEmail),
-      );
+      await client.auth.updateUser(UserAttributes(email: proposedEmail));
 
       if (!mounted) return;
       setState(() => _working = false);
@@ -335,9 +328,9 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       await _verifyEmailChangeCode(proposedEmail);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyAuthError(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyAuthError(error))));
     } finally {
       if (mounted && _working) setState(() => _working = false);
     }
@@ -416,8 +409,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
         type: OtpType.emailChange,
       );
 
-      final confirmedEmail =
-          (response.user?.email ?? newEmail).trim();
+      final confirmedEmail = (response.user?.email ?? newEmail).trim();
 
       // auth.users is the master value. The database trigger normally mirrors
       // it into member_profiles immediately. Also perform the same mirror here
@@ -472,9 +464,9 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_friendlyAuthError(error))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_friendlyAuthError(error))));
     } finally {
       if (mounted) setState(() => _working = false);
     }

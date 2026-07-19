@@ -4,10 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class FixtureRsvpSection extends StatefulWidget {
   final Map<String, dynamic> fixture;
 
-  const FixtureRsvpSection({
-    super.key,
-    required this.fixture,
-  });
+  const FixtureRsvpSection({super.key, required this.fixture});
 
   @override
   State<FixtureRsvpSection> createState() => _FixtureRsvpSectionState();
@@ -70,7 +67,9 @@ class _FixtureRsvpSectionState extends State<FixtureRsvpSection> {
       // All active club members
       final memberRows = await _client
           .from('club_memberships')
-          .select('member_profile_id, member_profiles(display_name, first_name, last_name)')
+          .select(
+            'member_profile_id, member_profiles(display_name, first_name, last_name)',
+          )
           .eq('club_id', clubId)
           .eq('is_active', true);
 
@@ -112,8 +111,11 @@ class _FixtureRsvpSectionState extends State<FixtureRsvpSection> {
         });
       }
 
-      rows.sort((a, b) =>
-          (a['display_name'] as String).compareTo(b['display_name'] as String));
+      rows.sort(
+        (a, b) => (a['display_name'] as String).compareTo(
+          b['display_name'] as String,
+        ),
+      );
 
       if (!mounted) return;
       setState(() {
@@ -152,10 +154,7 @@ class _FixtureRsvpSectionState extends State<FixtureRsvpSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'RSVP responses',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('RSVP responses', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         if (_rows.isEmpty)
           const Text('No members found.')
@@ -170,11 +169,7 @@ class _FixtureRsvpSectionState extends State<FixtureRsvpSection> {
               child: ListTile(
                 dense: true,
                 visualDensity: VisualDensity.compact,
-                title: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(_displayStatus(status)),
               ),
             );

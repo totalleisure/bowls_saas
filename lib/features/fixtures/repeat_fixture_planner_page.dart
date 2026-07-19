@@ -33,9 +33,7 @@ class RepeatFixturePlannerPage extends StatefulWidget {
       _RepeatFixturePlannerPageState();
 }
 
-class _RepeatFixturePlannerPageState
-    extends State<RepeatFixturePlannerPage> {
-
+class _RepeatFixturePlannerPageState extends State<RepeatFixturePlannerPage> {
   final Color _setupCardColor = Colors.blue.shade50;
   final Color _repeatOnCardColor = Colors.purple.shade50;
   final Color _addDateCardColor = Colors.orange.shade50;
@@ -167,10 +165,12 @@ class _RepeatFixturePlannerPageState
 
     final normalised = DateTime(picked.year, picked.month, picked.day);
 
-    final exists = _manualDates.any((d) =>
-        d.date.year == normalised.year &&
-        d.date.month == normalised.month &&
-        d.date.day == normalised.day);
+    final exists = _manualDates.any(
+      (d) =>
+          d.date.year == normalised.year &&
+          d.date.month == normalised.month &&
+          d.date.day == normalised.day,
+    );
 
     if (!exists) {
       setState(() {
@@ -219,8 +219,9 @@ class _RepeatFixturePlannerPageState
                     child: Text(
                       _fromDate == null
                           ? 'From date'
-                          : MaterialLocalizations.of(context)
-                              .formatMediumDate(_fromDate!),
+                          : MaterialLocalizations.of(
+                              context,
+                            ).formatMediumDate(_fromDate!),
                     ),
                   ),
                 ),
@@ -231,8 +232,9 @@ class _RepeatFixturePlannerPageState
                     child: Text(
                       _toDate == null
                           ? 'To date'
-                          : MaterialLocalizations.of(context)
-                              .formatMediumDate(_toDate!),
+                          : MaterialLocalizations.of(
+                              context,
+                            ).formatMediumDate(_toDate!),
                     ),
                   ),
                 ),
@@ -271,7 +273,7 @@ class _RepeatFixturePlannerPageState
                 ],
               ),
             ),
-            
+
             const SizedBox(height: 16),
 
             Container(
@@ -303,12 +305,14 @@ class _RepeatFixturePlannerPageState
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: _manualDates.map(_buildManualDateButton).toList(),
+                      children: _manualDates
+                          .map(_buildManualDateButton)
+                          .toList(),
                     ),
                   ],
                 ],
               ),
-            ),            
+            ),
           ],
         ),
       ),
@@ -338,7 +342,9 @@ class _RepeatFixturePlannerPageState
             const SizedBox(height: 4),
 
             if (_allDates.isEmpty)
-              const Text('Choose a date range and days above, or add specific dates.')
+              const Text(
+                'Choose a date range and days above, or add specific dates.',
+              )
             else
               ..._allDates.map(_buildDateTile),
           ],
@@ -375,10 +381,7 @@ class _RepeatFixturePlannerPageState
               selectedBorderColor: Colors.green.shade700,
               borderColor: Colors.green.shade300,
               borderRadius: BorderRadius.circular(8),
-              constraints: const BoxConstraints(
-                minHeight: 32,
-                minWidth: 42,
-              ),
+              constraints: const BoxConstraints(minHeight: 32, minWidth: 42),
               onPressed: item.enabled
                   ? (index) {
                       setState(() {
@@ -386,10 +389,7 @@ class _RepeatFixturePlannerPageState
                       });
                     }
                   : null,
-              children: const [
-                Text('H'),
-                Text('A'),
-              ],
+              children: const [Text('H'), Text('A')],
             ),
           ],
         ],
@@ -435,21 +435,21 @@ class _RepeatFixturePlannerPageState
           padding: const EdgeInsets.all(8),
           child: widget.requiresOpponent
               ? isNarrow
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        dateAndToggleRow(),
-                        const SizedBox(height: 8),
-                        opponentDropdown(),
-                      ],
-                    )
-                  : Row(
-                      children: [
-                        Expanded(flex: 2, child: dateAndToggleRow()),
-                        const SizedBox(width: 8),
-                        Expanded(flex: 3, child: opponentDropdown()),
-                      ],
-                    )
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          dateAndToggleRow(),
+                          const SizedBox(height: 8),
+                          opponentDropdown(),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(flex: 2, child: dateAndToggleRow()),
+                          const SizedBox(width: 8),
+                          Expanded(flex: 3, child: opponentDropdown()),
+                        ],
+                      )
               : dateAndToggleRow(),
         ),
       ),
@@ -457,8 +457,9 @@ class _RepeatFixturePlannerPageState
   }
 
   Future<void> _handleCancel() async {
-    final hasOpponentInfo = _allDates.any((d) =>
-        d.opponentVenueId != null && d.opponentVenueId!.isNotEmpty);
+    final hasOpponentInfo = _allDates.any(
+      (d) => d.opponentVenueId != null && d.opponentVenueId!.isNotEmpty,
+    );
 
     if (!hasOpponentInfo) {
       Navigator.pop(context);
@@ -481,10 +482,7 @@ class _RepeatFixturePlannerPageState
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text(
-                'Yes',
-                style: TextStyle(color: Colors.red),
-              ),
+              child: const Text('Yes', style: TextStyle(color: Colors.red)),
             ),
           ],
         );
@@ -515,7 +513,10 @@ class _RepeatFixturePlannerPageState
                 : () => Navigator.pop(context, _allDates),
             child: const Text(
               'Proceed',
-              style: TextStyle(color: Colors.green, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

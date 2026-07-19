@@ -4,10 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ResetPasswordScreen extends StatefulWidget {
   final VoidCallback onComplete;
 
-  const ResetPasswordScreen({
-    super.key,
-    required this.onComplete,
-  });
+  const ResetPasswordScreen({super.key, required this.onComplete});
 
   @override
   State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();

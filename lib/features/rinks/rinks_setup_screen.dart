@@ -106,7 +106,9 @@ class _RinksSetupScreenState extends State<RinksSetupScreen> {
 
       final rows = await client
           .from('fixture_rinks')
-          .select('id, fixture_rink_no, format, players_per_rink, home_rink_label')
+          .select(
+            'id, fixture_rink_no, format, players_per_rink, home_rink_label',
+          )
           .eq('fixture_id', widget.fixtureId)
           .order('fixture_rink_no', ascending: true);
 
@@ -164,7 +166,10 @@ class _RinksSetupScreenState extends State<RinksSetupScreen> {
 
     final nextOrder = (_rinks.isEmpty)
         ? 1
-        : (_rinks.map((r) => r['fixture_rink_no'] as int).reduce((a, b) => a > b ? a : b) + 1);
+        : (_rinks
+                  .map((r) => r['fixture_rink_no'] as int)
+                  .reduce((a, b) => a > b ? a : b) +
+              1);
 
     final ppr = _playersForFormat(format);
 
@@ -179,9 +184,9 @@ class _RinksSetupScreenState extends State<RinksSetupScreen> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Add team failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Add team failed: $e')));
       }
     }
   }
@@ -195,9 +200,9 @@ class _RinksSetupScreenState extends State<RinksSetupScreen> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Delete failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
       }
     }
   }
@@ -250,9 +255,9 @@ class _RinksSetupScreenState extends State<RinksSetupScreen> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save failed: $e')));
       }
     }
   }
@@ -276,72 +281,68 @@ class _RinksSetupScreenState extends State<RinksSetupScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          ? Center(child: Text('Error: $_error'))
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (widget.isHome && _allRinkNames.isNotEmpty) ...[
+                    const Text(
+                      'Available rinks:',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(_allRinkNames.join(', ')),
+                    const SizedBox(height: 12),
+                  ],
+
+                  Text(
+                    widget.isHome
+                        ? 'Home fixture: you can assign a home rink label to each team.'
+                        : 'Away fixture: teams can be set up, but home rink labels are not needed.',
+                  ),
+                  const SizedBox(height: 12),
+
+                  Row(
                     children: [
-                      if (widget.isHome && _allRinkNames.isNotEmpty) ...[
-                        const Text(
-                          'Available rinks:',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _addRink,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add team'),
                         ),
-                        const SizedBox(height: 4),
-                        Text(_allRinkNames.join(', ')),
-                        const SizedBox(height: 12),
-                      ],
-
-                      Text(
-                        widget.isHome
-                            ? 'Home fixture: you can assign a home rink label to each team.'
-                            : 'Away fixture: teams can be set up, but home rink labels are not needed.',
                       ),
-                      const SizedBox(height: 12),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _addRink,
-                              icon: const Icon(Icons.add),
-                              label: const Text('Add team'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      if (_rinks.isEmpty)
-                        const Text('No teams yet. Tap "Add team" to add one.')
-                      else
-                        ..._rinks.map((r) {
-                          final label =
-                              (r['home_rink_label'] as String?) ?? '';
-                          return Card(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            child: ListTile(
-                              dense: true,
-                              title: Text(
-                                'Team ${r['fixture_rink_no']} • ${_formatLabel(r['format'].toString())} • ${r['players_per_rink']} players',
-                              ),
-                              subtitle: widget.isHome && label.isNotEmpty
-                                  ? Text('Home rink: $label')
-                                  : null,
-                              onTap: widget.isHome
-                                  ? () => _editHomeLabel(r)
-                                  : null,
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete),
-                                onPressed: () =>
-                                    _deleteRink(r['id'].toString()),
-                              ),
-                            ),
-                          );
-                        }),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 12),
+
+                  if (_rinks.isEmpty)
+                    const Text('No teams yet. Tap "Add team" to add one.')
+                  else
+                    ..._rinks.map((r) {
+                      final label = (r['home_rink_label'] as String?) ?? '';
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: ListTile(
+                          dense: true,
+                          title: Text(
+                            'Team ${r['fixture_rink_no']} • ${_formatLabel(r['format'].toString())} • ${r['players_per_rink']} players',
+                          ),
+                          subtitle: widget.isHome && label.isNotEmpty
+                              ? Text('Home rink: $label')
+                              : null,
+                          onTap: widget.isHome ? () => _editHomeLabel(r) : null,
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete),
+                            onPressed: () => _deleteRink(r['id'].toString()),
+                          ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
     );
   }
 }

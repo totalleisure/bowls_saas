@@ -11,16 +11,11 @@ class TeamSection extends StatefulWidget {
   final Map<String, dynamic> fixture;
   final bool readOnly;
 
-  const TeamSection({
-    super.key,
-    required this.fixture,
-    this.readOnly = false,
-    });
+  const TeamSection({super.key, required this.fixture, this.readOnly = false});
 
   @override
   State<TeamSection> createState() => _TeamSectionState();
 }
-
 
 class _TeamSectionState extends State<TeamSection> {
   bool _loading = true;
@@ -70,7 +65,9 @@ class _TeamSectionState extends State<TeamSection> {
 
       final role = cm?['role']?.toString();
       final active = cm?['is_active'] == true;
-      _canManage = active && (role == 'admin' || role == 'selector' || role == 'captain');
+      _canManage =
+          active &&
+          (role == 'admin' || role == 'selector' || role == 'captain');
 
       // load selection header (may not exist yet)
       final sel = await client
@@ -101,7 +98,7 @@ class _TeamSectionState extends State<TeamSection> {
           .from('team_selection_members')
           .select(
             'member_profile_id, role, acceptance, responded_at, is_selected, '
-            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, phone)'
+            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, phone)',
           )
           .eq('team_selection_id', _selectionId!)
           .eq('is_selected', true)
@@ -138,7 +135,9 @@ class _TeamSectionState extends State<TeamSection> {
   String? _myAcceptance() {
     if (_myProfileId == null) return null;
     final all = [..._players, ..._opponents, ..._markers, ..._reserves];
-    final me = all.where((r) => r['member_profile_id'] == _myProfileId).toList();
+    final me = all
+        .where((r) => r['member_profile_id'] == _myProfileId)
+        .toList();
     if (me.isEmpty) return null;
     return me.first['acceptance']?.toString();
   }
@@ -158,17 +157,17 @@ class _TeamSectionState extends State<TeamSection> {
           .eq('member_profile_id', _myProfileId!);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Set acceptance: $acceptance')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Set acceptance: $acceptance')));
       }
 
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Acceptance error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Acceptance error: $e')));
       }
     }
   }
@@ -193,15 +192,10 @@ class _TeamSectionState extends State<TeamSection> {
       child: ListTile(
         dense: true,
         visualDensity: VisualDensity.compact,
-        title: Text(
-          name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(acceptance),
       ),
     );
-
   }
 
   @override
@@ -233,10 +227,12 @@ class _TeamSectionState extends State<TeamSection> {
 
     final competitionType =
         widget.fixture['competition_type'] as Map<String, dynamic>?;
-    final selectionMode =
-        (competitionType?['selection_mode'] ?? '').toString().toLowerCase().trim();
+    final selectionMode = (competitionType?['selection_mode'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
 
-    final isPreselectFixture = selectionMode == 'preselect';    
+    final isPreselectFixture = selectionMode == 'preselect';
 
     return Card(
       child: Padding(
@@ -273,7 +269,9 @@ class _TeamSectionState extends State<TeamSection> {
                           );
                           await _load();
                         },
-                        child: Text(widget.readOnly ? 'View Team' : 'Manage Team'),
+                        child: Text(
+                          widget.readOnly ? 'View Team' : 'Manage Team',
+                        ),
                       ),
                     ],
                   ),
@@ -328,5 +326,3 @@ class _TeamSectionState extends State<TeamSection> {
     );
   }
 }
-
-

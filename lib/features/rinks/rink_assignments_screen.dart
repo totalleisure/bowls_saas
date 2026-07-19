@@ -1067,9 +1067,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
   }
 
   List<int>? _parseIncompleteTeamError(Object error) {
-    final match = RegExp(r'INCOMPLETE_TEAM:(\d+):(\d+)').firstMatch(
-      error.toString(),
-    );
+    final match = RegExp(
+      r'INCOMPLETE_TEAM:(\d+):(\d+)',
+    ).firstMatch(error.toString());
     if (match == null) return null;
 
     return [int.parse(match.group(1)!), int.parse(match.group(2)!)];
@@ -1392,7 +1392,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         const SizedBox(width: 8),
         Expanded(
           child: DropdownButtonFormField<String?>(
-            key: ValueKey('slot-$rinkId-$position-${selectedId ?? 'none'}-$_assignmentPickerReset'),
+            key: ValueKey(
+              'slot-$rinkId-$position-${selectedId ?? 'none'}-$_assignmentPickerReset',
+            ),
             value: selectedId,
             isDense: true,
             decoration: InputDecoration(
@@ -1438,7 +1440,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           children: [
             Expanded(
               child: DropdownButtonFormField<String?>(
-                key: ValueKey('player-$rinkId-$playerPos-${selectedPlayerId ?? 'none'}-$_assignmentPickerReset'),
+                key: ValueKey(
+                  'player-$rinkId-$playerPos-${selectedPlayerId ?? 'none'}-$_assignmentPickerReset',
+                ),
                 value: selectedPlayerId,
                 isDense: true,
                 decoration: const InputDecoration(labelText: 'Player'),
@@ -1457,7 +1461,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: DropdownButtonFormField<String?>(
-                key: ValueKey('opponent-$rinkId-$opponentPos-${selectedOpponentId ?? 'none'}-$_assignmentPickerReset'),
+                key: ValueKey(
+                  'opponent-$rinkId-$opponentPos-${selectedOpponentId ?? 'none'}-$_assignmentPickerReset',
+                ),
                 value: selectedOpponentId,
                 isDense: true,
                 decoration: const InputDecoration(labelText: 'Opponent'),
@@ -1482,7 +1488,9 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     final selectedId = asn?['member_profile_id']?.toString();
 
     return DropdownButtonFormField<String?>(
-      key: ValueKey('marker-$rinkId-${selectedId ?? 'none'}-$_assignmentPickerReset'),
+      key: ValueKey(
+        'marker-$rinkId-${selectedId ?? 'none'}-$_assignmentPickerReset',
+      ),
       value: selectedId,
       isDense: true,
       decoration: const InputDecoration(labelText: 'Marker (optional)'),

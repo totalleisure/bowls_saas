@@ -1,11 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum RinkAvailabilityStatus {
-  available,
-  selected,
-  booked,
-  unavailable,
-}
+enum RinkAvailabilityStatus { available, selected, booked, unavailable }
 
 class RinkAvailabilitySlot {
   const RinkAvailabilitySlot({
@@ -42,9 +37,11 @@ class RinkAvailabilityPanel extends StatelessWidget {
   final bool readOnly;
 
   int get availableCount => slots
-      .where((s) =>
-          s.status == RinkAvailabilityStatus.available ||
-          s.status == RinkAvailabilityStatus.selected)
+      .where(
+        (s) =>
+            s.status == RinkAvailabilityStatus.available ||
+            s.status == RinkAvailabilityStatus.selected,
+      )
       .length;
 
   bool get hasEnoughRinks => availableCount >= rinksRequired;
@@ -62,22 +59,21 @@ class RinkAvailabilityPanel extends StatelessWidget {
           children: [
             Text(
               title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
 
             Text(
               hasEnoughRinks
                   ? '$availableCount rink${availableCount == 1 ? '' : 's'} available. '
-                      '$selectedCount of $rinksRequired selected.'
+                        '$selectedCount of $rinksRequired selected.'
                   : 'Only $availableCount rink${availableCount == 1 ? '' : 's'} available. '
-                      '$rinksRequired required.',
+                        '$rinksRequired required.',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
-                color: hasEnoughRinks ? Colors.green.shade900 : Colors.red.shade900,
+                color: hasEnoughRinks
+                    ? Colors.green.shade900
+                    : Colors.red.shade900,
               ),
             ),
 

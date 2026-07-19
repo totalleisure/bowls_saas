@@ -106,6 +106,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _savingPreselect = false;
 
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _rinksSectionKey = GlobalKey();
 
   final _client = Supabase.instance.client;
 
@@ -439,12 +440,50 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     _toggleHomeRinkSelection(rinkLabel);
   }
 
+  double? _anchorTop(GlobalKey key) {
+    final anchorContext = key.currentContext;
+    if (anchorContext == null) return null;
+
+    final renderObject = anchorContext.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.attached) return null;
+
+    return renderObject.localToGlobal(Offset.zero).dy;
+  }
+
+  Future<void> _refreshKeepingAnchor({
+    required GlobalKey anchorKey,
+    required Future<void> Function() refresh,
+  }) async {
+    final beforeTop = _anchorTop(anchorKey);
+
+    await refresh();
+
+    if (!mounted) return;
+
+    // Wait until every setState triggered by the refresh has completed layout.
+    await WidgetsBinding.instance.endOfFrame;
+
+    if (!mounted || !_scrollController.hasClients || beforeTop == null) return;
+
+    final afterTop = _anchorTop(anchorKey);
+    if (afterTop == null) return;
+
+    final correction = afterTop - beforeTop;
+    if (correction.abs() < 0.5) return;
+
+    final position = _scrollController.position;
+    final target = (_scrollController.offset + correction).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+
+    _scrollController.jumpTo(target);
+  }
+
   Future<void> _moveBookedRinkToFreeRink(
     Map<String, dynamic> booked,
     String newRinkLabel,
   ) async {
-    final currentOffset = _scrollController.offset;
-
     final oldLabel =
         (booked['rink_label'] ?? booked['label'] ?? booked['name'] ?? '')
             .toString();
@@ -468,21 +507,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       setState(() {
         _selectedBookedRink = null;
-      });
-
-      await _loadMemberPreselectData();
-      await _loadRinkAvailability();
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(
-            currentOffset.clamp(
-              0.0,
-              _scrollController.position.maxScrollExtent,
-            ),
-          );
+        for (final rink in _memberPreselectRinks) {
+          if (rink['id']?.toString() == fixtureRinkId) {
+            rink['home_rink_label'] = newRinkLabel;
+            break;
+          }
         }
       });
+
+      await _loadRinkAvailability(showLoading: false);
+      if (!_isEventStyleFixture) {
+        await _loadFixtureReadiness();
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -500,8 +536,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     Map<String, dynamic> a,
     Map<String, dynamic> b,
   ) async {
-    final currentOffset = _scrollController.offset;
-
     final aId = a['fixture_rink_id']?.toString();
     final bId = b['fixture_rink_id']?.toString();
 
@@ -525,21 +559,20 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       setState(() {
         _selectedBookedRink = null;
-      });
-
-      await _loadMemberPreselectData();
-      await _loadRinkAvailability();
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(
-            currentOffset.clamp(
-              0.0,
-              _scrollController.position.maxScrollExtent,
-            ),
-          );
+        for (final rink in _memberPreselectRinks) {
+          final id = rink['id']?.toString();
+          if (id == aId) {
+            rink['home_rink_label'] = bLabel;
+          } else if (id == bId) {
+            rink['home_rink_label'] = aLabel;
+          }
         }
       });
+
+      await _loadRinkAvailability(showLoading: false);
+      if (!_isEventStyleFixture) {
+        await _loadFixtureReadiness();
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1161,9 +1194,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Future<void> _savePreselectState() async {
     if (_savingPreselect || !_preselectDirty) return;
 
-    final offset = _scrollController.hasClients
-        ? _scrollController.offset
-        : 0.0;
     final payload = _buildPreselectSavePayload();
 
     setState(() => _savingPreselect = true);
@@ -1264,13 +1294,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     if (!mounted) return;
 
     setState(() => _savingPreselect = false);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.jumpTo(
-        offset.clamp(0.0, _scrollController.position.maxScrollExtent),
-      );
-    });
 
     if (warnings.isNotEmpty) {
       await showDialog<void>(
@@ -1646,6 +1669,47 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
+  Future<void> _refreshFixtureRecord() async {
+    final f = await _client
+        .from('fixtures')
+        .select(
+          'id, club_id, venue_id, opponent_venue_id, green_area_id, '
+          'start_at, end_at, is_home, section, rinks_required, players_per_rink, orientation, '
+          'team_id, team_name, notes, '
+          'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
+          'competition_type:competition_types!fixtures_competition_type_id_fkey('
+          'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, '
+          'colour_scheme:fixture_colour_schemes('
+          'id, name, background_hex, foreground_hex'
+          ')'
+          '), '
+          'team:teams!fixtures_team_id_fkey(name), '
+          'venue:venues!fixtures_venue_id_fkey(name), '
+          'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+          'green_areas(name, discipline, orientation_mode), '
+          'captain:member_profiles!fixtures_captain_member_profile_id_fkey(display_name), '
+          'vice:member_profiles!fixtures_vice_captain_member_profile_id_fkey(display_name), '
+          'ts:team_selections(id, status)',
+        )
+        .eq('id', widget.fixtureId)
+        .single();
+
+    if (!mounted) return;
+    setState(() {
+      _fixture = Map<String, dynamic>.from(f);
+      _teamNameCtrl.text = (_fixture?['team_name'] ?? '').toString();
+      _selectedTeamId = _fixture?['team_id']?.toString();
+
+      final loadedCompetitionType =
+          _fixture?['competition_type'] as Map<String, dynamic>?;
+      final loadedSelectionMode =
+          (loadedCompetitionType?['selection_mode'] ?? '').toString().trim();
+
+      _isTeamFixtureUi =
+          loadedSelectionMode == 'team' || _selectedTeamId != null;
+    });
+  }
+
   Future<void> _load() async {
     _loadCount++;
     print('FixtureDetails _load() count=$_loadCount id=${widget.fixtureId}');
@@ -1655,45 +1719,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     });
 
     try {
-      final f = await Supabase.instance.client
-          .from('fixtures')
-          .select(
-            'id, club_id, venue_id, opponent_venue_id, green_area_id, '
-            'start_at, end_at, is_home, section, rinks_required, players_per_rink, orientation, '
-            'team_id, team_name, notes, '
-            'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
-            'competition_type:competition_types!fixtures_competition_type_id_fkey('
-            'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, '
-            'colour_scheme:fixture_colour_schemes('
-            'id, name, background_hex, foreground_hex'
-            ')'
-            '), '
-            'team:teams!fixtures_team_id_fkey(name), '
-            'venue:venues!fixtures_venue_id_fkey(name), '
-            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
-            'green_areas(name, discipline, orientation_mode), '
-            'captain:member_profiles!fixtures_captain_member_profile_id_fkey(display_name), '
-            'vice:member_profiles!fixtures_vice_captain_member_profile_id_fkey(display_name), '
-            'ts:team_selections(id, status)',
-          )
-          .eq('id', widget.fixtureId)
-          .single();
+      await _refreshFixtureRecord();
 
       if (!mounted) return;
-      setState(() {
-        _fixture = Map<String, dynamic>.from(f);
-        _teamNameCtrl.text = (_fixture?['team_name'] ?? '').toString();
-        _selectedTeamId = _fixture?['team_id']?.toString();
-
-        final loadedCompetitionType =
-            _fixture?['competition_type'] as Map<String, dynamic>?;
-        final loadedSelectionMode =
-            (loadedCompetitionType?['selection_mode'] ?? '').toString().trim();
-
-        _isTeamFixtureUi =
-            loadedSelectionMode == 'team' || _selectedTeamId != null;
-        _loading = false;
-      });
+      setState(() => _loading = false);
 
       // run post-load checks
       await _loadPermissions();
@@ -1818,15 +1847,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _initPage() async {
     await _load();
+    if (!mounted || _fixture == null) return;
+
+    await _loadUserPermissions();
 
     if (!_isEventStyleFixture) {
       await _loadGreenAreas();
-    }
-
-    await _loadUserPermissions();
-    await _loadMyRsvp();
-
-    if (_isEventStyleFixture && _canManageEventAttendance) {
+    } else if (_canManageEventAttendance) {
       await _loadEventRsvps();
     }
   }
@@ -2263,7 +2290,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
               labelText: 'Event information',
-              hintText: 'Add details, instructions, timings or other information for members.',
+              hintText:
+                  'Add details, instructions, timings or other information for members.',
               alignLabelWithHint: true,
               border: OutlineInputBorder(),
             ),
@@ -2275,10 +2303,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             child: const Text('Cancel'),
           ),
           FilledButton.icon(
-            onPressed: () => Navigator.pop(
-              dialogContext,
-              controller.text,
-            ),
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
             icon: const Icon(Icons.save),
             label: const Text('Save'),
           ),
@@ -2349,8 +2374,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         final aStatus = (a['status'] ?? '').toString().toLowerCase();
         final bStatus = (b['status'] ?? '').toString().toLowerCase();
 
-        final statusCompare =
-            (statusOrder[aStatus] ?? 99).compareTo(statusOrder[bStatus] ?? 99);
+        final statusCompare = (statusOrder[aStatus] ?? 99).compareTo(
+          statusOrder[bStatus] ?? 99,
+        );
         if (statusCompare != 0) return statusCompare;
 
         final aMember = a['member'];
@@ -2424,15 +2450,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     if (!mounted || selected == null) return;
 
     final selectedId = selected.isEmpty ? null : selected.first;
-    final otherId = _fixture?[
-      deputy
-          ? 'captain_member_profile_id'
-          : 'vice_captain_member_profile_id'
-    ]?.toString();
+    final otherId =
+        _fixture?[deputy
+                ? 'captain_member_profile_id'
+                : 'vice_captain_member_profile_id']
+            ?.toString();
 
-    if (selectedId != null &&
-        selectedId.isNotEmpty &&
-        selectedId == otherId) {
+    if (selectedId != null && selectedId.isNotEmpty && selectedId == otherId) {
       await _showSaveErrorDialog(
         'The Organiser and Deputy Organiser must be different members.',
       );
@@ -2511,8 +2535,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final deputyName = _eventOfficialLabel(
       deputyId,
-      (_fixture?['vice']?['display_name'] ?? 'No deputy organiser')
-          .toString(),
+      (_fixture?['vice']?['display_name'] ?? 'No deputy organiser').toString(),
     );
 
     Widget officialControl({
@@ -2863,7 +2886,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
-  Future<void> _loadRinkAvailability() async {
+  Future<void> _loadRinkAvailability({bool showLoading = true}) async {
     if (_isEventStyleFixture) {
       if (!mounted) return;
       setState(() {
@@ -2882,10 +2905,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       return;
     }
 
-    setState(() {
-      _loadingRinkAvailability = true;
-      _rinkAvailabilityError = null;
-    });
+    if (showLoading) {
+      setState(() {
+        _loadingRinkAvailability = true;
+        _rinkAvailabilityError = null;
+      });
+    } else if (_rinkAvailabilityError != null) {
+      setState(() {
+        _rinkAvailabilityError = null;
+      });
+    }
 
     debugPrint(
       'RINK AVAILABILITY RPC: '
@@ -2927,7 +2956,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         _rinkAvailability = [];
       });
     } finally {
-      if (mounted) {
+      if (mounted && showLoading) {
         setState(() {
           _loadingRinkAvailability = false;
         });
@@ -3246,23 +3275,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _reloadRinksPreservingScroll() async {
-    final offset = _scrollController.hasClients
-        ? _scrollController.offset
-        : 0.0;
+    await _refreshKeepingAnchor(
+      anchorKey: _rinksSectionKey,
+      refresh: () async {
+        await _refreshFixtureRecord();
+        await _loadMemberPreselectData();
+        await _loadRinkAvailability();
 
-    await _load();
-    await _loadRinkAvailability();
-
-    if (!mounted) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-
-      final max = _scrollController.position.maxScrollExtent;
-      final target = offset.clamp(0.0, max);
-
-      _scrollController.jumpTo(target);
-    });
+        if (!_isEventStyleFixture) {
+          await _loadFixtureReadiness();
+        }
+      },
+    );
   }
 
   Future<void> _toggleHomeRinkSelection(String rinkLabel) async {
@@ -3281,7 +3305,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           .update({'home_rink_label': null})
           .eq('id', rink['id']);
 
-      await _reloadRinksPreservingScroll();
+      if (!mounted) return;
+      setState(() {
+        rink['home_rink_label'] = null;
+        _selectedBookedRink = null;
+      });
+
+      await _loadRinkAvailability(showLoading: false);
+      if (!_isEventStyleFixture) {
+        await _loadFixtureReadiness();
+      }
 
       return;
     }
@@ -3312,7 +3345,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         .update({'home_rink_label': label})
         .eq('id', rink['id']);
 
-    await _reloadRinksPreservingScroll();
+    if (!mounted) return;
+    setState(() {
+      rink['home_rink_label'] = label;
+      _selectedBookedRink = null;
+    });
+
+    await _loadRinkAvailability(showLoading: false);
+    if (!_isEventStyleFixture) {
+      await _loadFixtureReadiness();
+    }
   }
 
   MemberPickerSectionFilter _memberPickerSectionFilterForFixture() {
@@ -3742,7 +3784,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
             if (_isHome) ...[
               const SizedBox(height: 8),
-              _buildRinkAvailabilityCard(embedded: true),
+              KeyedSubtree(
+                key: _rinksSectionKey,
+                child: _buildRinkAvailabilityCard(embedded: true),
+              ),
             ],
           ],
         ),
@@ -3925,11 +3970,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     try {
-      setState(() {
-        _loadingRinkAvailability = true;
-        _selectedBookedRink = null;
-      });
-
       await Supabase.instance.client
           .from('fixture_rinks')
           .update({'home_rink_label': null})
@@ -3937,25 +3977,28 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       _didChangeFixture = true;
 
-      await _load();
-      await _loadRinkAvailability();
-
       if (!mounted) return;
-
       setState(() {
         _selectedBookedRink = null;
-        _loadingRinkAvailability = false;
+        for (final localRink in _memberPreselectRinks) {
+          if (localRink['id']?.toString() == fixtureRinkId) {
+            localRink['home_rink_label'] = null;
+            break;
+          }
+        }
       });
 
+      await _loadRinkAvailability(showLoading: false);
+      if (!_isEventStyleFixture) {
+        await _loadFixtureReadiness();
+      }
+
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Rink unassigned.')));
     } catch (e) {
       if (!mounted) return;
-
-      setState(() {
-        _loadingRinkAvailability = false;
-      });
 
       ScaffoldMessenger.of(
         context,
@@ -4222,22 +4265,20 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _reloadPreservingScroll() async {
-    final offset = _scrollController.hasClients
-        ? _scrollController.offset
-        : 0.0;
+    // Lightweight refresh: retain the mounted page and its natural scroll
+    // position instead of replacing the body and restoring a pixel offset.
+    await _refreshFixtureRecord();
+    await _loadPermissions();
+    await _loadMyTeamSelection();
+    await _loadTeamNameLocked();
 
-    await _load();
-
-    if (!mounted) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-
-      final max = _scrollController.position.maxScrollExtent;
-      final target = offset.clamp(0.0, max);
-
-      _scrollController.jumpTo(target);
-    });
+    if (_isEventStyleFixture) {
+      if (_canManageEventAttendance) {
+        await _loadEventRsvps();
+      }
+    } else {
+      await _loadFixtureReadiness();
+    }
   }
 
   Widget _buildFixtureReadinessCard() {
@@ -4572,6 +4613,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ],
       ),
       body: ListView(
+        key: PageStorageKey<String>('fixture-details-${widget.fixtureId}'),
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
@@ -4672,9 +4714,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         Expanded(
                           child: Text(
                             'Event information',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
+                            style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
                         ),
@@ -5018,7 +5058,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
             if (!_usesSimpleBookingWorkflow) ...[
               const SizedBox(height: 12),
-              _buildRinkAvailabilityCard(),
+              KeyedSubtree(
+                key: _rinksSectionKey,
+                child: _buildRinkAvailabilityCard(),
+              ),
             ],
 
             if (_canMaintainMemberPreselectFixture) ...[

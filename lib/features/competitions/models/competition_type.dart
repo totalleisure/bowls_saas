@@ -27,7 +27,7 @@ class ColourScheme {
 class CompetitionType {
   final String id;
   final String clubId;
-  final String name;  
+  final String name;
   final bool isInternal;
   final String section;
   final int? defaultRinksRequired;
@@ -75,7 +75,7 @@ class CompetitionType {
       teamSelectionEnabled: map['team_selection_enabled'] == true,
       selectionMode: map['selection_mode']?.toString(),
       usesRinks: map['uses_rinks'] != false,
-      bookableByMembers: map['bookable_by_members'] == true,      
+      bookableByMembers: map['bookable_by_members'] == true,
       isActive: map['is_active'] == true,
       colourScheme: colour is Map<String, dynamic>
           ? ColourScheme.fromMap(colour)

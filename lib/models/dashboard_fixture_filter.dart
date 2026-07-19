@@ -73,11 +73,11 @@ class DashboardFixtureFilter {
 
   @override
   int get hashCode => Object.hash(
-        _setHash(sections),
-        _setHash(categories),
-        period,
-        _setHash(fixtureTypeIds),
-      );
+    _setHash(sections),
+    _setHash(categories),
+    period,
+    _setHash(fixtureTypeIds),
+  );
 
   static bool _setEquals(Set<String> a, Set<String> b) {
     return a.length == b.length && a.containsAll(b);

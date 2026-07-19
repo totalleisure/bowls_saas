@@ -19,8 +19,7 @@ class MailingListMembersScreen extends StatefulWidget {
       _MailingListMembersScreenState();
 }
 
-class _MailingListMembersScreenState
-    extends State<MailingListMembersScreen> {
+class _MailingListMembersScreenState extends State<MailingListMembersScreen> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -160,10 +159,7 @@ class _MailingListMembersScreenState
 
       await Supabase.instance.client
           .from('mailing_list_members')
-          .upsert(
-            rows,
-            onConflict: 'mailing_list_id,member_profile_id',
-          );
+          .upsert(rows, onConflict: 'mailing_list_id,member_profile_id');
 
       await _load();
 
@@ -329,8 +325,7 @@ class _MailingListMembersScreenState
                             itemCount: _listMembers.length,
                             itemBuilder: (context, index) {
                               final row = _listMembers[index];
-                              final membershipId =
-                                  row['id']?.toString() ?? '';
+                              final membershipId = row['id']?.toString() ?? '';
                               final profile = Map<String, dynamic>.from(
                                 (row['member_profile'] as Map?) ??
                                     const <String, dynamic>{},

@@ -20,8 +20,7 @@ class CompetitionTypeListScreen extends StatefulWidget {
       _CompetitionTypeListScreenState();
 }
 
-class _CompetitionTypeListScreenState
-    extends State<CompetitionTypeListScreen> {
+class _CompetitionTypeListScreenState extends State<CompetitionTypeListScreen> {
   final _client = Supabase.instance.client;
 
   bool _loading = true;
@@ -162,12 +161,11 @@ class _CompetitionTypeListScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fixture Type List - Matches, Competitions and Leagues'),
+        title: const Text(
+          'Fixture Type List - Matches, Competitions and Leagues',
+        ),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
         ],
       ),
       floatingActionButton: widget.readOnly
@@ -179,69 +177,72 @@ class _CompetitionTypeListScreenState
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : _rows.isEmpty
-                  ? const Center(child: Text('No fixture types found'))
-              : ListView.builder(
-                itemCount: _rows.length,
-                itemBuilder: (context, index) {
-                  final row = _rows[index];
-                  final hasColours = row.colourScheme != null;
+          ? Center(child: Text('Error: $_error'))
+          : _rows.isEmpty
+          ? const Center(child: Text('No fixture types found'))
+          : ListView.builder(
+              itemCount: _rows.length,
+              itemBuilder: (context, index) {
+                final row = _rows[index];
+                final hasColours = row.colourScheme != null;
 
-                  return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   child: Material(
-                      color: hasColours
-                          ? colorFromHex(
-                              row.colourScheme!.backgroundHex,
-                              fallback: Colors.grey.shade200,
+                    color: hasColours
+                        ? colorFromHex(
+                            row.colourScheme!.backgroundHex,
+                            fallback: Colors.grey.shade200,
                           )
-                          : Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(16),
-                      child: InkWell(
+                        : Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.circular(16),
+                    child: InkWell(
                       borderRadius: BorderRadius.circular(16),
                       onTap: () => _openEdit(competitionTypeId: row.id),
                       child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                              color: hasColours
-                                  ? colorFromHex(
-                                      row.colourScheme!.foregroundHex,
-                                      fallback: Colors.black87,
+                            color: hasColours
+                                ? colorFromHex(
+                                    row.colourScheme!.foregroundHex,
+                                    fallback: Colors.black87,
                                   ).withOpacity(0.25)
-                                  : Colors.black12,
+                                : Colors.black12,
                           ),
-                          ),
-                          child: Column(
+                        ),
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                              Text(
+                            Text(
                               row.name,
                               style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: hasColours
-                                      ? colorFromHex(
-                                          row.colourScheme!.foregroundHex,
-                                          fallback: Colors.black87,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: hasColours
+                                    ? colorFromHex(
+                                        row.colourScheme!.foregroundHex,
+                                        fallback: Colors.black87,
                                       )
-                                      : null,
+                                    : null,
                               ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
                               _subtitle(row),
                               style: TextStyle(
-                                  fontSize: 14,
-                                  color: hasColours
-                                      ? colorFromHex(
-                                          row.colourScheme!.foregroundHex,
-                                          fallback: Colors.black87,
+                                fontSize: 14,
+                                color: hasColours
+                                    ? colorFromHex(
+                                        row.colourScheme!.foregroundHex,
+                                        fallback: Colors.black87,
                                       ).withOpacity(0.85)
-                                      : Colors.black87,
+                                    : Colors.black87,
                               ),
                             ),
                           ],

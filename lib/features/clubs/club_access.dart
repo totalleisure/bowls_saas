@@ -13,8 +13,7 @@ class ClubAccess {
     required this.isSelector,
   });
 
-  bool get canAdminManageFixtures =>
-      isSuperuser || isClubAdmin || isSelector;
+  bool get canAdminManageFixtures => isSuperuser || isClubAdmin || isSelector;
 
   bool get canCreateFixtures => canAdminManageFixtures;
 }
@@ -30,8 +29,7 @@ Future<ClubAccess> loadClubAccess({
     throw Exception('No logged-in user');
   }
 
-  final myProfileId =
-      (await supabase.rpc('my_member_profile_id')).toString();
+  final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
 
   final superuserRow = await supabase
       .from('app_superusers')

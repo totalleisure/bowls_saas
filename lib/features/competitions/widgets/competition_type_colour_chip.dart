@@ -29,10 +29,7 @@ class CompetitionTypeColourChip extends StatelessWidget {
         text.trim().isEmpty ? 'Example Name' : text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: fg,
-          fontWeight: FontWeight.w600,
-        ),
+        style: TextStyle(color: fg, fontWeight: FontWeight.w600),
       ),
     );
   }

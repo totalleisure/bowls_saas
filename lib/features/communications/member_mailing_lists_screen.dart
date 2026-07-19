@@ -16,8 +16,7 @@ class MemberMailingListsScreen extends StatefulWidget {
       _MemberMailingListsScreenState();
 }
 
-class _MemberMailingListsScreenState
-    extends State<MemberMailingListsScreen> {
+class _MemberMailingListsScreenState extends State<MemberMailingListsScreen> {
   bool _loading = true;
   String? _savingListId;
   String? _error;
@@ -61,10 +60,7 @@ class _MemberMailingListsScreenState
     }
   }
 
-  Future<void> _setMembership(
-    Map<String, dynamic> list,
-    bool join,
-  ) async {
+  Future<void> _setMembership(Map<String, dynamic> list, bool join) async {
     final listId = list['mailing_list_id']?.toString() ?? '';
     if (listId.isEmpty || _savingListId != null) return;
 
@@ -76,10 +72,7 @@ class _MemberMailingListsScreenState
     try {
       await Supabase.instance.client.rpc(
         'set_my_mailing_list_membership',
-        params: {
-          'p_mailing_list_id': listId,
-          'p_join': join,
-        },
+        params: {'p_mailing_list_id': listId, 'p_join': join},
       );
 
       if (!mounted) return;
@@ -89,10 +82,7 @@ class _MemberMailingListsScreenState
           (row) => row['mailing_list_id']?.toString() == listId,
         );
         if (index >= 0) {
-          _lists[index] = {
-            ..._lists[index],
-            'is_joined': join,
-          };
+          _lists[index] = {..._lists[index], 'is_joined': join};
         }
         _savingListId = null;
       });
@@ -101,9 +91,7 @@ class _MemberMailingListsScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            join
-                ? 'You have joined $listName.'
-                : 'You have left $listName.',
+            join ? 'You have joined $listName.' : 'You have left $listName.',
           ),
         ),
       );

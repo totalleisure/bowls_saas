@@ -28,8 +28,7 @@ class NotificationSettingsRepository {
   }) async {
     await _client.from('club_notification_settings').upsert({
       'club_id': clubId,
-      'notify_captain_on_acceptance_change':
-          notifyCaptainOnAcceptanceChange,
+      'notify_captain_on_acceptance_change': notifyCaptainOnAcceptanceChange,
       'notify_vice_captain_on_acceptance_change':
           notifyViceCaptainOnAcceptanceChange,
       'enable_in_app_notifications': enableInAppNotifications,

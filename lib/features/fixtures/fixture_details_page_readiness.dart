@@ -996,9 +996,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     setState(() => _loadingReadiness = true);
 
     try {
-      final result = await FixtureReadinessService(_client).check(
-        widget.fixtureId,
-      );
+      final result = await FixtureReadinessService(
+        _client,
+      ).check(widget.fixtureId);
 
       if (!mounted) return;
       setState(() {

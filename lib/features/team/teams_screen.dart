@@ -7,11 +7,7 @@ class TeamsScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
 
-  const TeamsScreen({
-    super.key,
-    required this.clubId,
-    required this.clubName,
-  });
+  const TeamsScreen({super.key, required this.clubId, required this.clubName});
 
   @override
   State<TeamsScreen> createState() => _TeamsScreenState();
@@ -65,9 +61,9 @@ class _TeamsScreenState extends State<TeamsScreen> {
       final desc = descController.text.trim();
 
       if (name.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Team name is required')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Team name is required')));
         return;
       }
 
@@ -85,15 +81,15 @@ class _TeamsScreenState extends State<TeamsScreen> {
         Navigator.of(context).pop();
         await _loadTeams();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Created team: $name')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Created team: $name')));
       } catch (e) {
         if (!mounted) return;
         setDialogState(() => saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Create failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Create failed: $e')));
       }
     }
 
@@ -170,68 +166,70 @@ class _TeamsScreenState extends State<TeamsScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    Text('Error:\n$_error'),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _loadTeams,
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                )
-              : !hasTeams
-                  ? ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        const Text('No teams yet.', style: TextStyle(fontSize: 16)),
-                        const SizedBox(height: 8),
-                        const Text('Create a team to start building the team pool.'),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _createTeamDialog,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Create your first team'),
-                        ),
-                      ],
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadTeams,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.all(12),
-                        itemCount: _teams.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, i) {
-                          final t = _teams[i];
-                          final teamId = t['id'].toString();
-                          final teamName = (t['name'] ?? '').toString();
-                          final desc = (t['description'] ?? '').toString();
-                          final active = t['is_active'] == true;
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Text('Error:\n$_error'),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: _loadTeams,
+                  child: const Text('Retry'),
+                ),
+              ],
+            )
+          : !hasTeams
+          ? ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                const Text('No teams yet.', style: TextStyle(fontSize: 16)),
+                const SizedBox(height: 8),
+                const Text('Create a team to start building the team pool.'),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: _createTeamDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Create your first team'),
+                ),
+              ],
+            )
+          : RefreshIndicator(
+              onRefresh: _loadTeams,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: _teams.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final t = _teams[i];
+                  final teamId = t['id'].toString();
+                  final teamName = (t['name'] ?? '').toString();
+                  final desc = (t['description'] ?? '').toString();
+                  final active = t['is_active'] == true;
 
-                          return ListTile(
-                            title: Text(teamName.isEmpty ? '(Unnamed team)' : teamName),
-                            subtitle: Text([
-                              if (!active) 'INACTIVE',
-                              if (desc.isNotEmpty) desc,
-                            ].join(' • ')),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => TeamPoolScreen(
-                                    teamId: teamId,
-                                    clubId: widget.clubId,
-                                    teamName: teamName,
-                                  ),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                  return ListTile(
+                    title: Text(teamName.isEmpty ? '(Unnamed team)' : teamName),
+                    subtitle: Text(
+                      [
+                        if (!active) 'INACTIVE',
+                        if (desc.isNotEmpty) desc,
+                      ].join(' • '),
                     ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TeamPoolScreen(
+                            teamId: teamId,
+                            clubId: widget.clubId,
+                            teamName: teamName,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createTeamDialog,
         icon: const Icon(Icons.add),

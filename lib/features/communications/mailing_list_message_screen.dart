@@ -18,8 +18,7 @@ class MailingListMessageScreen extends StatefulWidget {
       _MailingListMessageScreenState();
 }
 
-class _MailingListMessageScreenState
-    extends State<MailingListMessageScreen> {
+class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
   final _subjectController = TextEditingController();
   final _messageController = TextEditingController();
 
@@ -288,8 +287,7 @@ class _MailingListMessageScreenState
           int.tryParse('${result['recipient_count'] ?? 0}') ?? 0;
       final appCreated =
           int.tryParse('${result['app_messages_created'] ?? 0}') ?? 0;
-      final emailsQueued =
-          int.tryParse('${result['emails_queued'] ?? 0}') ?? 0;
+      final emailsQueued = int.tryParse('${result['emails_queued'] ?? 0}') ?? 0;
       final noEmail =
           int.tryParse('${result['members_without_email'] ?? 0}') ?? 0;
 
@@ -363,10 +361,8 @@ class _MailingListMessageScreenState
 
   @override
   Widget build(BuildContext context) {
-    final canSend = !_loading &&
-        !_sending &&
-        _listIsActive &&
-        _activeMemberCount > 0;
+    final canSend =
+        !_loading && !_sending && _listIsActive && _activeMemberCount > 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -392,8 +388,7 @@ class _MailingListMessageScreenState
                       child: Text(
                         _error!,
                         style: TextStyle(
-                          color:
-                              Theme.of(context).colorScheme.onErrorContainer,
+                          color: Theme.of(context).colorScheme.onErrorContainer,
                         ),
                       ),
                     ),
@@ -429,9 +424,7 @@ class _MailingListMessageScreenState
                     children: [
                       SwitchListTile(
                         title: const Text('Send app notification'),
-                        subtitle: Text(
-                          '$_activeMemberCount app message(s)',
-                        ),
+                        subtitle: Text('$_activeMemberCount app message(s)'),
                         value: _sendApp,
                         onChanged: _sending
                             ? null
