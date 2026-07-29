@@ -21,8 +21,6 @@ enum FixtureWorkflowType { rsvp, team }
 
 enum VenueCreationType { home, external }
 
-enum GoogleVenueSearchMode { bowlsClub, general }
-
 class InitialRinkBookingContext {
   const InitialRinkBookingContext({
     required this.greenAreaId,
@@ -931,14 +929,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Future<void> _loadVenues() async {
     final homeVenues = await _client
         .from('venues')
-        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id')
+        .select('id, name, town_city, postcode, is_home_venue')
         .eq('club_id', widget.clubId)
         .eq('is_home_venue', true)
         .order('name');
 
     final opponentVenues = await _client
         .from('venues')
-        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id')
+        .select('id, name, town_city, postcode, is_home_venue')
         .eq('club_id', widget.clubId)
         .eq('is_home_venue', false)
         .order('name');
@@ -999,22 +997,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                           ),
-                          if (canCreateVenue &&
-                              creationType == VenueCreationType.external)
-                            TextButton.icon(
-                              onPressed: () async {
-                                final imported =
-                                    await _discoverNearbyBowlsClubs();
-                                if (!sheetContext.mounted || imported == 0) {
-                                  return;
-                                }
-                                setStateSheet(() {
-                                  filtered = _sortedVenues(getVenues());
-                                });
-                              },
-                              icon: const Icon(Icons.radar),
-                              label: const Text('Find local clubs'),
-                            ),
                           if (canCreateVenue)
                             TextButton.icon(
                               onPressed: () async {
@@ -2259,614 +2241,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return result == true;
   }
 
-  Map<String, dynamic> _asStringDynamicMap(dynamic value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) {
-      return value.map((key, item) => MapEntry(key.toString(), item));
-    }
-    return <String, dynamic>{};
-  }
-
-  String _venuePlacesError(dynamic data, int status) {
-    final map = _asStringDynamicMap(data);
-    final message = map['error']?.toString().trim();
-    if (message != null && message.isNotEmpty) return message;
-    return 'Google venue search failed (HTTP $status).';
-  }
-
-  Future<Map<String, dynamic>> _invokeVenuePlaces(
-    Map<String, dynamic> body,
-  ) async {
-    final response = await _client.functions.invoke(
-      'venue-places',
-      body: body,
-    );
-
-    if (response.status < 200 || response.status >= 300) {
-      throw Exception(_venuePlacesError(response.data, response.status));
-    }
-
-    return _asStringDynamicMap(response.data);
-  }
-
-  Map<String, double>? _homeVenueCoordinates() {
-    if (_homeVenueId == null) return null;
-
-    final venue = _homeVenues.firstWhere(
-      (v) => v['id']?.toString() == _homeVenueId,
-      orElse: () => <String, dynamic>{},
-    );
-
-    final latitude = venue['latitude'];
-    final longitude = venue['longitude'];
-
-    if (latitude is num && longitude is num) {
-      return {
-        'latitude': latitude.toDouble(),
-        'longitude': longitude.toDouble(),
-      };
-    }
-
-    return null;
-  }
-
-  Future<Map<String, dynamic>?> _searchGoogleForVenue({
-    required String initialQuery,
-    required GoogleVenueSearchMode initialMode,
-  }) async {
-    final queryController = TextEditingController(text: initialQuery);
-    var searching = false;
-    var searchMode = initialMode;
-    String? error;
-    List<Map<String, dynamic>> places = [];
-
-    final selected = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            Future<void> search() async {
-              final query = queryController.text.trim();
-              if (query.length < 3) {
-                setStateDialog(() {
-                  error = 'Enter at least three characters.';
-                  places = [];
-                });
-                return;
-              }
-
-              setStateDialog(() {
-                searching = true;
-                error = null;
-              });
-
-              try {
-                final body = <String, dynamic>{
-                  'action': 'search',
-                  'clubId': widget.clubId,
-                  'query': query,
-                  'mode': searchMode == GoogleVenueSearchMode.bowlsClub
-                      ? 'bowls_club'
-                      : 'general',
-                };
-
-                final coordinates = _homeVenueCoordinates();
-                if (coordinates != null) {
-                  body.addAll(coordinates);
-                  body['radiusMetres'] = 50000;
-                }
-
-                final data = await _invokeVenuePlaces(body);
-                final rawPlaces = data['places'];
-
-                if (!dialogContext.mounted) return;
-                setStateDialog(() {
-                  places = rawPlaces is List
-                      ? rawPlaces
-                            .map(_asStringDynamicMap)
-                            .where((p) => p.isNotEmpty)
-                            .toList()
-                      : <Map<String, dynamic>>[];
-                  error = places.isEmpty
-                      ? 'No matching places were found.'
-                      : null;
-                });
-              } catch (e) {
-                if (!dialogContext.mounted) return;
-                setStateDialog(() {
-                  error = e.toString().replaceFirst('Exception: ', '');
-                  places = [];
-                });
-              } finally {
-                if (dialogContext.mounted) {
-                  setStateDialog(() => searching = false);
-                }
-              }
-            }
-
-            Future<void> choosePlace(Map<String, dynamic> place) async {
-              final placeId = place['placeId']?.toString().trim() ?? '';
-              if (placeId.isEmpty) return;
-
-              setStateDialog(() {
-                searching = true;
-                error = null;
-              });
-
-              try {
-                final data = await _invokeVenuePlaces({
-                  'action': 'details',
-                  'clubId': widget.clubId,
-                  'placeId': placeId,
-                });
-                final details = _asStringDynamicMap(data['place']);
-
-                if (!dialogContext.mounted) return;
-                Navigator.of(dialogContext).pop(details);
-              } catch (e) {
-                if (!dialogContext.mounted) return;
-                setStateDialog(() {
-                  searching = false;
-                  error = e.toString().replaceFirst('Exception: ', '');
-                });
-              }
-            }
-
-            final bowlsOnly = searchMode == GoogleVenueSearchMode.bowlsClub;
-
-            return AlertDialog(
-              title: Text(
-                bowlsOnly ? 'Search for a bowls club' : 'Search Google Places',
-              ),
-              content: SizedBox(
-                width: 620,
-                height: 520,
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: queryController,
-                      autofocus: true,
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        labelText: bowlsOnly ? 'Bowls club or area' : 'Venue or place',
-                        hintText: bowlsOnly
-                            ? 'e.g. Petts Wood'
-                            : 'e.g. Civic Hall, Bromley',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          tooltip: 'Search',
-                          onPressed: searching ? null : search,
-                          icon: const Icon(Icons.search),
-                        ),
-                      ),
-                      onSubmitted: (_) {
-                        if (!searching) search();
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: searching
-                            ? null
-                            : () {
-                                setStateDialog(() {
-                                  searchMode = bowlsOnly
-                                      ? GoogleVenueSearchMode.general
-                                      : GoogleVenueSearchMode.bowlsClub;
-                                  places = [];
-                                  error = null;
-                                });
-                              },
-                        icon: Icon(
-                          bowlsOnly ? Icons.public : Icons.sports,
-                        ),
-                        label: Text(
-                          bowlsOnly
-                              ? 'Search all venues instead'
-                              : 'Search bowls clubs only',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    if (searching) const LinearProgressIndicator(),
-                    if (error != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        error!,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: places.isEmpty
-                          ? Center(
-                              child: Text(
-                                searching
-                                    ? 'Searching…'
-                                    : bowlsOnly
-                                        ? 'Search by club name or area. Only likely lawn bowls clubs will be shown.'
-                                        : 'Search for a venue, then select the correct result.',
-                                textAlign: TextAlign.center,
-                              ),
-                            )
-                          : ListView.separated(
-                              itemCount: places.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
-                              itemBuilder: (_, index) {
-                                final place = places[index];
-                                final name = place['name']?.toString() ?? 'Unnamed place';
-                                final address = place['formattedAddress']?.toString() ?? '';
-
-                                return ListTile(
-                                  leading: const Icon(Icons.location_on_outlined),
-                                  title: Text(name),
-                                  subtitle: address.isEmpty ? null : Text(address),
-                                  onTap: searching ? null : () => choosePlace(place),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: searching
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    queryController.dispose();
-    return selected;
-  }
-
-  bool _nearbyPlaceAlreadySaved(Map<String, dynamic> place) {
-    final placeId = place['placeId']?.toString().trim();
-    final name = place['name']?.toString().trim().toLowerCase() ?? '';
-    final postcode = place['postcode']?.toString().trim().toUpperCase() ?? '';
-
-    return _opponentVenues.any((venue) {
-      final existingPlaceId = venue['google_place_id']?.toString().trim();
-      if (placeId != null &&
-          placeId.isNotEmpty &&
-          existingPlaceId == placeId) {
-        return true;
-      }
-
-      final existingName =
-          venue['name']?.toString().trim().toLowerCase() ?? '';
-      final existingPostcode =
-          venue['postcode']?.toString().trim().toUpperCase() ?? '';
-      return name.isNotEmpty &&
-          existingName == name &&
-          postcode.isNotEmpty &&
-          existingPostcode == postcode;
-    });
-  }
-
-  Future<String?> _createVenueFromGooglePlace(
-    Map<String, dynamic> place,
-  ) async {
-    final name = place['name']?.toString().trim() ?? '';
-    if (name.isEmpty) return null;
-
-    final postcode =
-        place['postcode']?.toString().trim().toUpperCase() ?? '';
-
-    final result = await _client.rpc(
-      'create_club_venue',
-      params: {
-        'p_club_id': widget.clubId,
-        'p_name': name,
-        'p_is_home_venue': false,
-        'p_address_line1':
-            place['addressLine1']?.toString().trim().isEmpty == false
-                ? place['addressLine1'].toString().trim()
-                : null,
-        'p_town_city': place['townCity']?.toString().trim().isEmpty == false
-            ? place['townCity'].toString().trim()
-            : null,
-        'p_postcode': postcode.isEmpty ? null : postcode,
-        'p_contact_phone': place['phone']?.toString().trim().isEmpty == false
-            ? place['phone'].toString().trim()
-            : null,
-        'p_latitude': place['latitude'] is num
-            ? (place['latitude'] as num).toDouble()
-            : null,
-        'p_longitude': place['longitude'] is num
-            ? (place['longitude'] as num).toDouble()
-            : null,
-        'p_directions_url': place['googleMapsUrl']?.toString(),
-        'p_google_place_id': place['placeId']?.toString(),
-        'p_website_url': place['websiteUrl']?.toString(),
-        'p_google_maps_url': place['googleMapsUrl']?.toString(),
-        'p_allow_possible_duplicate': false,
-      },
-    );
-
-    return result?.toString();
-  }
-
-  Future<int> _discoverNearbyBowlsClubs() async {
-    final coordinates = _homeVenueCoordinates();
-    if (coordinates == null) {
-      await _showSaveErrorDialog(
-        'The selected home venue needs latitude and longitude before nearby bowls clubs can be found. Edit or recreate the home venue using Google Places first.',
-      );
-      return 0;
-    }
-
-    var radiusMiles = 10;
-    var searching = false;
-    var importing = false;
-    String? error;
-    List<Map<String, dynamic>> places = [];
-    final selectedPlaceIds = <String>{};
-
-    final selectedPlaces = await showDialog<List<Map<String, dynamic>>>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            Future<void> searchNearby() async {
-              setStateDialog(() {
-                searching = true;
-                error = null;
-                places = [];
-                selectedPlaceIds.clear();
-              });
-
-              try {
-                final result = await _invokeVenuePlaces({
-                  'action': 'nearby_bowls',
-                  'clubId': widget.clubId,
-                  'latitude': coordinates['latitude'],
-                  'longitude': coordinates['longitude'],
-                  'radiusMetres': radiusMiles * 1609.344,
-                });
-
-                final rawPlaces = result['places'];
-                final found = rawPlaces is List
-                    ? rawPlaces
-                        .map(_asStringDynamicMap)
-                        .where((place) =>
-                            place['placeId']?.toString().isNotEmpty == true)
-                        .toList()
-                    : <Map<String, dynamic>>[];
-
-                setStateDialog(() {
-                  places = found;
-                  searching = false;
-                });
-              } catch (e) {
-                setStateDialog(() {
-                  searching = false;
-                  error = e.toString().replaceFirst('Exception: ', '');
-                });
-              }
-            }
-
-            final availableCount = places
-                .where((place) => !_nearbyPlaceAlreadySaved(place))
-                .length;
-
-            return AlertDialog(
-              title: const Text('Find local bowls clubs'),
-              content: SizedBox(
-                width: 720,
-                height: MediaQuery.of(context).size.height * 0.68,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Search around the selected home venue, then tick the clubs to add to this club’s external venue list.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const Text('Radius:'),
-                        const SizedBox(width: 10),
-                        DropdownButton<int>(
-                          value: radiusMiles,
-                          items: const [5, 10, 15, 20, 25, 30]
-                              .map(
-                                (miles) => DropdownMenuItem<int>(
-                                  value: miles,
-                                  child: Text('$miles miles'),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: searching || importing
-                              ? null
-                              : (value) {
-                                  if (value == null) return;
-                                  setStateDialog(() {
-                                    radiusMiles = value;
-                                    places = [];
-                                    selectedPlaceIds.clear();
-                                    error = null;
-                                  });
-                                },
-                        ),
-                        const Spacer(),
-                        FilledButton.icon(
-                          onPressed:
-                              searching || importing ? null : searchNearby,
-                          icon: const Icon(Icons.radar),
-                          label: const Text('Search'),
-                        ),
-                      ],
-                    ),
-                    if (searching) ...[
-                      const SizedBox(height: 8),
-                      const LinearProgressIndicator(),
-                    ],
-                    if (error != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: places.isEmpty
-                          ? Center(
-                              child: Text(
-                                searching
-                                    ? 'Searching nearby clubs…'
-                                    : 'Choose a radius and press Search.',
-                              ),
-                            )
-                          : ListView.separated(
-                              itemCount: places.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (_, index) {
-                                final place = places[index];
-                                final placeId =
-                                    place['placeId']?.toString() ?? '';
-                                final alreadySaved =
-                                    _nearbyPlaceAlreadySaved(place);
-                                final selected =
-                                    selectedPlaceIds.contains(placeId);
-                                final distance = place['distanceMiles'];
-                                final distanceText = distance is num
-                                    ? '${distance.toStringAsFixed(1)} miles away'
-                                    : null;
-                                final address = place['formattedAddress']
-                                        ?.toString() ??
-                                    '';
-
-                                return CheckboxListTile(
-                                  value: alreadySaved ? true : selected,
-                                  onChanged: alreadySaved || importing
-                                      ? null
-                                      : (value) {
-                                          setStateDialog(() {
-                                            if (value == true) {
-                                              selectedPlaceIds.add(placeId);
-                                            } else {
-                                              selectedPlaceIds.remove(placeId);
-                                            }
-                                          });
-                                        },
-                                  secondary: Icon(
-                                    alreadySaved
-                                        ? Icons.check_circle
-                                        : Icons.sports,
-                                  ),
-                                  title: Text(
-                                    place['name']?.toString() ??
-                                        'Unnamed bowls club',
-                                  ),
-                                  subtitle: Text(
-                                    [
-                                      if (distanceText != null) distanceText,
-                                      if (address.isNotEmpty) address,
-                                      if (alreadySaved) 'Already in venue list',
-                                    ].join('\n'),
-                                  ),
-                                  isThreeLine: alreadySaved || address.isNotEmpty,
-                                  controlAffinity:
-                                      ListTileControlAffinity.leading,
-                                );
-                              },
-                            ),
-                    ),
-                    if (places.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          '$availableCount new club${availableCount == 1 ? '' : 's'} found; '
-                          '${selectedPlaceIds.length} selected.',
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: importing
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  onPressed: importing || selectedPlaceIds.isEmpty
-                      ? null
-                      : () {
-                          final selected = places
-                              .where((place) => selectedPlaceIds.contains(
-                                    place['placeId']?.toString(),
-                                  ))
-                              .toList();
-                          Navigator.of(dialogContext).pop(selected);
-                        },
-                  icon: const Icon(Icons.playlist_add),
-                  label: Text(
-                    'Add selected (${selectedPlaceIds.length})',
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (selectedPlaces == null || selectedPlaces.isEmpty) return 0;
-
-    var created = 0;
-    final failures = <String>[];
-    for (final place in selectedPlaces) {
-      try {
-        final newId = await _createVenueFromGooglePlace(place);
-        if (newId != null) created++;
-      } catch (e) {
-        failures.add(
-          '${place['name'] ?? 'Unknown club'}: '
-          '${e.toString().replaceFirst('Exception: ', '')}',
-        );
-      }
-    }
-
-    await _loadVenues();
-
-    if (mounted) {
-      final message = failures.isEmpty
-          ? '$created bowls club${created == 1 ? '' : 's'} added.'
-          : '$created added; ${failures.length} could not be added.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    }
-
-    if (failures.isNotEmpty && mounted) {
-      await _showSaveErrorDialog(
-        'Some clubs could not be added:\n\n${failures.join('\n')}',
-      );
-    }
-
-    return created;
-  }
-
   Future<String?> _createVenueFromFixture({
     required VenueCreationType creationType,
   }) async {
     final isHomeVenue = creationType == VenueCreationType.home;
 
+    // Home venues are deliberately restricted to global superusers.
     if (isHomeVenue && !_isSuperuser) {
       await _showSaveErrorDialog(
         'Only a superuser can create a new home venue.',
@@ -2874,6 +2254,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       return null;
     }
 
+    // External/opponent venues can be created by authorised club officers.
     if (!isHomeVenue && !(_isSuperuser || _isClubAdmin || _isSelector)) {
       await _showSaveErrorDialog(
         'You do not have permission to create a venue.',
@@ -2882,214 +2263,99 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
 
     final formKey = GlobalKey<FormState>();
-    final venueNameController = TextEditingController();
-    final addressLine1Controller = TextEditingController();
-    final townCityController = TextEditingController();
-    final postcodeController = TextEditingController();
-    final phoneController = TextEditingController();
-    final websiteController = TextEditingController();
-
-    String? googlePlaceId;
-    String? googleMapsUrl;
-    double? latitude;
-    double? longitude;
-    String? formattedAddress;
+    var venueName = '';
+    var townCity = '';
+    var postcode = '';
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            Future<void> findWithGoogle() async {
-              final place = await _searchGoogleForVenue(
-                initialQuery: venueNameController.text.trim(),
-                initialMode: _isEventStyleFixture
-                    ? GoogleVenueSearchMode.general
-                    : GoogleVenueSearchMode.bowlsClub,
-              );
-              if (place == null || !dialogContext.mounted) return;
-
-              setStateDialog(() {
-                venueNameController.text = place['name']?.toString() ?? '';
-                addressLine1Controller.text =
-                    place['addressLine1']?.toString() ?? '';
-                townCityController.text = place['townCity']?.toString() ?? '';
-                postcodeController.text = place['postcode']?.toString() ?? '';
-                phoneController.text = place['phone']?.toString() ?? '';
-                websiteController.text = place['websiteUrl']?.toString() ?? '';
-
-                googlePlaceId = place['placeId']?.toString();
-                googleMapsUrl = place['googleMapsUrl']?.toString();
-                formattedAddress = place['formattedAddress']?.toString();
-
-                final rawLatitude = place['latitude'];
-                final rawLongitude = place['longitude'];
-                latitude = rawLatitude is num ? rawLatitude.toDouble() : null;
-                longitude = rawLongitude is num ? rawLongitude.toDouble() : null;
-              });
-            }
-
-            return AlertDialog(
-              title: Text(isHomeVenue ? 'Add home venue' : 'Add external venue'),
-              content: SizedBox(
-                width: 540,
-                child: Form(
-                  key: formKey,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (!isHomeVenue) ...[
-                          FilledButton.tonalIcon(
-                            onPressed: findWithGoogle,
-                            icon: const Icon(Icons.travel_explore),
-                            label: Text(
-                              _isEventStyleFixture
-                                  ? 'Find venue with Google'
-                                  : 'Find bowls club with Google',
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        TextFormField(
-                          controller: venueNameController,
-                          autofocus: isHomeVenue,
-                          textCapitalization: TextCapitalization.words,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Venue or club name',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) => value == null || value.trim().isEmpty
-                              ? 'Please enter a venue name.'
-                              : null,
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: addressLine1Controller,
-                          textCapitalization: TextCapitalization.words,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Address',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: townCityController,
-                          textCapitalization: TextCapitalization.words,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Town or city',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: postcodeController,
-                          textCapitalization: TextCapitalization.characters,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Postcode',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: phoneController,
-                          keyboardType: TextInputType.phone,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Telephone (optional)',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: websiteController,
-                          keyboardType: TextInputType.url,
-                          textInputAction: TextInputAction.done,
-                          decoration: const InputDecoration(
-                            labelText: 'Website (optional)',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        if (googlePlaceId != null && googlePlaceId!.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Icon(Icons.verified, size: 18, color: Colors.green.shade700),
-                              const SizedBox(width: 7),
-                              const Expanded(
-                                child: Text('Details loaded from Google Places.'),
-                              ),
-                            ],
-                          ),
-                          if (formattedAddress?.isNotEmpty == true) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              formattedAddress!,
-                              style: Theme.of(dialogContext).textTheme.bodySmall,
-                            ),
-                          ],
-                        ],
-                        const SizedBox(height: 12),
-                        Text(
-                          isHomeVenue
-                              ? 'Home venues are available only to this club and require superuser authority.'
-                              : 'Review and edit the details before saving this opponent or external event venue.',
-                          style: Theme.of(dialogContext).textTheme.bodySmall,
-                        ),
-                      ],
+      builder: (dialogContext) => AlertDialog(
+        title: Text(isHomeVenue ? 'Add home venue' : 'Add external venue'),
+        content: SizedBox(
+          width: 460,
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Venue or club name',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Please enter a venue name.'
+                        : null,
+                    onChanged: (value) => venueName = value,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Town or city',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => townCity = value,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    textCapitalization: TextCapitalization.characters,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Postcode',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => postcode = value,
+                    onFieldSubmitted: (_) {
+                      if (formKey.currentState?.validate() == true) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        Navigator.of(dialogContext).pop(true);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      isHomeVenue
+                          ? 'Home venues are available only to this club and require superuser authority.'
+                          : 'This will be saved as an opponent or external event venue.',
+                      style: Theme.of(dialogContext).textTheme.bodySmall,
                     ),
                   ),
-                ),
+                ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  onPressed: () {
-                    if (formKey.currentState?.validate() != true) return;
-                    FocusManager.instance.primaryFocus?.unfocus();
-                    Navigator.of(dialogContext).pop(true);
-                  },
-                  icon: const Icon(Icons.add_location_alt_outlined),
-                  label: const Text('Create venue'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(dialogContext).pop(true);
+            },
+            icon: const Icon(Icons.add_location_alt_outlined),
+            label: const Text('Create venue'),
+          ),
+        ],
+      ),
     );
 
-    if (ok != true) {
-      venueNameController.dispose();
-      addressLine1Controller.dispose();
-      townCityController.dispose();
-      postcodeController.dispose();
-      phoneController.dispose();
-      websiteController.dispose();
-      return null;
-    }
+    if (ok != true) return null;
 
-    final venueName = venueNameController.text.trim();
-    final addressLine1 = addressLine1Controller.text.trim();
-    final townCity = townCityController.text.trim();
-    final postcode = postcodeController.text.trim().toUpperCase();
-    final phone = phoneController.text.trim();
-    final websiteUrl = websiteController.text.trim();
-
-    venueNameController.dispose();
-    addressLine1Controller.dispose();
-    townCityController.dispose();
-    postcodeController.dispose();
-    phoneController.dispose();
-    websiteController.dispose();
+    venueName = venueName.trim();
+    townCity = townCity.trim();
+    postcode = postcode.trim().toUpperCase();
 
     final possibleDuplicate = _findPossibleDuplicateVenue(
       name: venueName,
@@ -3110,16 +2376,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           'p_club_id': widget.clubId,
           'p_name': venueName,
           'p_is_home_venue': isHomeVenue,
-          'p_address_line1': addressLine1.isEmpty ? null : addressLine1,
           'p_town_city': townCity.isEmpty ? null : townCity,
           'p_postcode': postcode.isEmpty ? null : postcode,
-          'p_contact_phone': phone.isEmpty ? null : phone,
-          'p_latitude': latitude,
-          'p_longitude': longitude,
-          'p_directions_url': googleMapsUrl,
-          'p_google_place_id': googlePlaceId,
-          'p_website_url': websiteUrl.isEmpty ? null : websiteUrl,
-          'p_google_maps_url': googleMapsUrl,
+          // The user has already seen and accepted the duplicate warning in
+          // this screen. The RPC still performs all permission, trimming and
+          // normalisation checks server-side.
           'p_allow_possible_duplicate': possibleDuplicate != null,
         },
       );

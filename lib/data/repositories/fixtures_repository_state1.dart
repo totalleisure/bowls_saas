@@ -51,43 +51,4 @@ class FixturesRepository {
     );
   }
 
-
-  Future<void> updateFixtureEndAt({
-    required String fixtureId,
-    required DateTime endAtUtc,
-  }) async {
-    await _client
-        .from('fixtures')
-        .update({'end_at': endAtUtc.toIso8601String()})
-        .eq('id', fixtureId);
-  }
-
-  Future<void> updateEventOfficial({
-    required String fixtureId,
-    required bool deputy,
-    required String? memberProfileId,
-  }) async {
-    final fieldName = deputy
-        ? 'vice_captain_member_profile_id'
-        : 'captain_member_profile_id';
-
-    await _client
-        .from('fixtures')
-        .update({fieldName: memberProfileId})
-        .eq('id', fixtureId);
-  }
-
-  Future<void> updateFixtureTeam({
-    required String fixtureId,
-    required String? teamId,
-    required String? teamName,
-  }) async {
-    await _client
-        .from('fixtures')
-        .update({
-          'team_id': teamId,
-          'team_name': teamName,
-        })
-        .eq('id', fixtureId);
-  }
 }

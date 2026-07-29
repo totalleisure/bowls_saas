@@ -183,37 +183,79 @@ class _CommunicationsControlCentreScreenState
     setState(() => _busyRepair = true);
 
     try {
-      final selectedRow = _selectedFixtureRow;
-      final fixture = selectedRow == null ? null : _fixtureMap(selectedRow);
-      final teamSelectionId = _teamSelectionId(selectedRow);
+      final fixtureId = _selectedFixtureId!;
+      final selectionMode = (_readiness?.diagnostics['selection_mode'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
 
-      if (fixture == null || teamSelectionId == null) {
-        throw Exception('The selected fixture is missing publication details.');
+      if (selectionMode == 'preselect') {
+        final result = await Supabase.instance.client.rpc(
+          'repair_preselect_communications',
+          params: {'p_fixture_id': fixtureId},
+        );
+
+        if (!mounted) return;
+
+        final data = result is Map
+            ? Map<String, dynamic>.from(result)
+            : <String, dynamic>{};
+
+        final inserted =
+            int.tryParse(data['notifications_inserted']?.toString() ?? '') ?? 0;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              inserted > 0
+                  ? 'Pre-Select communications repaired: '
+                        '$inserted notification(s) added.'
+                  : 'Pre-Select communications checked. '
+                        'No new notifications were required.',
+            ),
+          ),
+        );
+      } else {
+        final selectedRow = _selectedFixtureRow;
+        final fixture = selectedRow == null ? null : _fixtureMap(selectedRow);
+        final teamSelectionId = _teamSelectionId(selectedRow);
+
+        if (fixture == null || teamSelectionId == null) {
+          throw Exception(
+            'The selected fixture is missing publication details.',
+          );
+        }
+
+        final service = FixtureCommunicationsService(Supabase.instance.client);
+
+        final result = await service.repairPublicationCommunications(
+          fixture: fixture,
+          teamSelectionId: teamSelectionId,
+        );
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Communications rebuilt; team sheet attached to '
+              '${result.attachedTeamSheets} email(s).',
+            ),
+          ),
+        );
       }
 
-      final service = FixtureCommunicationsService(Supabase.instance.client);
-      final result = await service.repairPublicationCommunications(
-        fixture: fixture,
-        teamSelectionId: teamSelectionId,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Communications rebuilt; team sheet attached to '
-            '${result.attachedTeamSheets} email(s).',
-          ),
-        ),
-      );
       await _refreshSelectedFixture();
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Repair failed: $e')));
     } finally {
-      if (mounted) setState(() => _busyRepair = false);
+      if (mounted) {
+        setState(() => _busyRepair = false);
+      }
     }
   }
 
@@ -784,6 +826,13 @@ class _CommunicationsControlCentreScreenState
               runSpacing: 8,
               children: [
                 if (primaryAction != null) primaryAction,
+                if (_readiness?.hasBlockingIssues == true &&
+                    _nextStep != 'open_fixture')
+                  OutlinedButton.icon(
+                    onPressed: busy ? null : _openSelectedFixture,
+                    icon: const Icon(Icons.edit_calendar_outlined),
+                    label: const Text('Open Fixture'),
+                  ),
                 OutlinedButton.icon(
                   onPressed: _loadingHealth || _loadingReadiness || busy
                       ? null

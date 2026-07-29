@@ -20,7 +20,6 @@ import '../../core/widgets/club_member_picker_page.dart';
 import '../../features/fixtures/fixture_rsvp_section.dart';
 import '../../features/clubs/club_access.dart';
 import '../../services/fixture_readiness_service.dart';
-import '../../data/repositories/fixtures_repository.dart';
 
 String _formatLocalDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
@@ -107,10 +106,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _savingPreselect = false;
 
   final ScrollController _scrollController = ScrollController();
-  final GlobalKey _rinksSectionKey = GlobalKey();
 
   final _client = Supabase.instance.client;
-  late final FixturesRepository _fixturesRepository;
 
   List<Map<String, dynamic>> _greenAreas = [];
   String? _greenAreaId;
@@ -442,46 +439,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     _toggleHomeRinkSelection(rinkLabel);
   }
 
-  double? _anchorTop(GlobalKey key) {
-    final anchorContext = key.currentContext;
-    if (anchorContext == null) return null;
-
-    final renderObject = anchorContext.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.attached) return null;
-
-    return renderObject.localToGlobal(Offset.zero).dy;
-  }
-
-  Future<void> _refreshKeepingAnchor({
-    required GlobalKey anchorKey,
-    required Future<void> Function() refresh,
-  }) async {
-    final beforeTop = _anchorTop(anchorKey);
-
-    await refresh();
-
-    if (!mounted) return;
-
-    // Wait until every setState triggered by the refresh has completed layout.
-    await WidgetsBinding.instance.endOfFrame;
-
-    if (!mounted || !_scrollController.hasClients || beforeTop == null) return;
-
-    final afterTop = _anchorTop(anchorKey);
-    if (afterTop == null) return;
-
-    final correction = afterTop - beforeTop;
-    if (correction.abs() < 0.5) return;
-
-    final position = _scrollController.position;
-    final target = (_scrollController.offset + correction).clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-
-    _scrollController.jumpTo(target);
-  }
-
   Future<void> _moveBookedRinkToFreeRink(
     Map<String, dynamic> booked,
     String newRinkLabel,
@@ -509,18 +466,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       setState(() {
         _selectedBookedRink = null;
-        for (final rink in _memberPreselectRinks) {
-          if (rink['id']?.toString() == fixtureRinkId) {
-            rink['home_rink_label'] = newRinkLabel;
-            break;
-          }
-        }
       });
 
-      await _loadRinkAvailability(showLoading: false);
-      if (!_isEventStyleFixture) {
-        await _loadFixtureReadiness();
-      }
+      await _loadMemberPreselectData();
+      await _loadRinkAvailability();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -561,20 +510,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       setState(() {
         _selectedBookedRink = null;
-        for (final rink in _memberPreselectRinks) {
-          final id = rink['id']?.toString();
-          if (id == aId) {
-            rink['home_rink_label'] = bLabel;
-          } else if (id == bId) {
-            rink['home_rink_label'] = aLabel;
-          }
-        }
       });
 
-      await _loadRinkAvailability(showLoading: false);
-      if (!_isEventStyleFixture) {
-        await _loadFixtureReadiness();
-      }
+      await _loadMemberPreselectData();
+      await _loadRinkAvailability();
 
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1242,11 +1181,44 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final warnings = <String>[];
 
-    // Communications are now reconciled atomically by
-    // save_preselect_fixture_state. Flutter must not create or repair
-    // communication rows after the save has committed.
-    final communications = result['communications'];
-    debugPrint('PRESELECT SAVE communications=$communications');
+    // Selection-change communications
+    try {
+      final communicationsWarning = await _queuePreselectChangeNotifications(
+        result,
+      );
+
+      if (communicationsWarning != null) {
+        warnings.add(communicationsWarning);
+      }
+    } catch (e, st) {
+      debugPrint('PRESELECT COMMUNICATIONS FAILED: $e');
+      debugPrint('$st');
+
+      warnings.add(
+        'The selection was saved, but selection notifications could not be queued.',
+      );
+    }
+
+    // Marker-request communications must run independently.
+    try {
+      debugPrint(
+        'MARKER COMMUNICATIONS: calling RPC for fixture ${widget.fixtureId}',
+      );
+
+      final markerWarning = await _queueOpenMarkerRequestCommunications();
+
+      if (markerWarning != null) {
+        warnings.add(markerWarning);
+      }
+    } catch (e, st) {
+      debugPrint('MARKER COMMUNICATIONS FAILED: $e');
+      debugPrint('$st');
+
+      warnings.add(
+        'The marker request was saved, but marker volunteer notifications '
+        'could not be queued.',
+      );
+    }
 
     try {
       await _loadMemberPreselectData();
@@ -1417,19 +1389,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final assignmentRows = List<Map<String, dynamic>>.from(assignments);
 
-    final namedMarkerRinkIds = assignmentRows
-        .where((row) {
-          final position = int.tryParse((row['position'] ?? '').toString());
-
-          final memberId = row['member_profile_id']?.toString();
-
-          return position == 201 && memberId != null && memberId.isNotEmpty;
-        })
-        .map((row) => row['fixture_rink_id']?.toString())
-        .whereType<String>()
-        .where((id) => id.isNotEmpty)
-        .toSet();
-
     final openMarkerRequests = await _client
         .from('fixture_marker_requests')
         .select('fixture_rink_id')
@@ -1482,26 +1441,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       _memberPreselectRinks = rinkRows;
       _memberPreselectAssignments = assignmentRows;
 
-      debugPrint(
-        'MARKER LOAD fixture=${widget.fixtureId} '
-        'rinks=${rinkRows.map((r) => {'id': r['id'], 'team': r['fixture_rink_no'], 'required': r['marker_required']}).toList()} '
-        'openRequests=$requestedRinkIds '
-        'namedMarkers=$namedMarkerRinkIds',
-      );
-
       _markerRequiredByRinkId
         ..clear()
         ..addEntries(
-          rinkRows.map((rink) {
-            final rinkId = rink['id'].toString();
-
-            return MapEntry(
-              rinkId,
-              rink['marker_required'] == true ||
-                  requestedRinkIds.contains(rinkId) ||
-                  namedMarkerRinkIds.contains(rinkId),
-            );
-          }),
+          rinkRows.map(
+            (rink) => MapEntry(
+              rink['id'].toString(),
+              rink['marker_required'] == true,
+            ),
+          ),
         );
 
       _markerRequestByRinkId
@@ -1835,7 +1783,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _fixturesRepository = FixturesRepository(_client);
     _initPage();
   }
 
@@ -1921,10 +1868,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     });
 
     try {
-      await _fixturesRepository.updateFixtureStartAt(
-        fixtureId: widget.fixtureId,
-        startAtUtc: clubTimeToUtc(newLocal),
-      );
+      await Supabase.instance.client
+          .from('fixtures')
+          .update({'start_at': clubTimeToUtc(newLocal).toIso8601String()})
+          .eq('id', widget.fixtureId);
 
       _didChangeFixture = true;
 
@@ -2066,7 +2013,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     setState(() => _loading = true);
 
     try {
-      await _fixturesRepository.deleteFixture(widget.fixtureId);
+      await _client.rpc(
+        'delete_fixture',
+        params: {'p_fixture_id': widget.fixtureId},
+      );
 
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -2309,10 +2259,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final notes = updatedText.trim();
 
     try {
-      await _fixturesRepository.updateFixtureNotes(
-        fixtureId: widget.fixtureId,
-        notes: notes.isEmpty ? null : notes,
-      );
+      await _client
+          .from('fixtures')
+          .update({'notes': notes.isEmpty ? null : notes})
+          .eq('id', widget.fixtureId);
 
       _didChangeFixture = true;
       await _reloadPreservingScroll();
@@ -2460,11 +2410,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     try {
-      await _fixturesRepository.updateEventOfficial(
-        fixtureId: widget.fixtureId,
-        deputy: deputy,
-        memberProfileId: selectedId,
-      );
+      await _client
+          .from('fixtures')
+          .update({fieldName: selectedId})
+          .eq('id', widget.fixtureId);
 
       _didChangeFixture = true;
       await _reloadPreservingScroll();
@@ -2878,7 +2827,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
-  Future<void> _loadRinkAvailability({bool showLoading = true}) async {
+  Future<void> _loadRinkAvailability() async {
     if (_isEventStyleFixture) {
       if (!mounted) return;
       setState(() {
@@ -2897,16 +2846,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       return;
     }
 
-    if (showLoading) {
-      setState(() {
-        _loadingRinkAvailability = true;
-        _rinkAvailabilityError = null;
-      });
-    } else if (_rinkAvailabilityError != null) {
-      setState(() {
-        _rinkAvailabilityError = null;
-      });
-    }
+    setState(() {
+      _loadingRinkAvailability = true;
+      _rinkAvailabilityError = null;
+    });
 
     debugPrint(
       'RINK AVAILABILITY RPC: '
@@ -2928,10 +2871,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           'p_green_area_id': _greenAreaId,
           'p_start_at': startAtUtc,
           'p_end_at': endAtUtc,
-
-          // Include this fixture when calculating capacity.
-          // We still want to know that these rinks are already reserved.
-          'p_exclude_fixture_id': null,
+          'p_exclude_fixture_id': widget.fixtureId,
         },
       );
 
@@ -2951,7 +2891,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         _rinkAvailability = [];
       });
     } finally {
-      if (mounted && showLoading) {
+      if (mounted) {
         setState(() {
           _loadingRinkAvailability = false;
         });
@@ -3069,10 +3009,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     if (confirmed != true || !mounted) return;
 
     try {
-      await _fixturesRepository.updateFixtureEndAt(
-        fixtureId: widget.fixtureId,
-        endAtUtc: clubTimeToUtc(newEnd),
-      );
+      await Supabase.instance.client
+          .from('fixtures')
+          .update({'end_at': clubTimeToUtc(newEnd).toIso8601String()})
+          .eq('id', widget.fixtureId);
 
       if (!_isEventStyleFixture) {
         await _clearPhysicalRinkAssignments();
@@ -3270,18 +3210,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _reloadRinksPreservingScroll() async {
-    await _refreshKeepingAnchor(
-      anchorKey: _rinksSectionKey,
-      refresh: () async {
-        await _refreshFixtureRecord();
-        await _loadMemberPreselectData();
-        await _loadRinkAvailability();
+    // Keep the existing page mounted. A full loading-screen rebuild followed
+    // by jumpTo() caused the visible collapse and snap on long fixture pages.
+    await _refreshFixtureRecord();
+    await _loadMemberPreselectData();
+    await _loadRinkAvailability();
 
-        if (!_isEventStyleFixture) {
-          await _loadFixtureReadiness();
-        }
-      },
-    );
+    if (!_isEventStyleFixture) {
+      await _loadFixtureReadiness();
+    }
   }
 
   Future<void> _toggleHomeRinkSelection(String rinkLabel) async {
@@ -3300,16 +3237,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           .update({'home_rink_label': null})
           .eq('id', rink['id']);
 
-      if (!mounted) return;
-      setState(() {
-        rink['home_rink_label'] = null;
-        _selectedBookedRink = null;
-      });
-
-      await _loadRinkAvailability(showLoading: false);
-      if (!_isEventStyleFixture) {
-        await _loadFixtureReadiness();
-      }
+      await _reloadRinksPreservingScroll();
 
       return;
     }
@@ -3340,16 +3268,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         .update({'home_rink_label': label})
         .eq('id', rink['id']);
 
-    if (!mounted) return;
-    setState(() {
-      rink['home_rink_label'] = label;
-      _selectedBookedRink = null;
-    });
-
-    await _loadRinkAvailability(showLoading: false);
-    if (!_isEventStyleFixture) {
-      await _loadFixtureReadiness();
-    }
+    await _reloadRinksPreservingScroll();
   }
 
   MemberPickerSectionFilter _memberPickerSectionFilterForFixture() {
@@ -3779,10 +3698,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
             if (_isHome) ...[
               const SizedBox(height: 8),
-              KeyedSubtree(
-                key: _rinksSectionKey,
-                child: _buildRinkAvailabilityCard(embedded: true),
-              ),
+              _buildRinkAvailabilityCard(embedded: true),
             ],
           ],
         ),
@@ -3965,6 +3881,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
 
     try {
+      setState(() {
+        _loadingRinkAvailability = true;
+        _selectedBookedRink = null;
+      });
+
       await Supabase.instance.client
           .from('fixture_rinks')
           .update({'home_rink_label': null})
@@ -3972,28 +3893,25 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       _didChangeFixture = true;
 
+      await _load();
+      await _loadRinkAvailability();
+
       if (!mounted) return;
+
       setState(() {
         _selectedBookedRink = null;
-        for (final localRink in _memberPreselectRinks) {
-          if (localRink['id']?.toString() == fixtureRinkId) {
-            localRink['home_rink_label'] = null;
-            break;
-          }
-        }
+        _loadingRinkAvailability = false;
       });
 
-      await _loadRinkAvailability(showLoading: false);
-      if (!_isEventStyleFixture) {
-        await _loadFixtureReadiness();
-      }
-
-      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Rink unassigned.')));
     } catch (e) {
       if (!mounted) return;
+
+      setState(() {
+        _loadingRinkAvailability = false;
+      });
 
       ScaffoldMessenger.of(
         context,
@@ -4036,28 +3954,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final first = _rinkAvailability.first;
 
     final totalRinks = asInt(first['total_rinks'], _rinkAvailability.length);
+    final freeRinks = asInt(first['free_capacity_rinks'], totalRinks);
+    final rinksRequired =
+        int.tryParse((_fixture?['rinks_required'] ?? '').toString()) ?? 1;
 
-    final capacityBookedRinks = asInt(first['capacity_booked_rinks'], 0);
-
-    final physicallyBookedRinks = asInt(first['physically_booked_rinks'], 0);
-
-    final freeRinks = asInt(
-      first['free_capacity_rinks'],
-      totalRinks - capacityBookedRinks,
-    );
-
-    final unallocatedReservedRinks =
-        (capacityBookedRinks - physicallyBookedRinks).clamp(0, totalRinks);
-
-    // Capacity is valid when all overlapping fixture requirements fit
-    // within the physical capacity of the green.
-    final enoughRinks = capacityBookedRinks <= totalRinks;
+    final enoughRinks = freeRinks >= rinksRequired;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(10),
           margin: const EdgeInsets.only(bottom: 10),
           decoration: BoxDecoration(
             color: enoughRinks ? Colors.green.shade50 : Colors.red.shade50,
@@ -4066,61 +3973,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               color: enoughRinks ? Colors.green.shade300 : Colors.red.shade300,
             ),
           ),
-          child: Column(
-            children: [
-              Text(
-                '$freeRinks of $totalRinks rinks free',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  color: enoughRinks
-                      ? Colors.green.shade900
-                      : Colors.red.shade900,
-                ),
-              ),
-
-              const SizedBox(height: 5),
-
-              Text(
-                '$capacityBookedRinks reserved by fixtures · '
-                '$physicallyBookedRinks physically allocated',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: enoughRinks
-                      ? Colors.green.shade900
-                      : Colors.red.shade900,
-                ),
-              ),
-
-              if (unallocatedReservedRinks > 0) ...[
-                const SizedBox(height: 5),
-                Text(
-                  '$unallocatedReservedRinks reserved '
-                  '${unallocatedReservedRinks == 1 ? 'rink is' : 'rinks are'} '
-                  'still awaiting physical allocation',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.orange.shade900,
-                  ),
-                ),
-              ],
-
-              if (!enoughRinks) ...[
-                const SizedBox(height: 5),
-                Text(
-                  '${capacityBookedRinks - totalRinks} more '
-                  '${capacityBookedRinks - totalRinks == 1 ? 'rink is' : 'rinks are'} '
-                  'required than this green can provide',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.red.shade900,
-                  ),
-                ),
-              ],
-            ],
+          child: Text(
+            '$freeRinks of $totalRinks rinks free',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: enoughRinks ? Colors.green.shade900 : Colors.red.shade900,
+            ),
           ),
         ),
 
@@ -4511,14 +4370,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             !isTeamFixture &&
             !isOpenSessionFixture);
 
-    final rawIsHome = fixture['is_home'];
-
-    final isHome = switch (rawIsHome) {
-      bool value => value,
-      num value => value != 0,
-      String value => value.toLowerCase() == 'true' || value == '1',
-      _ => true,
-    };
+    final isHome = (fixture['is_home'] as bool?) ?? true;
 
     final modeLabel = isPreselectFixture
         ? 'Pre-Select'
@@ -4674,7 +4526,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ],
       ),
       body: ListView(
-        key: PageStorageKey<String>('fixture-details-${widget.fixtureId}'),
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
         children: [
@@ -4888,24 +4739,27 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                                                 .toString()
                                                 .trim();
 
-                                        await _fixturesRepository
-                                            .updateFixtureTeam(
-                                              fixtureId: widget.fixtureId,
-                                              teamId: _selectedTeamId,
-                                              teamName: selectedTeamName.isEmpty
+                                        await Supabase.instance.client
+                                            .from('fixtures')
+                                            .update({
+                                              'team_id': _selectedTeamId,
+                                              'team_name':
+                                                  selectedTeamName.isEmpty
                                                   ? null
                                                   : selectedTeamName,
-                                            );
+                                            })
+                                            .eq('id', widget.fixtureId);
                                       } else {
                                         final lbl = _teamNameCtrl.text.trim();
-                                        await _fixturesRepository
-                                            .updateFixtureTeam(
-                                              fixtureId: widget.fixtureId,
-                                              teamId: null,
-                                              teamName: lbl.isEmpty
+                                        await Supabase.instance.client
+                                            .from('fixtures')
+                                            .update({
+                                              'team_id': null,
+                                              'team_name': lbl.isEmpty
                                                   ? null
                                                   : lbl,
-                                            );
+                                            })
+                                            .eq('id', widget.fixtureId);
                                       }
 
                                       _didChangeFixture = true;
@@ -5116,10 +4970,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
             if (!_usesSimpleBookingWorkflow) ...[
               const SizedBox(height: 12),
-              KeyedSubtree(
-                key: _rinksSectionKey,
-                child: _buildRinkAvailabilityCard(),
-              ),
+              _buildRinkAvailabilityCard(),
             ],
 
             if (_canMaintainMemberPreselectFixture) ...[

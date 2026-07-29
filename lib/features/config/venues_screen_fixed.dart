@@ -1,0 +1,636 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../services/navigation_service.dart';
+import 'venue_maintain_screen.dart';
+
+class VenuesScreen extends StatefulWidget {
+  final String clubId;
+  final String clubName;
+
+  const VenuesScreen({super.key, required this.clubId, required this.clubName});
+
+  @override
+  State<VenuesScreen> createState() => _VenuesScreenState();
+}
+
+class _VenuesScreenState extends State<VenuesScreen> {
+  bool _loadingPermissions = true;
+  bool _isSuperuser = false;
+  bool _isClubAdmin = false;
+  String? _currentMemberId;
+
+  bool _loading = true;
+  String? _error;
+
+  List<Map<String, dynamic>> _venues = [];
+
+  List<Map<String, dynamic>> _allVenues = [];
+  String _searchText = '';
+
+  bool get _canManage => _isSuperuser || _isClubAdmin;
+
+  String _s(dynamic v) => (v ?? '').toString().trim();
+
+  String _buildAddress(Map<String, dynamic> venue) {
+    final parts = [
+      _s(venue['address_line1']),
+      _s(venue['address_line2']),
+      _s(venue['town_city']),
+      _s(venue['postcode']),
+    ].where((e) => e.isNotEmpty).toList();
+
+    return parts.join(', ');
+  }
+
+  Uri? _normaliseWebUri(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
+    final candidate = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+    return Uri.tryParse(candidate);
+  }
+
+  Future<void> _openWebsiteForVenue(Map<String, dynamic> venue) async {
+    final uri = _normaliseWebUri(_s(venue['website_url']));
+    if (uri == null) return;
+
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+        webOnlyWindowName: '_blank',
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Venue website launch failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open the venue website.')),
+      );
+    }
+  }
+
+  Future<void> _openMapForVenue(Map<String, dynamic> venue) async {
+    await NavigationService.navigateToVenue(
+      context: context,
+      venue: venue,
+    );
+  }
+
+  Future<void> _showVenueDetails(Map<String, dynamic> venue) async {
+    final address = _buildAddress(venue);
+    final canNavigate = NavigationService.canNavigate(venue);
+
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (detailsContext) => Scaffold(
+          appBar: AppBar(
+            title: Text(
+              _s(venue['name']).isEmpty ? 'Venue details' : _s(venue['name']),
+            ),
+            actions: [
+              if (_canManage)
+                IconButton(
+                  tooltip: 'Edit venue',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () async {
+                    final edited = await Navigator.push<bool>(
+                      detailsContext,
+                      MaterialPageRoute(
+                        builder: (_) => VenueMaintainScreen(
+                          clubId: widget.clubId,
+                          venue: venue,
+                        ),
+                      ),
+                    );
+
+                    if (edited == true && detailsContext.mounted) {
+                      Navigator.of(detailsContext).pop(true);
+                    }
+                  },
+                ),
+            ],
+          ),
+          body: SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _buildVenueInformation(
+                  venue: venue,
+                  address: address,
+                  canNavigate: canNavigate,
+                ),
+                const SizedBox(height: 20),
+                _buildNavigationPanel(
+                  venue: venue,
+                  canNavigate: canNavigate,
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (changed == true && mounted) {
+      await _load();
+    }
+  }
+
+  Widget _buildVenueInformation({
+    required Map<String, dynamic> venue,
+    required String address,
+    required bool canNavigate,
+  }) {
+    final hasContact =
+        _s(venue['contact_name']).isNotEmpty ||
+        _s(venue['contact_phone']).isNotEmpty ||
+        _s(venue['contact_email']).isNotEmpty;
+    final hasWebsite = _s(venue['website_url']).isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Chip(
+          label: Text(
+            venue['is_home_venue'] == true
+                ? 'Home venue'
+                : 'Opponent venue',
+          ),
+        ),
+        if (address.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'Address',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          SelectableText(address),
+        ],
+        if (hasContact) ...[
+          const SizedBox(height: 16),
+          const Text(
+            'Contact',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          if (_s(venue['contact_name']).isNotEmpty)
+            SelectableText(_s(venue['contact_name'])),
+          if (_s(venue['contact_phone']).isNotEmpty)
+            SelectableText(_s(venue['contact_phone'])),
+          if (_s(venue['contact_email']).isNotEmpty)
+            SelectableText(_s(venue['contact_email'])),
+        ],
+        if (hasWebsite) ...[
+          const SizedBox(height: 16),
+          const Text(
+            'Website',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          InkWell(
+            onTap: () => _openWebsiteForVenue(venue),
+            child: Text(
+              _s(venue['website_url']),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            if (hasWebsite)
+              OutlinedButton.icon(
+                onPressed: () => _openWebsiteForVenue(venue),
+                icon: const Icon(Icons.language),
+                label: const Text('Open website'),
+              ),
+            FilledButton.icon(
+              onPressed: canNavigate ? () => _openMapForVenue(venue) : null,
+              icon: const Icon(Icons.directions),
+              label: const Text('Directions'),
+            ),
+          ],
+        ),
+        if (venue['is_home_venue'] == true) ...[
+          const SizedBox(height: 24),
+          const Text(
+            'Club Officers & Key Contacts',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 12),
+          _buildClubOfficersSection(venue),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildNavigationPanel({
+    required Map<String, dynamic> venue,
+    required bool canNavigate,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            canNavigate ? Icons.navigation_outlined : Icons.location_off_outlined,
+            size: 44,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            canNavigate
+                ? 'Get driving directions from your current location.'
+                : 'This venue does not yet have enough location information for directions.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: canNavigate ? () => _openMapForVenue(venue) : null,
+            icon: const Icon(Icons.directions),
+            label: const Text('Choose navigation'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClubOfficersSection(Map<String, dynamic> venue) {
+    final officers =
+        (venue['club_officers'] as Map?)?.cast<String, dynamic>() ?? {};
+
+    const roles = [
+      ['club_president', 'Club President'],
+      ['club_secretary', 'Club Secretary'],
+      ['membership_secretary', 'Membership Secretary'],
+      ['treasurer', 'Treasurer'],
+      ['safeguarding_officer', 'Safeguarding Officer'],
+      ['club_captain', 'Club Captain'],
+      ['mens_captain', 'Club Mens Captain'],
+      ['ladies_captain', 'Club Ladies Captain'],
+      ['match_fixture_secretary', 'Match / Fixture Secretary'],
+      ['competitions_secretary', 'Competitions Secretary'],
+      ['green_keeper_facilities_manager', 'Green Keeper / Facilities Manager'],
+    ];
+
+    return Column(
+      children: roles.map((roleData) {
+        final key = roleData[0];
+        final label = roleData[1];
+
+        final officer = (officers[key] as Map?)?.cast<String, dynamic>() ?? {};
+
+        final name = _s(officer['name']);
+        final email = _s(officer['email']);
+        final phone = _s(officer['phone']);
+
+        if (name.isEmpty && email.isEmpty && phone.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+
+                const SizedBox(height: 6),
+
+                if (name.isNotEmpty) Text(name),
+                if (email.isNotEmpty) Text(email),
+                if (phone.isNotEmpty) Text(phone),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  void _applyFilter() {
+    final q = _searchText.trim().toLowerCase();
+
+    setState(() {
+      if (q.isEmpty) {
+        _venues = List<Map<String, dynamic>>.from(_allVenues);
+        return;
+      }
+
+      _venues = _allVenues.where((v) {
+        final name = (v['name'] ?? '').toString().toLowerCase();
+        final town = (v['town_city'] ?? '').toString().toLowerCase();
+        final postcode = (v['postcode'] ?? '').toString().toLowerCase();
+
+        return name.contains(q) || town.contains(q) || postcode.contains(q);
+      }).toList();
+    });
+  }
+
+  Future<void> _initScreen() async {
+    try {
+      await _loadUserPermissions();
+      await _load();
+    } catch (e, st) {
+      debugPrint('Venues init failed: $e');
+      debugPrintStack(stackTrace: st);
+
+      if (mounted) {
+        setState(() {
+          _loadingPermissions = false;
+          _loading = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> _loadUserPermissions() async {
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('No logged-in user');
+    }
+
+    final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
+
+    final superuserRow = await supabase
+        .from('app_superusers')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    _isSuperuser = superuserRow != null;
+
+    final membership = await supabase
+        .from('club_memberships')
+        .select('id, club_id, member_profile_id, role')
+        .eq('member_profile_id', myProfileId)
+        .eq('club_id', widget.clubId)
+        .maybeSingle();
+
+    debugPrint('VENUES user.id       = ${user.id}');
+    debugPrint('VENUES myProfileId   = $myProfileId');
+    debugPrint('VENUES membership    = $membership');
+
+    _currentMemberId = myProfileId;
+
+    if (membership != null) {
+      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
+      _isClubAdmin = role == 'admin';
+    } else {
+      _isClubAdmin = false;
+    }
+
+    debugPrint(
+      'Venues perms: super=$_isSuperuser '
+      'admin=$_isClubAdmin '
+      'memberId=$_currentMemberId',
+    );
+
+    if (mounted) {
+      setState(() {
+        _loadingPermissions = false;
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initScreen();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final rows = await Supabase.instance.client
+          .from('venues')
+          .select(
+            'id, club_id, name, is_home_venue, '
+            'contact_name, contact_phone, contact_email, '
+            'address_line1, address_line2, town_city, postcode, directions_url, '
+            'website_url, google_maps_url, google_place_id, latitude, longitude, '
+            'venue_master_id, club_officers',
+          )
+          .eq('club_id', widget.clubId)
+          .order('name');
+
+      _allVenues = List<Map<String, dynamic>>.from(rows)
+        ..sort((a, b) => _s(a['name']).toLowerCase().compareTo(
+          _s(b['name']).toLowerCase(),
+        ));
+      _applyFilter();
+    } catch (e) {
+      _error = '$e';
+      _allVenues = [];
+      _venues = [];
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _deleteVenue(Map<String, dynamic> venue) async {
+    final id = venue['id']?.toString();
+    final name = (venue['name'] ?? '').toString();
+
+    if (id == null || id.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete venue'),
+        content: Text(
+          'Are you sure you want to delete "$name"? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final fixtureLinks = await Supabase.instance.client
+          .from('fixtures')
+          .select('id')
+          .or('venue_id.eq.$id,opponent_venue_id.eq.$id')
+          .limit(1);
+
+      if ((fixtureLinks as List).isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'This venue cannot be deleted because it is linked to existing fixtures.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      await Supabase.instance.client.from('venues').delete().eq('id', id);
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Venue deleted ✅')));
+      }
+
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Delete venue error: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Venues — ${widget.clubName}'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh venues',
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      floatingActionButton: _canManage
+          ? FloatingActionButton(
+              onPressed: () async {
+                final changed = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VenueMaintainScreen(clubId: widget.clubId),
+                  ),
+                );
+
+                if (changed == true) {
+                  await _load();
+                }
+              },
+              child: const Icon(Icons.add),
+            )
+          : null,
+      body: (_loading || _loadingPermissions)
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(child: Text('Error: $_error'))
+          : _allVenues.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _canManage
+                      ? 'No venues yet.\nTap + to add one.'
+                      : 'No venues available.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search venues...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchText.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchText = '';
+                                _applyFilter();
+                              },
+                            ),
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onChanged: (value) {
+                      _searchText = value;
+                      _applyFilter();
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _venues.length,
+                    itemBuilder: (_, i) {
+                      final v = _venues[i];
+                      final name = (v['name'] ?? '').toString();
+                      final isHome = v['is_home_venue'] == true;
+                      final town = (v['town_city'] ?? '').toString().trim();
+                      final pc = (v['postcode'] ?? '').toString().trim();
+
+                      return ListTile(
+                        onTap: () => _showVenueDetails(v),
+                        tileColor: isHome
+                            ? Colors.green.withOpacity(0.08)
+                            : Colors.orange.withOpacity(0.08),
+                        title: Text(name),
+                        subtitle: Text(
+                          [
+                            if (isHome) 'Home venue' else 'Opponent venue',
+                            if (town.isNotEmpty) town,
+                            if (pc.isNotEmpty) pc,
+                          ].join(' • '),
+                        ),
+                        trailing: _canManage
+                            ? IconButton(
+                                tooltip: 'Delete venue',
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () => _deleteVenue(v),
+                              )
+                            : const Icon(Icons.chevron_right),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}

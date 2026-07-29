@@ -433,41 +433,9 @@ begin
     return;
   end if;
 
-  if jsonb_array_length(v_issues) > 0 then
-    return query
-    select
-      'fixture_correction_required'::text,
-      'open_fixture'::text,
-      'The fixture setup is incomplete. Correct the fixture before repairing its communications.'::text,
-      35,
-      false,
-      false,
-      false,
-      false,
-      v_issues,
-      jsonb_build_object(
-        'team_selection_id', v_team_selection_id,
-        'selection_status', v_selection_status,
-        'selection_mode', v_selection_mode,
-        'is_internal', v_is_internal,
-        'required_teams', v_required_teams,
-        'assigned_opponents', v_assigned_opponents,
-        'required_markers', v_required_markers,
-        'assigned_markers', v_assigned_markers,
-        'open_marker_requests', v_open_marker_requests,
-        'unresolved_marker_requirements', v_unresolved_marker_requirements,
-        'active_selection_without_assignment', v_active_selection_without_assignment,
-        'assignment_without_active_selection', v_assignment_without_active_selection,
-        'role_mismatches', v_role_mismatches,
-        'required_positions', v_required_positions,
-        'selected_players', v_selected_players,
-        'selected_reserves', v_selected_reserves,
-        'assigned_players', v_assigned_players,
-        'unallocated_players', v_unallocated_players,
-        'duplicate_assignments', v_duplicate_assignments
-      );
-    return;
-  end if;
+  -- A published fixture may be incomplete and still have valid current
+  -- recipients. Do not stop here: communications health must be checked
+  -- independently so missing queue rows can still be repaired.
 
   select
     coalesce(max(h.expected) filter (where h.item = 'Playing players'), 0),
@@ -530,16 +498,18 @@ begin
       false,
       false,
       false,
-      '[]'::jsonb,
+      v_issues,
       jsonb_build_object(
         'team_selection_id', v_team_selection_id,
+        'selection_mode', v_selection_mode,
+        'is_internal', v_is_internal,
         'notifications_expected', v_notifications_expected,
         'notifications_actual', v_notifications_actual,
         'emails_expected', v_emails_expected,
         'emails_actual', v_emails_actual,
         'team_sheets_expected', v_sheets_expected,
         'team_sheets_actual', v_sheets_actual
-      );
+      )
     return;
   end if;
 
@@ -554,9 +524,11 @@ begin
       true,
       false,
       false,
-      '[]'::jsonb,
+      v_issues,
       jsonb_build_object(
         'team_selection_id', v_team_selection_id,
+        'selection_mode', v_selection_mode,
+        'is_internal', v_is_internal,        
         'app_notifications_expected', v_app_expected,
         'app_notifications_actual', v_app_actual,
         'emails_expected', v_emails_expected,
@@ -576,9 +548,11 @@ begin
       true,
       false,
       false,
-      '[]'::jsonb,
+      v_issues,
       jsonb_build_object(
         'team_selection_id', v_team_selection_id,
+        'selection_mode', v_selection_mode,
+        'is_internal', v_is_internal,        
         'team_sheets_expected', v_sheets_expected,
         'team_sheets_actual', v_sheets_actual
       );
@@ -599,9 +573,11 @@ begin
       false,
       false,
       true,
-      '[]'::jsonb,
+      v_issues,
       jsonb_build_object(
         'team_selection_id', v_team_selection_id,
+        'selection_mode', v_selection_mode,
+        'is_internal', v_is_internal,        
         'emails_failed', v_emails_failed_actual
       );
     return;
@@ -619,13 +595,36 @@ begin
       false,
       true,
       false,
-      '[]'::jsonb,
+      v_issues,
       jsonb_build_object(
         'team_selection_id', v_team_selection_id,
+        'selection_mode', v_selection_mode,
+        'is_internal', v_is_internal,        
         'emails_expected', v_emails_sent_expected,
         'emails_sent', v_emails_sent_actual,
         'team_sheets_expected', v_sheets_sent_expected,
         'team_sheets_sent', v_sheets_sent_actual
+      );
+    return;
+  end if;
+
+  if jsonb_array_length(v_issues) > 0 then
+    return query
+    select
+      'fixture_correction_required'::text,
+      'open_fixture'::text,
+      'Communications are complete, but the fixture setup still needs attention.'::text,
+      95,
+      false,
+      false,
+      false,
+      false,
+      v_issues,
+      jsonb_build_object(
+        'team_selection_id', v_team_selection_id,
+        'selection_status', v_selection_status,
+        'selection_mode', v_selection_mode,
+        'communications_complete', true
       );
     return;
   end if;
@@ -643,8 +642,10 @@ begin
     '[]'::jsonb,
     jsonb_build_object(
       'team_selection_id', v_team_selection_id,
+      'selection_mode', v_selection_mode,
+      'is_internal', v_is_internal,
       'emails_sent', v_emails_sent_actual,
       'team_sheets_sent', v_sheets_sent_actual
     );
 end;
-$function$
+$function$;

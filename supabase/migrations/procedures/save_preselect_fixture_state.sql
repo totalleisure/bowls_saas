@@ -25,6 +25,7 @@ declare
   v_role_changed jsonb := '[]'::jsonb;
   v_marker_events jsonb := '[]'::jsonb;
   v_external_opponents jsonb := '[]'::jsonb;
+  v_communications jsonb := '{}'::jsonb;
 begin
   if auth.uid() is null then
     raise exception 'You must be signed in.';
@@ -677,6 +678,11 @@ begin
     on fr.id = d.fixture_rink_id
   where d.display_name is not null;
 
+  -- Communications are reconciled inside the same transaction as the save.
+  -- If reconciliation fails, the entire save is rolled back.
+  select public.reconcile_preselect_communications(p_fixture_id)
+  into v_communications;
+
   return jsonb_build_object(
     'fixture_id', p_fixture_id,
     'team_selection_id', v_team_selection_id,
@@ -686,6 +692,7 @@ begin
     'role_changed', v_role_changed,
     'marker_events', v_marker_events,
     'external_opponents', v_external_opponents,
+    'communications', coalesce(v_communications, '{}'::jsonb),
     'assignment_count', (
       select count(*)
       from preselect_desired_assignments

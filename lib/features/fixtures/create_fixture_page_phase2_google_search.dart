@@ -21,8 +21,6 @@ enum FixtureWorkflowType { rsvp, team }
 
 enum VenueCreationType { home, external }
 
-enum GoogleVenueSearchMode { bowlsClub, general }
-
 class InitialRinkBookingContext {
   const InitialRinkBookingContext({
     required this.greenAreaId,
@@ -931,14 +929,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Future<void> _loadVenues() async {
     final homeVenues = await _client
         .from('venues')
-        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id')
+        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude')
         .eq('club_id', widget.clubId)
         .eq('is_home_venue', true)
         .order('name');
 
     final opponentVenues = await _client
         .from('venues')
-        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id')
+        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude')
         .eq('club_id', widget.clubId)
         .eq('is_home_venue', false)
         .order('name');
@@ -999,22 +997,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                           ),
-                          if (canCreateVenue &&
-                              creationType == VenueCreationType.external)
-                            TextButton.icon(
-                              onPressed: () async {
-                                final imported =
-                                    await _discoverNearbyBowlsClubs();
-                                if (!sheetContext.mounted || imported == 0) {
-                                  return;
-                                }
-                                setStateSheet(() {
-                                  filtered = _sortedVenues(getVenues());
-                                });
-                              },
-                              icon: const Icon(Icons.radar),
-                              label: const Text('Find local clubs'),
-                            ),
                           if (canCreateVenue)
                             TextButton.icon(
                               onPressed: () async {
@@ -2312,11 +2294,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   Future<Map<String, dynamic>?> _searchGoogleForVenue({
     required String initialQuery,
-    required GoogleVenueSearchMode initialMode,
   }) async {
     final queryController = TextEditingController(text: initialQuery);
     var searching = false;
-    var searchMode = initialMode;
     String? error;
     List<Map<String, dynamic>> places = [];
 
@@ -2345,9 +2325,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   'action': 'search',
                   'clubId': widget.clubId,
                   'query': query,
-                  'mode': searchMode == GoogleVenueSearchMode.bowlsClub
-                      ? 'bowls_club'
-                      : 'general',
                 };
 
                 final coordinates = _homeVenueCoordinates();
@@ -2412,12 +2389,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
               }
             }
 
-            final bowlsOnly = searchMode == GoogleVenueSearchMode.bowlsClub;
-
             return AlertDialog(
-              title: Text(
-                bowlsOnly ? 'Search for a bowls club' : 'Search Google Places',
-              ),
+              title: const Text('Search Google Places'),
               content: SizedBox(
                 width: 620,
                 height: 520,
@@ -2428,10 +2401,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                       autofocus: true,
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
-                        labelText: bowlsOnly ? 'Bowls club or area' : 'Venue or place',
-                        hintText: bowlsOnly
-                            ? 'e.g. Petts Wood'
-                            : 'e.g. Civic Hall, Bromley',
+                        labelText: 'Venue or bowls club',
+                        hintText: 'e.g. Blackheath bowls club',
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
                           tooltip: 'Search',
@@ -2443,32 +2414,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                         if (!searching) search();
                       },
                     ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: searching
-                            ? null
-                            : () {
-                                setStateDialog(() {
-                                  searchMode = bowlsOnly
-                                      ? GoogleVenueSearchMode.general
-                                      : GoogleVenueSearchMode.bowlsClub;
-                                  places = [];
-                                  error = null;
-                                });
-                              },
-                        icon: Icon(
-                          bowlsOnly ? Icons.public : Icons.sports,
-                        ),
-                        label: Text(
-                          bowlsOnly
-                              ? 'Search all venues instead'
-                              : 'Search bowls clubs only',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 12),
                     if (searching) const LinearProgressIndicator(),
                     if (error != null) ...[
                       const SizedBox(height: 10),
@@ -2484,9 +2430,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               child: Text(
                                 searching
                                     ? 'Searching…'
-                                    : bowlsOnly
-                                        ? 'Search by club name or area. Only likely lawn bowls clubs will be shown.'
-                                        : 'Search for a venue, then select the correct result.',
+                                    : 'Search for a venue, then select the correct result.',
                                 textAlign: TextAlign.center,
                               ),
                             )
@@ -2526,340 +2470,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     queryController.dispose();
     return selected;
-  }
-
-  bool _nearbyPlaceAlreadySaved(Map<String, dynamic> place) {
-    final placeId = place['placeId']?.toString().trim();
-    final name = place['name']?.toString().trim().toLowerCase() ?? '';
-    final postcode = place['postcode']?.toString().trim().toUpperCase() ?? '';
-
-    return _opponentVenues.any((venue) {
-      final existingPlaceId = venue['google_place_id']?.toString().trim();
-      if (placeId != null &&
-          placeId.isNotEmpty &&
-          existingPlaceId == placeId) {
-        return true;
-      }
-
-      final existingName =
-          venue['name']?.toString().trim().toLowerCase() ?? '';
-      final existingPostcode =
-          venue['postcode']?.toString().trim().toUpperCase() ?? '';
-      return name.isNotEmpty &&
-          existingName == name &&
-          postcode.isNotEmpty &&
-          existingPostcode == postcode;
-    });
-  }
-
-  Future<String?> _createVenueFromGooglePlace(
-    Map<String, dynamic> place,
-  ) async {
-    final name = place['name']?.toString().trim() ?? '';
-    if (name.isEmpty) return null;
-
-    final postcode =
-        place['postcode']?.toString().trim().toUpperCase() ?? '';
-
-    final result = await _client.rpc(
-      'create_club_venue',
-      params: {
-        'p_club_id': widget.clubId,
-        'p_name': name,
-        'p_is_home_venue': false,
-        'p_address_line1':
-            place['addressLine1']?.toString().trim().isEmpty == false
-                ? place['addressLine1'].toString().trim()
-                : null,
-        'p_town_city': place['townCity']?.toString().trim().isEmpty == false
-            ? place['townCity'].toString().trim()
-            : null,
-        'p_postcode': postcode.isEmpty ? null : postcode,
-        'p_contact_phone': place['phone']?.toString().trim().isEmpty == false
-            ? place['phone'].toString().trim()
-            : null,
-        'p_latitude': place['latitude'] is num
-            ? (place['latitude'] as num).toDouble()
-            : null,
-        'p_longitude': place['longitude'] is num
-            ? (place['longitude'] as num).toDouble()
-            : null,
-        'p_directions_url': place['googleMapsUrl']?.toString(),
-        'p_google_place_id': place['placeId']?.toString(),
-        'p_website_url': place['websiteUrl']?.toString(),
-        'p_google_maps_url': place['googleMapsUrl']?.toString(),
-        'p_allow_possible_duplicate': false,
-      },
-    );
-
-    return result?.toString();
-  }
-
-  Future<int> _discoverNearbyBowlsClubs() async {
-    final coordinates = _homeVenueCoordinates();
-    if (coordinates == null) {
-      await _showSaveErrorDialog(
-        'The selected home venue needs latitude and longitude before nearby bowls clubs can be found. Edit or recreate the home venue using Google Places first.',
-      );
-      return 0;
-    }
-
-    var radiusMiles = 10;
-    var searching = false;
-    var importing = false;
-    String? error;
-    List<Map<String, dynamic>> places = [];
-    final selectedPlaceIds = <String>{};
-
-    final selectedPlaces = await showDialog<List<Map<String, dynamic>>>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            Future<void> searchNearby() async {
-              setStateDialog(() {
-                searching = true;
-                error = null;
-                places = [];
-                selectedPlaceIds.clear();
-              });
-
-              try {
-                final result = await _invokeVenuePlaces({
-                  'action': 'nearby_bowls',
-                  'clubId': widget.clubId,
-                  'latitude': coordinates['latitude'],
-                  'longitude': coordinates['longitude'],
-                  'radiusMetres': radiusMiles * 1609.344,
-                });
-
-                final rawPlaces = result['places'];
-                final found = rawPlaces is List
-                    ? rawPlaces
-                        .map(_asStringDynamicMap)
-                        .where((place) =>
-                            place['placeId']?.toString().isNotEmpty == true)
-                        .toList()
-                    : <Map<String, dynamic>>[];
-
-                setStateDialog(() {
-                  places = found;
-                  searching = false;
-                });
-              } catch (e) {
-                setStateDialog(() {
-                  searching = false;
-                  error = e.toString().replaceFirst('Exception: ', '');
-                });
-              }
-            }
-
-            final availableCount = places
-                .where((place) => !_nearbyPlaceAlreadySaved(place))
-                .length;
-
-            return AlertDialog(
-              title: const Text('Find local bowls clubs'),
-              content: SizedBox(
-                width: 720,
-                height: MediaQuery.of(context).size.height * 0.68,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Search around the selected home venue, then tick the clubs to add to this club’s external venue list.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const Text('Radius:'),
-                        const SizedBox(width: 10),
-                        DropdownButton<int>(
-                          value: radiusMiles,
-                          items: const [5, 10, 15, 20, 25, 30]
-                              .map(
-                                (miles) => DropdownMenuItem<int>(
-                                  value: miles,
-                                  child: Text('$miles miles'),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: searching || importing
-                              ? null
-                              : (value) {
-                                  if (value == null) return;
-                                  setStateDialog(() {
-                                    radiusMiles = value;
-                                    places = [];
-                                    selectedPlaceIds.clear();
-                                    error = null;
-                                  });
-                                },
-                        ),
-                        const Spacer(),
-                        FilledButton.icon(
-                          onPressed:
-                              searching || importing ? null : searchNearby,
-                          icon: const Icon(Icons.radar),
-                          label: const Text('Search'),
-                        ),
-                      ],
-                    ),
-                    if (searching) ...[
-                      const SizedBox(height: 8),
-                      const LinearProgressIndicator(),
-                    ],
-                    if (error != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: places.isEmpty
-                          ? Center(
-                              child: Text(
-                                searching
-                                    ? 'Searching nearby clubs…'
-                                    : 'Choose a radius and press Search.',
-                              ),
-                            )
-                          : ListView.separated(
-                              itemCount: places.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (_, index) {
-                                final place = places[index];
-                                final placeId =
-                                    place['placeId']?.toString() ?? '';
-                                final alreadySaved =
-                                    _nearbyPlaceAlreadySaved(place);
-                                final selected =
-                                    selectedPlaceIds.contains(placeId);
-                                final distance = place['distanceMiles'];
-                                final distanceText = distance is num
-                                    ? '${distance.toStringAsFixed(1)} miles away'
-                                    : null;
-                                final address = place['formattedAddress']
-                                        ?.toString() ??
-                                    '';
-
-                                return CheckboxListTile(
-                                  value: alreadySaved ? true : selected,
-                                  onChanged: alreadySaved || importing
-                                      ? null
-                                      : (value) {
-                                          setStateDialog(() {
-                                            if (value == true) {
-                                              selectedPlaceIds.add(placeId);
-                                            } else {
-                                              selectedPlaceIds.remove(placeId);
-                                            }
-                                          });
-                                        },
-                                  secondary: Icon(
-                                    alreadySaved
-                                        ? Icons.check_circle
-                                        : Icons.sports,
-                                  ),
-                                  title: Text(
-                                    place['name']?.toString() ??
-                                        'Unnamed bowls club',
-                                  ),
-                                  subtitle: Text(
-                                    [
-                                      if (distanceText != null) distanceText,
-                                      if (address.isNotEmpty) address,
-                                      if (alreadySaved) 'Already in venue list',
-                                    ].join('\n'),
-                                  ),
-                                  isThreeLine: alreadySaved || address.isNotEmpty,
-                                  controlAffinity:
-                                      ListTileControlAffinity.leading,
-                                );
-                              },
-                            ),
-                    ),
-                    if (places.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          '$availableCount new club${availableCount == 1 ? '' : 's'} found; '
-                          '${selectedPlaceIds.length} selected.',
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: importing
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  onPressed: importing || selectedPlaceIds.isEmpty
-                      ? null
-                      : () {
-                          final selected = places
-                              .where((place) => selectedPlaceIds.contains(
-                                    place['placeId']?.toString(),
-                                  ))
-                              .toList();
-                          Navigator.of(dialogContext).pop(selected);
-                        },
-                  icon: const Icon(Icons.playlist_add),
-                  label: Text(
-                    'Add selected (${selectedPlaceIds.length})',
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (selectedPlaces == null || selectedPlaces.isEmpty) return 0;
-
-    var created = 0;
-    final failures = <String>[];
-    for (final place in selectedPlaces) {
-      try {
-        final newId = await _createVenueFromGooglePlace(place);
-        if (newId != null) created++;
-      } catch (e) {
-        failures.add(
-          '${place['name'] ?? 'Unknown club'}: '
-          '${e.toString().replaceFirst('Exception: ', '')}',
-        );
-      }
-    }
-
-    await _loadVenues();
-
-    if (mounted) {
-      final message = failures.isEmpty
-          ? '$created bowls club${created == 1 ? '' : 's'} added.'
-          : '$created added; ${failures.length} could not be added.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    }
-
-    if (failures.isNotEmpty && mounted) {
-      await _showSaveErrorDialog(
-        'Some clubs could not be added:\n\n${failures.join('\n')}',
-      );
-    }
-
-    return created;
   }
 
   Future<String?> _createVenueFromFixture({
@@ -2903,9 +2513,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
             Future<void> findWithGoogle() async {
               final place = await _searchGoogleForVenue(
                 initialQuery: venueNameController.text.trim(),
-                initialMode: _isEventStyleFixture
-                    ? GoogleVenueSearchMode.general
-                    : GoogleVenueSearchMode.bowlsClub,
               );
               if (place == null || !dialogContext.mounted) return;
 
@@ -2944,11 +2551,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           FilledButton.tonalIcon(
                             onPressed: findWithGoogle,
                             icon: const Icon(Icons.travel_explore),
-                            label: Text(
-                              _isEventStyleFixture
-                                  ? 'Find venue with Google'
-                                  : 'Find bowls club with Google',
-                            ),
+                            label: const Text('Find venue with Google'),
                           ),
                           const SizedBox(height: 12),
                         ],

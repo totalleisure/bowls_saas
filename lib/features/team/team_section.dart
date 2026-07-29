@@ -289,6 +289,7 @@ class _TeamSectionState extends State<TeamSection> {
 
             if (hasSelection) ...[
               ExpansionTile(
+                key: const PageStorageKey<String>('team-section-players'),
                 title: Text('Players (${_players.length})'),
                 initiallyExpanded: true,
                 children: _players.isEmpty
@@ -298,6 +299,7 @@ class _TeamSectionState extends State<TeamSection> {
 
               if (isPreselectFixture)
                 ExpansionTile(
+                  key: const PageStorageKey<String>('team-section-opponents'),
                   title: Text('Opponents (${_opponents.length})'),
                   children: _opponents.isEmpty
                       ? [const ListTile(title: Text('None'))]
@@ -306,6 +308,7 @@ class _TeamSectionState extends State<TeamSection> {
 
               if (isPreselectFixture)
                 ExpansionTile(
+                  key: const PageStorageKey<String>('team-section-markers'),
                   title: Text('Markers (${_markers.length})'),
                   children: _markers.isEmpty
                       ? [const ListTile(title: Text('None'))]
@@ -314,6 +317,7 @@ class _TeamSectionState extends State<TeamSection> {
 
               if (!isPreselectFixture)
                 ExpansionTile(
+                  key: const PageStorageKey<String>('team-section-reserves'),
                   title: Text('Reserves (${_reserves.length}/3)'),
                   children: _reserves.isEmpty
                       ? [const ListTile(title: Text('None'))]
