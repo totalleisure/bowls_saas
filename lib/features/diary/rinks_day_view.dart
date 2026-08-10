@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/date_format.dart';
 
 import '../fixtures/create_fixture_page.dart';
+import '../fixtures/fixture_details_page.dart';
 
 /// Primary operational Rinks Day view.
 ///
@@ -225,6 +226,25 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     _loadDay();
   }
 
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(_selectedDate.year - 3),
+      lastDate: DateTime(_selectedDate.year + 3),
+      helpText: 'Choose rinks date',
+    );
+
+    if (picked == null) return;
+    if (!mounted) return;
+
+    setState(() {
+      _selectedDate = DateTime(picked.year, picked.month, picked.day);
+    });
+
+    await _loadDay();
+  }
+
   int _maxConcurrentAssignments(
     List<RinkAssignmentBlock> assignments,
     RinkBlockStatus status,
@@ -335,9 +355,25 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
       final rinks = _buildRinksFromGreen(green);
       final sunsetWindow = _calculateSunsetWindowForGreen(green, dayStart);
 
+      final greenAreaId = green['id']?.toString();
+
+      if (greenAreaId == null || greenAreaId.isEmpty) {
+        throw Exception('Green area is missing its ID');
+      }
+
       final fixtures = await _loadHomeFixturesForDay(dayStart, dayEnd);
 
-      final assignments = _mapAssignments(fixtures);
+      final maintenanceRows = await _loadMaintenanceForDay(
+        dayStart,
+        dayEnd,
+        greenAreaId,
+      );
+
+      final assignments = <RinkAssignmentBlock>[
+        ..._mapAssignments(fixtures),
+        ..._mapMaintenance(maintenanceRows, rinks),
+      ];
+
       final unassigned = _mapUnassigned(fixtures);
 
       if (!mounted) return;
@@ -529,6 +565,83 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     return List<Map<String, dynamic>>.from(res);
   }
 
+  Future<List<Map<String, dynamic>>> _loadMaintenanceForDay(
+    DateTime dayStart,
+    DateTime dayEnd,
+    String greenAreaId,
+  ) async {
+    final res = await _client
+        .from('green_rink_maintenance')
+        .select('''
+          id,
+          green_area_id,
+          rink_number,
+          start_at,
+          end_at,
+          reason,
+          notes,
+          status
+        ''')
+        .eq('green_area_id', greenAreaId)
+        .eq('status', 'active')
+        .lt('start_at', clubTimeToUtc(dayEnd).toIso8601String())
+        .gt('end_at', clubTimeToUtc(dayStart).toIso8601String())
+        .order('start_at');
+
+    return List<Map<String, dynamic>>.from(res);
+  }
+
+  List<RinkAssignmentBlock> _mapMaintenance(
+    List<Map<String, dynamic>> rows,
+    List<RinkLane> rinks,
+  ) {
+    final blocks = <RinkAssignmentBlock>[];
+
+    final rinksByNumber = <String, RinkLane>{
+      for (final rink in rinks) rink.id: rink,
+    };
+
+    for (final row in rows) {
+      final rinkNumber = row['rink_number']?.toString();
+      if (rinkNumber == null || rinkNumber.isEmpty) continue;
+
+      final rink = rinksByNumber[rinkNumber];
+      if (rink == null) continue;
+
+      final startValue = row['start_at']?.toString();
+      final endValue = row['end_at']?.toString();
+
+      if (startValue == null ||
+          startValue.isEmpty ||
+          endValue == null ||
+          endValue.isEmpty) {
+        continue;
+      }
+
+      final startAt = parseClubTime(startValue);
+      final endAt = parseClubTime(endValue);
+
+      final rawReason = (row['reason'] ?? '').toString().trim();
+      final reason = rawReason.isEmpty ? 'Maintenance' : rawReason;
+
+      blocks.add(
+        RinkAssignmentBlock(
+          fixtureId: '',
+          rinkLabel: rink.label,
+          title: reason,
+          startAt: startAt,
+          endAt: endAt,
+          status: RinkBlockStatus.blocked,
+          color: const Color(0xFFFEE2E2),
+          textColor: const Color(0xFF991B1B),
+          isMine: false,
+        ),
+      );
+    }
+
+    return blocks;
+  }
+
   String _fixtureBlockTitle(Map<String, dynamic> fixture) {
     final competitionType =
         fixture['competition_types'] as Map<String, dynamic>?;
@@ -609,14 +722,15 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
         final rinkLabel = (rink['home_rink_label'] ?? '').toString().trim();
 
+        final fixtureId = fixture['id']?.toString() ?? '';
+
         if (rinkLabel.isEmpty) continue;
 
         blocks.add(
           RinkAssignmentBlock(
-            id: '${fixture['id']}-${rink['id']}',
+            fixtureId: fixtureId,
             rinkLabel: rinkLabel,
             title: title,
-            subtitle: '',
             startAt: startAt,
             endAt: endAt,
             status: RinkBlockStatus.confirmed,
@@ -723,6 +837,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
               sunsetWindow: _sunsetWindow,
               onPrevious: () => _moveDay(-1),
               onNext: () => _moveDay(1),
+              onPickDate: _pickDate,
               density: _density,
               onDensityChanged: (value) {
                 setState(() => _density = value);
@@ -1116,10 +1231,27 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     return hourCount * _hourWidthForAvailableWidth(availableTimelineWidth);
   }
 
-  void _openBlock(RinkAssignmentBlock block) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(block.title)));
+  Future<void> _openBlock(RinkAssignmentBlock block) async {
+    final fixtureId = block.fixtureId;
+
+    if (fixtureId.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(block.title)));
+      return;
+    }
+
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => FixtureDetailsPage(fixtureId: fixtureId),
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (changed == true) {
+      _loadDay();
+    }
   }
 
   void _bookFixtureFromSlot(RinkEmptySlot slot) {
@@ -1179,6 +1311,515 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
             _loadDay();
           }
         });
+  }
+
+  Future<void> _bookMaintenanceFromSlot(RinkEmptySlot slot) async {
+    final green = _selectedGreen;
+
+    if (green == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cannot create maintenance because the green has not loaded.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final greenAreaId = green['id']?.toString();
+
+    if (greenAreaId == null || greenAreaId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cannot create maintenance because the green is missing its ID.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    RinkLane? selectedRink;
+
+    for (final rink in _rinks) {
+      if (rink.label == slot.rinkLabel) {
+        selectedRink = rink;
+        break;
+      }
+    }
+
+    if (selectedRink == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not identify physical rink ${slot.rinkLabel}.'),
+        ),
+      );
+      return;
+    }
+
+    final rinkNumber = int.tryParse(selectedRink.id);
+
+    if (rinkNumber == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not identify the rink number for ${slot.rinkLabel}.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    //
+    // IMPORTANT:
+    // Maintenance defaults to the WHOLE AVAILABLE GAP,
+    // not the suggested two-hour fixture period.
+    //
+    DateTime startAt = slot.startAt;
+    DateTime endAt = slot.endAt;
+
+    final reasonController = TextEditingController(text: 'Maintenance');
+    final notesController = TextEditingController();
+
+    var impacts = <Map<String, dynamic>>[];
+    String? errorText;
+    var saving = false;
+    var saved = false;
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return StatefulBuilder(
+            builder: (sheetContext, setSheetState) {
+              Future<void> chooseStartTime() async {
+                final picked = await showTimePicker(
+                  context: sheetContext,
+                  initialTime: TimeOfDay(
+                    hour: startAt.hour,
+                    minute: startAt.minute,
+                  ),
+                  helpText: 'Maintenance start time',
+                );
+
+                if (picked == null || !sheetContext.mounted) return;
+
+                setSheetState(() {
+                  startAt = DateTime(
+                    _selectedDate.year,
+                    _selectedDate.month,
+                    _selectedDate.day,
+                    picked.hour,
+                    picked.minute,
+                  );
+
+                  impacts = [];
+                  errorText = null;
+                });
+              }
+
+              Future<void> chooseEndTime() async {
+                final picked = await showTimePicker(
+                  context: sheetContext,
+                  initialTime: TimeOfDay(
+                    hour: endAt.hour,
+                    minute: endAt.minute,
+                  ),
+                  helpText: 'Maintenance end time',
+                );
+
+                if (picked == null || !sheetContext.mounted) return;
+
+                setSheetState(() {
+                  endAt = DateTime(
+                    _selectedDate.year,
+                    _selectedDate.month,
+                    _selectedDate.day,
+                    picked.hour,
+                    picked.minute,
+                  );
+
+                  impacts = [];
+                  errorText = null;
+                });
+              }
+
+              Future<void> saveMaintenance() async {
+                if (saving) return;
+
+                if (!endAt.isAfter(startAt)) {
+                  setSheetState(() {
+                    errorText =
+                        'The maintenance end time must be after the start time.';
+                    impacts = [];
+                  });
+                  return;
+                }
+
+                setSheetState(() {
+                  saving = true;
+                  errorText = null;
+                  impacts = [];
+                });
+
+                try {
+                  final startUtc = clubTimeToUtc(startAt);
+                  final endUtc = clubTimeToUtc(endAt);
+
+                  //
+                  // First show the administrator any consequences.
+                  //
+                  final result = await _client.rpc(
+                    'get_green_maintenance_impacts',
+                    params: {
+                      'p_green_area_id': greenAreaId,
+                      'p_rink_labels': [slot.rinkLabel],
+                      'p_start_at': startUtc.toIso8601String(),
+                      'p_end_at': endUtc.toIso8601String(),
+                    },
+                  );
+
+                  final rawRows = result is List ? result : const [];
+
+                  final foundImpacts = rawRows
+                      .map((row) => Map<String, dynamic>.from(row as Map))
+                      .toList();
+
+                  if (!sheetContext.mounted) return;
+
+                  if (foundImpacts.isNotEmpty) {
+                    setSheetState(() {
+                      impacts = foundImpacts;
+                      saving = false;
+                    });
+                    return;
+                  }
+
+                  //
+                  // No impacts found.
+                  // The SAFE RPC performs the same check again on the server
+                  // immediately before inserting.
+                  //
+                  final reason = reasonController.text.trim();
+                  final notes = notesController.text.trim();
+
+                  await _client.rpc(
+                    'create_green_rink_maintenance_safe',
+                    params: {
+                      'p_green_area_id': greenAreaId,
+                      'p_rink_number': rinkNumber,
+                      'p_start_at': startUtc.toIso8601String(),
+                      'p_end_at': endUtc.toIso8601String(),
+                      'p_reason': reason.isEmpty ? 'Maintenance' : reason,
+                      'p_notes': notes.isEmpty ? null : notes,
+                    },
+                  );
+
+                  saved = true;
+
+                  if (sheetContext.mounted) {
+                    Navigator.of(sheetContext).pop();
+                  }
+                } catch (e) {
+                  if (!sheetContext.mounted) return;
+
+                  final rawError = e.toString();
+
+                  setSheetState(() {
+                    saving = false;
+
+                    if (rawError.contains('MAINTENANCE_IMPACT')) {
+                      errorText =
+                          'The rink situation changed while saving. '
+                          'Please check the maintenance period again.';
+                    } else {
+                      errorText = 'Could not save maintenance: $rawError';
+                    }
+                  });
+                }
+              }
+
+              final maintenanceDuration = endAt.difference(startAt);
+
+              return SafeArea(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    8,
+                    16,
+                    16 + MediaQuery.of(sheetContext).viewInsets.bottom,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.construction,
+                            color: Color(0xFF991B1B),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Rink Maintenance — ${slot.rinkLabel}',
+                              style: Theme.of(sheetContext).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 4),
+
+                      Text(
+                        _prettyDate(_selectedDate),
+                        style: const TextStyle(
+                          color: Color(0xFF6B7280),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF9FAFB),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFD1D5DB)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Available gap',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${_timeLabel(slot.startAt)} – '
+                              '${_timeLabel(slot.endAt)}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'The maintenance period has been defaulted '
+                              'to this whole available gap.',
+                              style: TextStyle(color: Color(0xFF6B7280)),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: saving ? null : chooseStartTime,
+                              icon: const Icon(Icons.schedule),
+                              label: Text('From ${_timeLabel(startAt)}'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: saving ? null : chooseEndTime,
+                              icon: const Icon(Icons.schedule),
+                              label: Text('Until ${_timeLabel(endAt)}'),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 6),
+
+                      Text(
+                        endAt.isAfter(startAt)
+                            ? 'Duration: ${_durationLabel(maintenanceDuration)}'
+                            : 'Invalid maintenance period',
+                        style: TextStyle(
+                          color: endAt.isAfter(startAt)
+                              ? const Color(0xFF374151)
+                              : const Color(0xFFB91C1C),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      TextField(
+                        controller: reasonController,
+                        enabled: !saving,
+                        decoration: const InputDecoration(
+                          labelText: 'Reason',
+                          hintText: 'Maintenance',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: notesController,
+                        enabled: !saving,
+                        minLines: 2,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: 'Notes (optional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+
+                      if (impacts.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF7ED),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFF59E0B)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.warning_amber,
+                                    color: Color(0xFFB45309),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'This maintenance period affects '
+                                      '${impacts.length} existing '
+                                      'rink commitment'
+                                      '${impacts.length == 1 ? '' : 's'}.',
+                                      style: const TextStyle(
+                                        color: Color(0xFF92400E),
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+
+                              for (final impact in impacts.take(4))
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Text(
+                                    '• ${(impact['title'] ?? 'Booking').toString()}'
+                                    '${(impact['impact_reason'] ?? '').toString().trim().isEmpty ? '' : '\n  ${(impact['impact_reason']).toString()}'}',
+                                    style: const TextStyle(
+                                      color: Color(0xFF78350F),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+
+                              if (impacts.length > 4)
+                                Text(
+                                  '…and ${impacts.length - 4} more.',
+                                  style: const TextStyle(
+                                    color: Color(0xFF78350F),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+
+                              const SizedBox(height: 6),
+
+                              const Text(
+                                'Adjust the times to remove the conflict. '
+                                'More complex cases will be handled by '
+                                'Green Maintenance.',
+                                style: TextStyle(color: Color(0xFF92400E)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      if (errorText != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          errorText!,
+                          style: const TextStyle(
+                            color: Color(0xFFB91C1C),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 18),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.of(sheetContext).pop(),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: saving ? null : saveMaintenance,
+                              icon: saving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.construction),
+                              label: Text(
+                                saving ? 'Checking...' : 'Book Maintenance',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      reasonController.dispose();
+      notesController.dispose();
+    }
+
+    if (!mounted || !saved) return;
+
+    await _loadDay();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Maintenance booked: ${slot.rinkLabel} '
+          '${_timeLabel(startAt)}–${_timeLabel(endAt)}.',
+        ),
+      ),
+    );
   }
 
   void _showSunsetCutoffMessage() {
@@ -1366,13 +2007,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                             label: const Text('Maintenance'),
                             onPressed: () {
                               Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Maintenance booking coming next.',
-                                  ),
-                                ),
-                              );
+
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (!mounted) return;
+                                _bookMaintenanceFromSlot(slot);
+                              });
                             },
                           ),
                         ),
@@ -1394,6 +2033,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     );
   }
 
+  /*  
   List<RinkLane> _mockRinks() => const [
     RinkLane(id: '1', label: 'R1'),
     RinkLane(id: '2', label: 'R2'),
@@ -1408,7 +2048,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
     return [
       RinkAssignmentBlock(
-        id: 'a1',
+        
         rinkLabel: 'R1',
         title: 'Bromley ✓',
         subtitle: 'League Match',
@@ -1465,6 +2105,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     ];
   }
 
+*/
+
   List<UnassignedRinkNeed> _mockUnassigned(DateTime day) {
     DateTime at(int h, int m) => DateTime(day.year, day.month, day.day, h, m);
 
@@ -1491,22 +2133,20 @@ class RinkLane {
 
 class RinkAssignmentBlock {
   const RinkAssignmentBlock({
-    required this.id,
+    required this.fixtureId,
     required this.rinkLabel,
     required this.title,
-    required this.subtitle,
     required this.startAt,
     required this.endAt,
     required this.status,
     required this.color,
     required this.textColor,
-    this.isMine = false,
+    required this.isMine,
   });
 
-  final String id;
+  final String fixtureId;
   final String rinkLabel;
   final String title;
-  final String subtitle;
   final DateTime startAt;
   final DateTime endAt;
   final RinkBlockStatus status;
@@ -1542,6 +2182,7 @@ class _RinksHeader extends StatelessWidget {
     required this.sunsetWindow,
     required this.onPrevious,
     required this.onNext,
+    required this.onPickDate,
     required this.density,
     required this.onDensityChanged,
   });
@@ -1551,6 +2192,7 @@ class _RinksHeader extends StatelessWidget {
   final SunsetBookingWindow? sunsetWindow;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
+  final VoidCallback onPickDate;
   final RinksTimelineDensity density;
   final ValueChanged<RinksTimelineDensity> onDensityChanged;
 
@@ -1667,9 +2309,9 @@ class _RinksHeader extends StatelessWidget {
           tooltip: 'Next day',
         ),
         IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.calendar_view_month),
-          tooltip: 'Change view',
+          onPressed: onPickDate,
+          icon: const Icon(Icons.calendar_month),
+          tooltip: 'Pick date',
         ),
       ],
     );

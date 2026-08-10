@@ -22,10 +22,15 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
   String? _lastNotificationError;
   String? _lastEmailError;
 
+  bool _loadingNotificationCron = true;
+  bool _notificationCronActive = false;
+  bool _busyNotificationCron = false;
+
   @override
   void initState() {
     super.initState();
     _loadStats();
+    _loadNotificationCronStatus();
   }
 
   Future<bool> _isSuperuser() async {
@@ -42,64 +47,128 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
     return row != null;
   }
 
+  Future<void> _loadNotificationCronStatus() async {
+    setState(() => _loadingNotificationCron = true);
+
+    try {
+      final result = await Supabase.instance.client.rpc(
+        'get_notification_queue_cron_status',
+      );
+
+      final status = result is Map
+          ? Map<String, dynamic>.from(result)
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+
+      setState(() {
+        _notificationCronActive = status['active'] == true;
+        _loadingNotificationCron = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => _loadingNotificationCron = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not load automatic processing status: $e'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _setNotificationCronEnabled(bool enabled) async {
+    if (!await _isSuperuser()) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Superuser access required.')),
+      );
+      return;
+    }
+
+    setState(() => _busyNotificationCron = true);
+
+    try {
+      await Supabase.instance.client.rpc(
+        'set_notification_queue_cron_enabled',
+        params: {'p_enabled': enabled},
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _notificationCronActive = enabled;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Automatic notification processing resumed.'
+                : 'Automatic notification processing paused.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not ${enabled ? 'resume' : 'pause'} '
+            'automatic processing: $e',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busyNotificationCron = false);
+      }
+    }
+  }
+
   Future<void> _loadStats() async {
     setState(() => _loadingStats = true);
 
     try {
-      final client = Supabase.instance.client;
+      final result = await Supabase.instance.client.rpc(
+        'get_queue_admin_stats',
+      );
 
-      final notificationRows = await client
-          .from('notification_queue')
-          .select('status, last_error')
-          .limit(500);
-
-      final emailRows = await client
-          .from('email_queue')
-          .select('status, last_error')
-          .limit(500);
-
-      var notificationPending = 0;
-      var notificationFailed = 0;
-      String? lastNotificationError;
-
-      for (final r in List<Map<String, dynamic>>.from(notificationRows)) {
-        final status = (r['status'] ?? '').toString();
-        if (status == 'pending') notificationPending++;
-        if (status == 'failed') {
-          notificationFailed++;
-          lastNotificationError ??= r['last_error']?.toString();
-        }
-      }
-
-      var emailPending = 0;
-      var emailFailed = 0;
-      var emailSent = 0;
-      String? lastEmailError;
-
-      for (final r in List<Map<String, dynamic>>.from(emailRows)) {
-        final status = (r['status'] ?? '').toString();
-        if (status == 'pending') emailPending++;
-        if (status == 'failed') {
-          emailFailed++;
-          lastEmailError ??= r['last_error']?.toString();
-        }
-        if (status == 'sent') emailSent++;
-      }
+      final stats = result is Map
+          ? Map<String, dynamic>.from(result)
+          : <String, dynamic>{};
 
       if (!mounted) return;
+
       setState(() {
-        _notificationPending = notificationPending;
-        _notificationFailed = notificationFailed;
-        _lastNotificationError = lastNotificationError;
-        _emailPending = emailPending;
-        _emailFailed = emailFailed;
-        _emailSent = emailSent;
-        _lastEmailError = lastEmailError;
+        _notificationPending =
+            int.tryParse((stats['notification_pending'] ?? 0).toString()) ?? 0;
+
+        _notificationFailed =
+            int.tryParse((stats['notification_failed'] ?? 0).toString()) ?? 0;
+
+        _emailPending =
+            int.tryParse((stats['email_pending'] ?? 0).toString()) ?? 0;
+
+        _emailFailed =
+            int.tryParse((stats['email_failed'] ?? 0).toString()) ?? 0;
+
+        _emailSent = int.tryParse((stats['email_sent'] ?? 0).toString()) ?? 0;
+
+        _lastNotificationError = stats['last_notification_error']?.toString();
+
+        _lastEmailError = stats['last_email_error']?.toString();
+
         _loadingStats = false;
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() => _loadingStats = false);
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to load queue stats: $e')));
@@ -208,19 +277,116 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
     required VoidCallback? onPressed,
   }) {
     return Card(
-      child: ListTile(
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: ElevatedButton(
-          onPressed: busy ? null : onPressed,
-          child: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Run now'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.notifications_active),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Notification Queue',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        _loadingStats
+                            ? 'Loading queue status...'
+                            : 'Pending: $_notificationPending   '
+                                  'Failed: $_notificationFailed'
+                                  '${_lastNotificationError == null ? '' : '\nLast error: $_lastNotificationError'}',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            Row(
+              children: [
+                Icon(
+                  _notificationCronActive
+                      ? Icons.play_circle_outline
+                      : Icons.pause_circle_outline,
+                  color: _notificationCronActive ? Colors.green : Colors.orange,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _loadingNotificationCron
+                        ? 'Checking automatic processing...'
+                        : _notificationCronActive
+                        ? 'Automatic processing: Running every 5 minutes'
+                        : 'Automatic processing: Paused',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: _notificationCronActive
+                          ? Colors.green
+                          : Colors.orange,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _busyNotifications ? null : _processNotifications,
+                  icon: _busyNotifications
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.play_arrow),
+                  label: const Text('Process now'),
+                ),
+
+                OutlinedButton.icon(
+                  onPressed: _loadingNotificationCron || _busyNotificationCron
+                      ? null
+                      : () => _setNotificationCronEnabled(
+                          !_notificationCronActive,
+                        ),
+                  icon: _busyNotificationCron
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _notificationCronActive
+                              ? Icons.pause
+                              : Icons.play_arrow,
+                        ),
+                  label: Text(
+                    _notificationCronActive
+                        ? 'Pause automatic processing'
+                        : 'Resume automatic processing',
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

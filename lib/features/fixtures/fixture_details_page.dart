@@ -1,10 +1,9 @@
+// Fixture team refresh integration: 20260730-v2.
+// PageStorage collision fix: 20260730-event-attendance-key.
 import '../../core/widgets/app_badge.dart';
-import '../clubs/club_home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:share_plus/share_plus.dart';
 
 import 'captain_view_section.dart';
 import 'set_captain_section.dart';
@@ -20,6 +19,7 @@ import '../../core/widgets/club_member_picker_page.dart';
 import '../../features/fixtures/fixture_rsvp_section.dart';
 import '../../features/clubs/club_access.dart';
 import '../../services/fixture_readiness_service.dart';
+import '../../services/venue_actions_service.dart';
 import '../../data/repositories/fixtures_repository.dart';
 
 String _formatLocalDateTime(DateTime dt) {
@@ -164,6 +164,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           _isFixtureCaptain ||
           _isFixtureViceCaptain);
 
+  bool get _canViewFixtureMaintenanceStatus {
+    return _isSuperuser ||
+        _isClubAdmin ||
+        _isSelector ||
+        _isFixtureCaptain ||
+        _isFixtureViceCaptain ||
+        _canManageTeam ||
+        _canEditFixtureOperationalDetails;
+  }
+
   String get _fixtureMessageSenderName {
     if (_isEventStyleFixture) {
       if (_isFixtureCaptain) return 'Organiser';
@@ -224,6 +234,25 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canMaintainMemberPreselectFixture {
     return _usesSimpleBookingWorkflow &&
         (_canUseFullAdminTools || _canManageTeam || _isFixtureCaptain);
+  }
+
+  bool get _canViewMemberPreselectFixture {
+    if (!_usesSimpleBookingWorkflow) return false;
+
+    if (_canMaintainMemberPreselectFixture) return true;
+
+    final myId = _currentMemberId ?? _myMemberProfileId;
+    if (myId == null || myId.isEmpty) return false;
+
+    for (final assignment in _memberPreselectAssignments) {
+      final memberId = assignment['member_profile_id']?.toString();
+
+      if (memberId == myId) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   bool get _canMaintainFixtureRinks {
@@ -586,6 +615,185 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         context,
       ).showSnackBar(SnackBar(content: Text('Swap failed: $e')));
     }
+  }
+
+  Map<String, dynamic>? _venueMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((key, item) => MapEntry(key.toString(), item));
+    }
+    return null;
+  }
+
+  bool _hasVenueIdentity(Map<String, dynamic>? venue) {
+    if (venue == null) return false;
+    return VenueActionsService.text(venue['id']).isNotEmpty ||
+        VenueActionsService.text(venue['name']).isNotEmpty ||
+        VenueActionsService.hasAddress(venue) ||
+        VenueActionsService.canNavigate(venue);
+  }
+
+  Map<String, dynamic>? get _fixtureVenueForActions {
+    final homeVenue = _venueMap(_fixture?['venue']);
+    final opponentVenue = _venueMap(_fixture?['opponent_venue']);
+
+    if (_isEventStyleFixture || _isHome) {
+      return _hasVenueIdentity(homeVenue) ? homeVenue : null;
+    }
+
+    if (_hasVenueIdentity(opponentVenue)) return opponentVenue;
+    return _hasVenueIdentity(homeVenue) ? homeVenue : null;
+  }
+
+  String get _fixtureVenueHeading {
+    if (_isEventStyleFixture) return 'Event venue';
+    return _isHome ? 'Home venue' : 'Away venue';
+  }
+
+  Widget _buildFixtureVenueCard() {
+    final venue = _fixtureVenueForActions;
+
+    if (venue == null) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.location_off_outlined),
+          title: Text(_fixtureVenueHeading),
+          subtitle: const Text('No venue has been set for this fixture.'),
+        ),
+      );
+    }
+
+    final name = VenueActionsService.text(venue['name']);
+    final address = VenueActionsService.address(venue);
+    final contactName = VenueActionsService.text(venue['contact_name']);
+    final phone = VenueActionsService.phone(venue);
+    final email = VenueActionsService.email(venue);
+
+    final hasWebsite = VenueActionsService.hasWebsite(venue);
+    final hasMaps = VenueActionsService.hasGoogleMapsListing(venue);
+    final canNavigate = VenueActionsService.canNavigate(venue);
+    final canCopyAddress = VenueActionsService.hasAddress(venue);
+    final canShare = VenueActionsService.hasShareableDetails(venue);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.location_on_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _fixtureVenueHeading,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        name.isEmpty ? 'Unnamed venue' : name,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (address.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              SelectableText(address),
+            ],
+            if (contactName.isNotEmpty ||
+                phone.isNotEmpty ||
+                email.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              if (contactName.isNotEmpty) SelectableText(contactName),
+              if (phone.isNotEmpty) SelectableText(phone),
+              if (email.isNotEmpty) SelectableText(email),
+            ],
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                if (hasWebsite)
+                  OutlinedButton.icon(
+                    onPressed: () => VenueActionsService.openWebsite(
+                      context: context,
+                      venue: venue,
+                    ),
+                    icon: const Icon(Icons.language),
+                    label: const Text('Website'),
+                  ),
+                if (hasMaps)
+                  OutlinedButton.icon(
+                    onPressed: () => VenueActionsService.openGoogleMapsListing(
+                      context: context,
+                      venue: venue,
+                    ),
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Google Maps'),
+                  ),
+                FilledButton.icon(
+                  onPressed: canNavigate
+                      ? () => VenueActionsService.navigate(
+                          context: context,
+                          venue: venue,
+                        )
+                      : null,
+                  icon: const Icon(Icons.directions),
+                  label: const Text('Navigate'),
+                ),
+                if (phone.isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: () => VenueActionsService.call(
+                      context: context,
+                      venue: venue,
+                    ),
+                    icon: const Icon(Icons.call_outlined),
+                    label: const Text('Call'),
+                  ),
+                if (email.isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: () => VenueActionsService.sendEmail(
+                      context: context,
+                      venue: venue,
+                    ),
+                    icon: const Icon(Icons.email_outlined),
+                    label: const Text('Email'),
+                  ),
+                if (canCopyAddress)
+                  OutlinedButton.icon(
+                    onPressed: () => VenueActionsService.copyAddress(
+                      context: context,
+                      venue: venue,
+                    ),
+                    icon: const Icon(Icons.copy_outlined),
+                    label: const Text('Copy address'),
+                  ),
+                if (canShare)
+                  OutlinedButton.icon(
+                    onPressed: () => VenueActionsService.shareVenue(
+                      context: context,
+                      venue: venue,
+                    ),
+                    icon: const Icon(Icons.share_outlined),
+                    label: const Text('Share'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadGreenAreas() async {
@@ -1249,6 +1457,27 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     debugPrint('PRESELECT SAVE communications=$communications');
 
     try {
+      final postPublishResult = await _client.rpc(
+        'process_fixture_post_publish_communications',
+        params: {
+          'p_fixture_id': widget.fixtureId,
+          'p_changed_by_member_profile_id': _currentMemberId,
+        },
+      );
+
+      debugPrint(
+        'PRESELECT SAVE post-publish communications=$postPublishResult',
+      );
+    } catch (e) {
+      debugPrint('PRESELECT SAVE: post-publish communications sync failed: $e');
+
+      warnings.add(
+        'The selection was saved, but fixture communications could not be '
+        'fully checked. They will be picked up by the communications process.',
+      );
+    }
+
+    try {
       await _loadMemberPreselectData();
       await _loadMyTeamSelection();
       await _loadFixtureReadiness();
@@ -1677,8 +1906,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           ')'
           '), '
           'team:teams!fixtures_team_id_fkey(name), '
-          'venue:venues!fixtures_venue_id_fkey(name), '
-          'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+          'venue:venues!fixtures_venue_id_fkey('
+          'id, name, address_line1, address_line2, town_city, postcode, '
+          'contact_name, contact_phone, contact_email, website_url, directions_url, '
+          'google_maps_url, google_place_id, latitude, longitude'
+          '), '
+          'opponent_venue:venues!fixtures_opponent_venue_id_fkey('
+          'id, name, address_line1, address_line2, town_city, postcode, '
+          'contact_name, contact_phone, contact_email, website_url, directions_url, '
+          'google_maps_url, google_place_id, latitude, longitude'
+          '), '
           'green_areas(name, discipline, orientation_mode), '
           'captain:member_profiles!fixtures_captain_member_profile_id_fkey(display_name), '
           'vice:member_profiles!fixtures_vice_captain_member_profile_id_fkey(display_name), '
@@ -2629,6 +2866,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     return Card(
       child: ExpansionTile(
+        key: PageStorageKey<String>(
+          'fixture-event-attendance-${widget.fixtureId}',
+        ),
         leading: const Icon(Icons.groups_outlined),
         title: Text(
           'Attendance responses',
@@ -3387,6 +3627,282 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         .maybeSingle();
 
     return row?['id']?.toString();
+  }
+
+  Future<void> _changeHomeOpponent() async {
+    if (!_isHome) return;
+    if (!_canEditFixture) return;
+    if (_selectedCompetitionIsInternal) return;
+    if (_isEventStyleFixture) return;
+
+    try {
+      final rows = await _client
+          .from('venues')
+          .select('id, name, town_city, postcode')
+          .eq('club_id', _fixture!['club_id'])
+          .eq('is_home_venue', false)
+          .order('name');
+
+      final venues = List<Map<String, dynamic>>.from(rows);
+
+      if (!mounted) return;
+
+      final currentOpponentId = _fixture?['opponent_venue_id']?.toString();
+
+      final selectedId = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        builder: (sheetContext) {
+          String search = '';
+          var filtered = List<Map<String, dynamic>>.from(venues);
+
+          return StatefulBuilder(
+            builder: (context, setSheetState) {
+              return SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                  ),
+                  child: SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.7,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          currentOpponentId == null
+                              ? 'Set opponent'
+                              : 'Change opponent',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Choose the club that will play against the home side.',
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Allow an existing opponent to be cleared.
+                        if (currentOpponentId != null &&
+                            currentOpponentId.isNotEmpty) ...[
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.help_outline),
+                            title: const Text('Opponent to be confirmed'),
+                            subtitle: const Text(
+                              'Clear the currently selected opponent.',
+                            ),
+                            onTap: () =>
+                                Navigator.pop(sheetContext, '__CLEAR__'),
+                          ),
+                          const Divider(),
+                          const SizedBox(height: 6),
+                        ],
+
+                        TextField(
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            hintText: 'Search clubs...',
+                            prefixIcon: Icon(Icons.search),
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (value) {
+                            search = value.trim().toLowerCase();
+
+                            setSheetState(() {
+                              filtered = venues.where((v) {
+                                final name = (v['name'] ?? '')
+                                    .toString()
+                                    .toLowerCase();
+
+                                final town = (v['town_city'] ?? '')
+                                    .toString()
+                                    .toLowerCase();
+
+                                final postcode = (v['postcode'] ?? '')
+                                    .toString()
+                                    .toLowerCase();
+
+                                return name.contains(search) ||
+                                    town.contains(search) ||
+                                    postcode.contains(search);
+                              }).toList();
+                            });
+                          },
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        Expanded(
+                          child: filtered.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No matching opponent clubs found.',
+                                  ),
+                                )
+                              : ListView.builder(
+                                  itemCount: filtered.length,
+                                  itemBuilder: (context, index) {
+                                    final venue = filtered[index];
+
+                                    final id = venue['id'].toString();
+
+                                    final name =
+                                        (venue['name'] ?? 'Unnamed venue')
+                                            .toString();
+
+                                    final town = (venue['town_city'] ?? '')
+                                        .toString()
+                                        .trim();
+
+                                    final postcode = (venue['postcode'] ?? '')
+                                        .toString()
+                                        .trim();
+
+                                    return ListTile(
+                                      leading: Icon(
+                                        id == currentOpponentId
+                                            ? Icons.check_circle
+                                            : Icons.sports,
+                                      ),
+                                      title: Text(name),
+                                      subtitle:
+                                          [
+                                            town,
+                                            postcode,
+                                          ].where((s) => s.isNotEmpty).isEmpty
+                                          ? null
+                                          : Text(
+                                              [
+                                                if (town.isNotEmpty) town,
+                                                if (postcode.isNotEmpty)
+                                                  postcode,
+                                              ].join(' • '),
+                                            ),
+                                      onTap: () =>
+                                          Navigator.pop(sheetContext, id),
+                                    );
+                                  },
+                                ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        OutlinedButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('Cancel'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+
+      if (selectedId == null || !mounted) return;
+
+      final clearingOpponent = selectedId == '__CLEAR__';
+
+      // Nothing actually changed.
+      if (!clearingOpponent && selectedId == currentOpponentId) {
+        return;
+      }
+
+      final oldName =
+          (_fixture?['opponent_venue']?['name'] ?? 'To be confirmed')
+              .toString();
+
+      String newName;
+
+      if (clearingOpponent) {
+        newName = 'To be confirmed';
+      } else {
+        final selectedVenue = venues.firstWhere(
+          (v) => v['id'].toString() == selectedId,
+        );
+
+        newName = (selectedVenue['name'] ?? 'Selected opponent').toString();
+      }
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            clearingOpponent
+                ? 'Set opponent to be confirmed?'
+                : 'Change opponent?',
+          ),
+          content: Text(
+            'Change the opponent from:\n\n'
+            '$oldName\n\n'
+            'to:\n\n'
+            '$newName\n\n'
+            'The fixture, rink bookings and team selections will remain unchanged.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(
+                clearingOpponent ? 'Set to be confirmed' : 'Change opponent',
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true || !mounted) return;
+
+      await _client
+          .from('fixtures')
+          .update({'opponent_venue_id': clearingOpponent ? null : selectedId})
+          .eq('id', widget.fixtureId);
+
+      try {
+        await _client.rpc(
+          'queue_fixture_opponent_changed_notifications',
+          params: {
+            'p_fixture_id': widget.fixtureId,
+            'p_old_opponent_venue_id': currentOpponentId,
+            'p_new_opponent_venue_id': clearingOpponent ? null : selectedId,
+          },
+        );
+      } catch (e) {
+        debugPrint(
+          'Opponent changed but notifications could not be queued: $e',
+        );
+      }
+
+      _didChangeFixture = true;
+
+      await _reloadPreservingScroll();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            clearingOpponent
+                ? 'Opponent set to To be confirmed.'
+                : 'Opponent changed to $newName.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not change opponent: $e')));
+    }
   }
 
   Future<void> _selectMemberPreselectSlot({
@@ -4335,6 +4851,62 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
+  Future<void> _refreshAfterTeamManagement() async {
+    if (!mounted) return;
+
+    try {
+      // ManageTeamScreen can change the selection status, selected members,
+      // rink assignments and publication/readiness state. Refresh every
+      // parent-level value that depends on those records while preserving the
+      // current fixture-details scroll position.
+      await _refreshFixtureRecord();
+      await _loadPermissions();
+      await _loadMyTeamSelection();
+      await _loadTeamNameLocked();
+
+      final fixtureRinksRequired =
+          int.tryParse((_fixture?['rinks_required'] ?? '0').toString()) ?? 0;
+
+      if (fixtureRinksRequired > 0) {
+        await _loadMemberPreselectData();
+      } else if (mounted) {
+        setState(() {
+          _memberPreselectRinks = [];
+          _memberPreselectAssignments = [];
+          _markerRequiredByRinkId.clear();
+          _markerRequestByRinkId.clear();
+          _preselectDirty = false;
+        });
+      }
+
+      if (_isEventStyleFixture) {
+        if (_canManageEventAttendance) {
+          await _loadEventRsvps();
+        }
+      } else {
+        if (_isHome && _greenAreaId != null) {
+          await _loadRinkAvailability(showLoading: false);
+        }
+        await _loadFixtureReadiness();
+      }
+
+      _didChangeFixture = true;
+    } catch (e, stackTrace) {
+      debugPrint('Fixture refresh after Manage Team failed: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The team changes were saved, but the fixture details could not '
+            'be fully refreshed. Reopen the fixture to reload them.',
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _buildFixtureReadinessCard() {
     final readiness = _readiness;
 
@@ -4553,7 +5125,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ? parseClubTime(endAt)
         : when.add(const Duration(hours: 2));
 
-    final venue = (fixture['venue']?['name'] as String?) ?? '';
     final opponent = (fixture['opponent_venue']?['name'] ?? '')
         .toString()
         .trim();
@@ -4638,6 +5209,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final isPublished = teamSelectionStatus == 'published';
     final showRsvpControls = isRsvpFixture && !isPublished;
 
+    final canChangeOpponent =
+        isHome &&
+        !isInternalFixtureType &&
+        !isOpenSessionFixture &&
+        !isEventStyleFixture &&
+        _canEditFixture;
+
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(
@@ -4710,7 +5288,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           ),
 
           const SizedBox(height: 12),
-          if (!isEventStyleFixture) ...[
+          if (_canViewFixtureMaintenanceStatus) ...[
             _buildFixtureReadinessCard(),
             const SizedBox(height: 16),
           ],
@@ -4752,18 +5330,52 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ],
           ),
 
+          if (isHome &&
+              !isInternalFixtureType &&
+              !isOpenSessionFixture &&
+              !isEventStyleFixture) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  Icons.sports_outlined,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Opponent:',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    opponent.isEmpty ? 'To be confirmed' : opponent,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (canChangeOpponent)
+                  TextButton.icon(
+                    onPressed: _changeHomeOpponent,
+                    icon: Icon(
+                      opponent.isEmpty ? Icons.add : Icons.edit_outlined,
+                      size: 17,
+                    ),
+                    label: Text(opponent.isEmpty ? 'Set' : 'Change'),
+                  ),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 12),
+          _buildFixtureVenueCard(),
+
           if (isEventStyleFixture) ...[
             const SizedBox(height: 12),
             _buildEventRsvpCard(),
             const SizedBox(height: 4),
-            Card(
-              child: ListTile(
-                dense: true,
-                leading: const Icon(Icons.location_on_outlined),
-                title: const Text('Venue'),
-                subtitle: Text(venue.isEmpty ? 'No venue set' : venue),
-              ),
-            ),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -5122,7 +5734,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               ),
             ],
 
-            if (_canMaintainMemberPreselectFixture) ...[
+            if (_canViewMemberPreselectFixture) ...[
               _buildMemberPreselectEditorPlaceholder(),
             ],
 
@@ -5136,6 +5748,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 ),
                 fixture: fixture,
                 readOnly: !canManageTeam,
+                onTeamChanged: _refreshAfterTeamManagement,
               ),
             ],
           ],

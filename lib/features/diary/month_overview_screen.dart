@@ -8,8 +8,6 @@ import '../../core/utils/date_format.dart';
 import 'diary_day_screen.dart';
 import 'rinks_day_view.dart';
 
-enum DiaryViewMode { month, week, day, rinks }
-
 class MonthOverviewScreen extends StatefulWidget {
   const MonthOverviewScreen({
     super.key,
@@ -30,6 +28,7 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
   final _client = Supabase.instance.client;
 
   late DateTime _visibleMonth;
+  late DateTime _selectedDate;
 
   bool _isLoading = true;
   String? _loadError;
@@ -51,6 +50,12 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedDate = DateTime(
+      widget.initialDate.year,
+      widget.initialDate.month,
+      widget.initialDate.day,
+    );
+
     _visibleMonth = DateTime(widget.initialDate.year, widget.initialDate.month);
     _loadMonth();
   }
@@ -109,8 +114,8 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
             )
           ''')
           .eq('club_id', widget.clubId)
-          .gte('start_at', monthStart.toIso8601String())
-          .lt('start_at', monthEnd.toIso8601String())
+          .gte('start_at', clubTimeToUtc(monthStart).toIso8601String())
+          .lt('start_at', clubTimeToUtc(monthEnd).toIso8601String())
           .order('start_at');
 
       final rows = List<Map<String, dynamic>>.from(res);
@@ -200,6 +205,33 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
     _loadMonth();
   }
 
+  Future<void> _goToToday() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    setState(() {
+      _selectedDate = today;
+      _visibleMonth = DateTime(today.year, today.month);
+    });
+
+    await _loadMonth();
+  }
+
+  Future<void> _openRinksView() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RinkDayViewScreen(
+          clubId: widget.clubId,
+          clubName: widget.clubName,
+          date: _selectedDate,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    await _loadMonth();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -230,21 +262,11 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
             _MonthHeader(
               clubName: widget.clubName,
               visibleMonth: _visibleMonth,
+              selectedDate: _selectedDate,
               onPrevious: () => _moveMonth(-1),
               onNext: () => _moveMonth(1),
-              onToday: () {
-                setState(() {
-                  final now = DateTime.now();
-                  _visibleMonth = DateTime(now.year, now.month);
-                });
-                _loadMonth();
-              },
-            ),
-            _ViewSwitcher(
-              selected: DiaryViewMode.month,
-              onSelected: (mode) {
-                // Wire Week/Day/Rinks navigation later.
-              },
+              onToday: _goToToday,
+              onRinksView: _openRinksView,
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -279,12 +301,19 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
   }
 
   Future<void> _openDay(DateTime date) async {
+    final selected = DateTime(date.year, date.month, date.day);
+
+    setState(() {
+      _selectedDate = selected;
+      _visibleMonth = DateTime(selected.year, selected.month);
+    });
+
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => DiaryDayScreen(
           clubId: widget.clubId,
           clubName: widget.clubName,
-          date: date,
+          date: selected,
         ),
       ),
     );
@@ -307,79 +336,101 @@ class _MonthHeader extends StatelessWidget {
   const _MonthHeader({
     required this.clubName,
     required this.visibleMonth,
+    required this.selectedDate,
     required this.onPrevious,
     required this.onNext,
     required this.onToday,
+    required this.onRinksView,
   });
 
   final String clubName;
   final DateTime visibleMonth;
+  final DateTime selectedDate;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onToday;
+  final VoidCallback onRinksView;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final narrow = MediaQuery.of(context).size.width < 560;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  clubName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF374151),
-                  ),
-                ),
-                Text(
-                  _monthLabel(visibleMonth),
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    color: const Color(0xFF111827),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: onPrevious,
-            icon: const Icon(Icons.chevron_left),
-          ),
-          IconButton(onPressed: onNext, icon: const Icon(Icons.chevron_right)),
-          TextButton(onPressed: onToday, child: const Text('Today')),
-        ],
+    final monthTitle = Text(
+      _monthLabel(visibleMonth),
+      textAlign: TextAlign.center,
+      style: theme.textTheme.headlineSmall?.copyWith(
+        fontWeight: FontWeight.w900,
+        color: const Color(0xFF111827),
       ),
     );
-  }
-}
 
-class _ViewSwitcher extends StatelessWidget {
-  const _ViewSwitcher({required this.selected, required this.onSelected});
+    final selectedDateText = Text(
+      'Selected day: ${_prettyDate(selectedDate)}',
+      style: const TextStyle(
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF4B5563),
+      ),
+    );
 
-  final DiaryViewMode selected;
-  final ValueChanged<DiaryViewMode> onSelected;
+    final monthNav = Row(
+      children: [
+        OutlinedButton.icon(
+          onPressed: onPrevious,
+          icon: const Icon(Icons.chevron_left),
+          label: Text(narrow ? 'Previous' : 'Previous Month'),
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: monthTitle),
+        const SizedBox(width: 8),
+        OutlinedButton.icon(
+          onPressed: onNext,
+          icon: const Icon(Icons.chevron_right),
+          label: Text(narrow ? 'Next' : 'Next Month'),
+        ),
+      ],
+    );
 
-  @override
-  Widget build(BuildContext context) {
+    final actionRow = Row(
+      children: [
+        FilledButton.icon(
+          onPressed: onToday,
+          icon: const Icon(Icons.today),
+          label: const Text('Today'),
+        ),
+        const SizedBox(width: 8),
+        OutlinedButton.icon(
+          onPressed: onRinksView,
+          icon: const Icon(Icons.grid_view),
+          label: const Text('Rinks View'),
+        ),
+      ],
+    );
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-      child: SegmentedButton<DiaryViewMode>(
-        segments: const [
-          ButtonSegment(value: DiaryViewMode.month, label: Text('Month')),
-          ButtonSegment(value: DiaryViewMode.week, label: Text('Week')),
-          ButtonSegment(value: DiaryViewMode.day, label: Text('Day')),
-          ButtonSegment(value: DiaryViewMode.rinks, label: Text('Rinks')),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            clubName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF374151),
+            ),
+          ),
+          const SizedBox(height: 8),
+          monthNav,
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [actionRow, selectedDateText],
+          ),
         ],
-        selected: {selected},
-        onSelectionChanged: (values) => onSelected(values.first),
       ),
     );
   }

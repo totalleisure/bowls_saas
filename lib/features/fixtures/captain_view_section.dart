@@ -1,3 +1,4 @@
+// Captain response local-state collapsibles: 20260730-v1.
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +22,11 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
   String _viewerLabel = '';
   bool _isCaptain = false;
   bool _canView = false;
+  // Local expansion state avoids PageStorage collisions with the parent
+  // fixture-details scroll position.
+  bool _showYes = false;
+  bool _showMaybe = false;
+  bool _showNo = false;
   bool _showNoResponse = false;
 
   List<Map<String, dynamic>> _yes = [];
@@ -196,12 +202,65 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
     return Text(name);
   }
 
-  Widget _section(String title, List<Map<String, dynamic>> rows) {
-    return ExpansionTile(
-      title: Text('$title (${rows.length})'),
-      children: rows.isEmpty
-          ? [ListTile(title: Text('None'))]
-          : rows.map((r) => ListTile(title: _nameFromRow(r))).toList(),
+  Widget _section({
+    required String title,
+    required List<Map<String, dynamic>> rows,
+    required bool expanded,
+    required VoidCallback onToggle,
+  }) {
+    return Column(
+      children: [
+        ListTile(
+          onTap: onToggle,
+          title: Text('$title (${rows.length})'),
+          trailing: Icon(
+            expanded ? Icons.expand_less : Icons.expand_more,
+          ),
+        ),
+        if (expanded) ...[
+          if (rows.isEmpty)
+            const ListTile(title: Text('None'))
+          else
+            ...rows.map((r) => ListTile(title: _nameFromRow(r))),
+        ],
+      ],
+    );
+  }
+
+  Widget _noResponseSection() {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Column(
+        children: [
+          ListTile(
+            onTap: () {
+              setState(() {
+                _showNoResponse = !_showNoResponse;
+              });
+            },
+            title: Text('No response yet (${_noResponse.length})'),
+            trailing: Icon(
+              _showNoResponse ? Icons.expand_less : Icons.expand_more,
+            ),
+          ),
+          if (_showNoResponse) ...[
+            if (_noResponse.isEmpty)
+              const ListTile(title: Text('None'))
+            else
+              ..._noResponse.map((r) {
+                final name =
+                    (r['member_profiles']?['display_name'] as String?) ??
+                    '(no name)';
+                return ListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  title: Text(name),
+                  subtitle: const Text('Pending'),
+                );
+              }),
+          ],
+        ],
+      ),
     );
   }
 
@@ -250,32 +309,37 @@ class _CaptainViewSectionState extends State<CaptainViewSection> {
                 onPressed: _load,
               ),
             ),
-            _section('Yes', _yes),
-            _section('Maybe', _maybe),
-            _section('No', _no),
-            Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: ExpansionTile(
-                initiallyExpanded: _showNoResponse,
-                onExpansionChanged: (v) {
-                  setState(() {
-                    _showNoResponse = v;
-                  });
-                },
-                title: Text('No response yet (${_noResponse.length})'),
-                children: _noResponse.map((r) {
-                  final name =
-                      (r['member_profiles']?['display_name'] as String?) ??
-                      '(no name)';
-                  return ListTile(
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    title: Text(name),
-                    subtitle: const Text('Pending'),
-                  );
-                }).toList(),
-              ),
+            _section(
+              title: 'Yes',
+              rows: _yes,
+              expanded: _showYes,
+              onToggle: () {
+                setState(() {
+                  _showYes = !_showYes;
+                });
+              },
             ),
+            _section(
+              title: 'Maybe',
+              rows: _maybe,
+              expanded: _showMaybe,
+              onToggle: () {
+                setState(() {
+                  _showMaybe = !_showMaybe;
+                });
+              },
+            ),
+            _section(
+              title: 'No',
+              rows: _no,
+              expanded: _showNo,
+              onToggle: () {
+                setState(() {
+                  _showNo = !_showNo;
+                });
+              },
+            ),
+            _noResponseSection(),
           ],
         ),
       ),

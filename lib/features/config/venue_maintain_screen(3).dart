@@ -2,10 +2,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../services/venue_actions_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../services/navigation_service.dart';
 
 // Stable venue UI baseline: Phase 2D.3, 2026-07-28.
-const String venueMaintainRevision = '20260730-phase2d2-venue-actions';
+const String venueMaintainRevision = '20260729-phase2d3a-google-url';
 
 const clubOfficerRoles = [
   ['club_president', 'Club President'],
@@ -526,71 +528,77 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
     });
   }
 
-  Map<String, dynamic> _venueForActions() {
+  Uri? _normaliseWebUri(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return null;
+
+    final candidate = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+    final uri = Uri.tryParse(candidate);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
+    return uri;
+  }
+
+  Future<void> _openWebsite() async {
+    final uri = _normaliseWebUri(_websiteUrl.text);
+    if (uri == null) return;
+
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Venue website launch failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open the venue website.')),
+      );
+    }
+  }
+
+  Future<void> _openGoogleMapsListing() async {
+    final uri = _normaliseWebUri(_googleMapsUrl.text);
+    if (uri == null) return;
+
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Google Maps listing launch failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open the Google Maps listing.')),
+      );
+    }
+  }
+
+  Map<String, dynamic> _venueForNavigation() {
     return {
       'name': _name.text.trim(),
       'address_line1': _address1.text.trim(),
       'address_line2': _address2.text.trim(),
       'town_city': _town.text.trim(),
       'postcode': _postcode.text.trim(),
-      'contact_name': _contactName.text.trim(),
-      'contact_phone': _contactPhone.text.trim(),
-      'contact_email': _contactEmail.text.trim(),
-      'directions_url': _directionsUrl.text.trim(),
-      'website_url': _websiteUrl.text.trim(),
-      'google_maps_url': _googleMapsUrl.text.trim(),
       'google_place_id': _googlePlaceId.text.trim(),
       'latitude': _latitude.text.trim(),
       'longitude': _longitude.text.trim(),
     };
   }
 
-  Future<void> _openWebsite() {
-    return VenueActionsService.openWebsite(
+  Future<void> _openDirections() async {
+    await NavigationService.navigateToVenue(
       context: context,
-      venue: _venueForActions(),
-    );
-  }
-
-  Future<void> _openGoogleMapsListing() {
-    return VenueActionsService.openGoogleMapsListing(
-      context: context,
-      venue: _venueForActions(),
-    );
-  }
-
-  Future<void> _openDirections() {
-    return VenueActionsService.navigate(
-      context: context,
-      venue: _venueForActions(),
-    );
-  }
-
-  Future<void> _callVenue() {
-    return VenueActionsService.call(
-      context: context,
-      venue: _venueForActions(),
-    );
-  }
-
-  Future<void> _emailVenue() {
-    return VenueActionsService.sendEmail(
-      context: context,
-      venue: _venueForActions(),
-    );
-  }
-
-  Future<void> _copyVenueAddress() {
-    return VenueActionsService.copyAddress(
-      context: context,
-      venue: _venueForActions(),
-    );
-  }
-
-  Future<void> _shareVenue() {
-    return VenueActionsService.shareVenue(
-      context: context,
-      venue: _venueForActions(),
+      venue: _venueForNavigation(),
     );
   }
 
@@ -950,43 +958,13 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                   label: const Text('View on Google Maps'),
                 ),
               OutlinedButton.icon(
-                onPressed: VenueActionsService.canNavigate(
-                  _venueForActions(),
+                onPressed: NavigationService.canNavigate(
+                  _venueForNavigation(),
                 )
                     ? _openDirections
                     : null,
                 icon: const Icon(Icons.directions),
                 label: const Text('Directions'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _contactPhone.text.trim().isEmpty
-                    ? null
-                    : _callVenue,
-                icon: const Icon(Icons.call_outlined),
-                label: const Text('Call'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _contactEmail.text.trim().isEmpty
-                    ? null
-                    : _emailVenue,
-                icon: const Icon(Icons.email_outlined),
-                label: const Text('Email'),
-              ),
-              OutlinedButton.icon(
-                onPressed: VenueActionsService.hasAddress(_venueForActions())
-                    ? _copyVenueAddress
-                    : null,
-                icon: const Icon(Icons.copy_outlined),
-                label: const Text('Copy address'),
-              ),
-              OutlinedButton.icon(
-                onPressed: VenueActionsService.hasShareableDetails(
-                  _venueForActions(),
-                )
-                    ? _shareVenue
-                    : null,
-                icon: const Icon(Icons.share_outlined),
-                label: const Text('Share'),
               ),
             ],
           ),
@@ -1056,7 +1034,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
         _contactEmail.text.trim().isNotEmpty;
     final hasWebsite = _websiteUrl.text.trim().isNotEmpty;
     final hasGoogleMapsUrl = _googleMapsUrl.text.trim().isNotEmpty;
-    final canNavigate = VenueActionsService.canNavigate(_venueForActions());
+    final canNavigate = NavigationService.canNavigate(_venueForNavigation());
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
@@ -1144,30 +1122,6 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
               icon: const Icon(Icons.directions),
               label: const Text('Directions'),
             ),
-            if (_contactPhone.text.trim().isNotEmpty)
-              OutlinedButton.icon(
-                onPressed: _callVenue,
-                icon: const Icon(Icons.call_outlined),
-                label: const Text('Call'),
-              ),
-            if (_contactEmail.text.trim().isNotEmpty)
-              OutlinedButton.icon(
-                onPressed: _emailVenue,
-                icon: const Icon(Icons.email_outlined),
-                label: const Text('Email'),
-              ),
-            if (VenueActionsService.hasAddress(_venueForActions()))
-              OutlinedButton.icon(
-                onPressed: _copyVenueAddress,
-                icon: const Icon(Icons.copy_outlined),
-                label: const Text('Copy address'),
-              ),
-            if (VenueActionsService.hasShareableDetails(_venueForActions()))
-              OutlinedButton.icon(
-                onPressed: _shareVenue,
-                icon: const Icon(Icons.share_outlined),
-                label: const Text('Share'),
-              ),
           ],
         ),
         if (_isHome) ...[

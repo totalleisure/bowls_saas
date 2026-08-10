@@ -492,7 +492,7 @@ begin
     select
       'communications_repair_required'::text,
       'repair_communications'::text,
-      'Some communication records are missing. Select Repair Communications.'::text,
+      'Some fixture communication records need attention.'::text,
       55,
       true,
       false,
@@ -518,7 +518,7 @@ begin
     select
       'preparation_required'::text,
       'prepare_messages'::text,
-      'The fixture is published, but its messages still need preparing. Select Continue.'::text,
+      'Fixture messages are being prepared.'::text,
       65,
       false,
       true,
@@ -542,7 +542,7 @@ begin
     select
       'team_sheets_required'::text,
       'prepare_team_sheets'::text,
-      'The messages are ready, but the team sheets are missing. Select Prepare Team Sheets.'::text,
+      'Fixture messages are being prepared.'::text,
       75,
       false,
       true,
@@ -565,7 +565,7 @@ begin
       'email_failures'::text,
       'retry_failed_emails'::text,
       format(
-        '%s email(s) could not be delivered. Select Retry Failed Emails.',
+        '%s fixture email(s) could not be sent.',
         v_emails_failed_actual
       ),
       85,
@@ -589,7 +589,7 @@ begin
     select
       'ready_to_send'::text,
       'send_emails'::text,
-      'Everything is prepared. Select Send Emails to complete the communications.'::text,
+      'Fixture messages have been prepared. Emails will be sent shortly.'::text,
       90,
       false,
       false,
@@ -648,4 +648,4 @@ begin
       'team_sheets_sent', v_sheets_sent_actual
     );
 end;
-$function$;
+$function$

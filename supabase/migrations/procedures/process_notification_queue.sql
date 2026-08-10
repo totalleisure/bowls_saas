@@ -724,6 +724,66 @@ begin
           v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
         end if;
 
+      elsif r.event_type = 'fixture_opponent_changed' then
+        v_source := 'Fixture Update';
+        v_title := 'Fixture opponent changed';
+
+        v_start_at :=
+          nullif(r.payload->>'start_at', '')::timestamptz;
+
+        v_fixture_date_text :=
+          case
+            when v_start_at is not null then
+              to_char(
+                v_start_at at time zone 'Europe/London',
+                'FMDay DD Mon YYYY "at" HH24:MI'
+              )
+            else
+              ''
+          end;
+
+        v_body :=
+          case
+            when coalesce(r.payload->>'team_name', '') <> '' then
+              'Home '
+              || (r.payload->>'team_name')
+              || ' v '
+              || coalesce(
+                  nullif(r.payload->>'new_opponent_name', ''),
+                  'Opponent to be confirmed'
+                )
+
+            else
+              'Home against '
+              || coalesce(
+                  nullif(r.payload->>'new_opponent_name', ''),
+                  'opponent to be confirmed'
+                )
+          end;
+
+        if v_fixture_date_text <> '' then
+          v_body :=
+            v_body
+            || chr(10)
+            || v_fixture_date_text;
+        end if;
+
+        v_body :=
+          v_body
+          || chr(10)
+          || chr(10)
+          || 'The opponent has changed from '
+          || coalesce(
+               nullif(r.payload->>'old_opponent_name', ''),
+               'To be confirmed'
+             )
+          || ' to '
+          || coalesce(
+               nullif(r.payload->>'new_opponent_name', ''),
+               'To be confirmed'
+             )
+          || '.';
+
       elsif r.event_type = 'fixture_message' then
         v_source := coalesce(
           nullif(r.payload->>'title', ''),
@@ -804,6 +864,7 @@ begin
         'guest_membership_approved',
         'fixture_selected',
         'fixture_moved',
+        'fixture_opponent_changed',
         'marker_request_opened',
         'team_published_player',
         'team_published_reserve',

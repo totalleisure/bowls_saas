@@ -931,21 +931,23 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Future<void> _loadVenues() async {
     final homeVenues = await _client
         .from('venues')
-        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id')
+        .select(
+          'id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id',
+        )
         .eq('club_id', widget.clubId)
         .eq('is_home_venue', true)
         .order('name');
 
     final opponentVenues = await _client
         .from('venues')
-        .select('id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id')
+        .select(
+          'id, name, town_city, postcode, is_home_venue, latitude, longitude, google_place_id',
+        )
         .eq('club_id', widget.clubId)
         .eq('is_home_venue', false)
         .order('name');
 
-    _homeVenues = _sortedVenues(
-      List<Map<String, dynamic>>.from(homeVenues),
-    );
+    _homeVenues = _sortedVenues(List<Map<String, dynamic>>.from(homeVenues));
     _opponentVenues = _sortedVenues(
       List<Map<String, dynamic>>.from(opponentVenues),
     );
@@ -954,9 +956,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     _homeVenueId ??= _homeVenues.isNotEmpty
         ? _homeVenues.first['id'].toString()
         : null;
-    _opponentVenueId ??= _opponentVenues.isNotEmpty
-        ? _opponentVenues.first['id'].toString()
-        : null;
+
+    // Leave opponent unset by default.
+    // Home external fixtures may legitimately start as "To be confirmed".
+    _opponentVenueId ??= null;
 
     _eventVenueId ??= _homeVenueId ?? _opponentVenueId;
   }
@@ -991,6 +994,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   height: MediaQuery.of(context).size.height * 0.75,
                   child: Column(
                     children: [
+                      // Heading + action buttons
                       Row(
                         children: [
                           Expanded(
@@ -999,15 +1003,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                           ),
+
                           if (canCreateVenue &&
                               creationType == VenueCreationType.external)
                             TextButton.icon(
                               onPressed: () async {
                                 final imported =
                                     await _discoverNearbyBowlsClubs();
+
                                 if (!sheetContext.mounted || imported == 0) {
                                   return;
                                 }
+
                                 setStateSheet(() {
                                   filtered = _sortedVenues(getVenues());
                                 });
@@ -1015,17 +1022,19 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               icon: const Icon(Icons.radar),
                               label: const Text('Find local clubs'),
                             ),
+
                           if (canCreateVenue)
                             TextButton.icon(
                               onPressed: () async {
                                 final newId = await _createVenueFromFixture(
                                   creationType: creationType,
                                 );
+
                                 if (newId == null || !sheetContext.mounted) {
                                   return;
                                 }
 
-                                Navigator.pop(sheetContext, newId);
+                                Navigator.of(sheetContext).pop(newId);
                               },
                               icon: const Icon(Icons.add),
                               label: Text(
@@ -1036,7 +1045,28 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             ),
                         ],
                       ),
+
+                      // Special option for HOME external fixtures
+                      if (creationType == VenueCreationType.external &&
+                          _isHome) ...[
+                        const SizedBox(height: 8),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.help_outline),
+                          title: const Text('Opponent to be confirmed'),
+                          subtitle: const Text(
+                            'Create the fixture now and choose the opponent later.',
+                          ),
+                          onTap: () {
+                            Navigator.of(sheetContext).pop('__TBC__');
+                          },
+                        ),
+                        const Divider(),
+                      ],
+
                       const SizedBox(height: 12),
+
+                      // Venue search
                       TextField(
                         decoration: const InputDecoration(
                           hintText: 'Search venues...',
@@ -1045,25 +1075,34 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                         ),
                         onChanged: (value) {
                           search = value.toLowerCase();
+
                           setStateSheet(() {
-                            filtered = _sortedVenues(getVenues().where((v) {
-                              final name = (v['name'] ?? '')
-                                  .toString()
-                                  .toLowerCase();
-                              final town = (v['town_city'] ?? '')
-                                  .toString()
-                                  .toLowerCase();
-                              final postcode = (v['postcode'] ?? '')
-                                  .toString()
-                                  .toLowerCase();
-                              return name.contains(search) ||
-                                  town.contains(search) ||
-                                  postcode.contains(search);
-                            }));
+                            filtered = _sortedVenues(
+                              getVenues().where((v) {
+                                final name = (v['name'] ?? '')
+                                    .toString()
+                                    .toLowerCase();
+
+                                final town = (v['town_city'] ?? '')
+                                    .toString()
+                                    .toLowerCase();
+
+                                final postcode = (v['postcode'] ?? '')
+                                    .toString()
+                                    .toLowerCase();
+
+                                return name.contains(search) ||
+                                    town.contains(search) ||
+                                    postcode.contains(search);
+                              }),
+                            );
                           });
                         },
                       ),
+
                       const SizedBox(height: 12),
+
+                      // Venue list
                       Expanded(
                         child: filtered.isEmpty
                             ? const Center(
@@ -1073,10 +1112,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                 itemCount: filtered.length,
                                 itemBuilder: (_, i) {
                                   final v = filtered[i];
+
                                   final name = (v['name'] ?? '').toString();
+
                                   final town = (v['town_city'] ?? '')
                                       .toString()
                                       .trim();
+
                                   final postcode = (v['postcode'] ?? '')
                                       .toString()
                                       .trim();
@@ -1089,10 +1131,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                         if (postcode.isNotEmpty) postcode,
                                       ].join(' • '),
                                     ),
-                                    onTap: () => Navigator.pop(
-                                      sheetContext,
-                                      v['id'].toString(),
-                                    ),
+                                    onTap: () {
+                                      Navigator.of(
+                                        sheetContext,
+                                      ).pop(v['id'].toString());
+                                    },
                                   );
                                 },
                               ),
@@ -2215,7 +2258,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
       final sameName =
           normalisedName.isNotEmpty && existingName == normalisedName;
-      final samePostcode = normalisedPostcode.isNotEmpty &&
+      final samePostcode =
+          normalisedPostcode.isNotEmpty &&
           existingPostcode.isNotEmpty &&
           existingPostcode == normalisedPostcode;
 
@@ -2277,10 +2321,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Future<Map<String, dynamic>> _invokeVenuePlaces(
     Map<String, dynamic> body,
   ) async {
-    final response = await _client.functions.invoke(
-      'venue-places',
-      body: body,
-    );
+    final response = await _client.functions.invoke('venue-places', body: body);
 
     if (response.status < 200 || response.status >= 300) {
       throw Exception(_venuePlacesError(response.data, response.status));
@@ -2428,7 +2469,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                       autofocus: true,
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
-                        labelText: bowlsOnly ? 'Bowls club or area' : 'Venue or place',
+                        labelText: bowlsOnly
+                            ? 'Bowls club or area'
+                            : 'Venue or place',
                         hintText: bowlsOnly
                             ? 'e.g. Petts Wood'
                             : 'e.g. Civic Hall, Bromley',
@@ -2458,9 +2501,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   error = null;
                                 });
                               },
-                        icon: Icon(
-                          bowlsOnly ? Icons.public : Icons.sports,
-                        ),
+                        icon: Icon(bowlsOnly ? Icons.public : Icons.sports),
                         label: Text(
                           bowlsOnly
                               ? 'Search all venues instead'
@@ -2474,7 +2515,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                       const SizedBox(height: 10),
                       Text(
                         error!,
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 8),
@@ -2485,24 +2528,34 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                 searching
                                     ? 'Searching…'
                                     : bowlsOnly
-                                        ? 'Search by club name or area. Only likely lawn bowls clubs will be shown.'
-                                        : 'Search for a venue, then select the correct result.',
+                                    ? 'Search by club name or area. Only likely lawn bowls clubs will be shown.'
+                                    : 'Search for a venue, then select the correct result.',
                                 textAlign: TextAlign.center,
                               ),
                             )
                           : ListView.separated(
                               itemCount: places.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
                               itemBuilder: (_, index) {
                                 final place = places[index];
-                                final name = place['name']?.toString() ?? 'Unnamed place';
-                                final address = place['formattedAddress']?.toString() ?? '';
+                                final name =
+                                    place['name']?.toString() ??
+                                    'Unnamed place';
+                                final address =
+                                    place['formattedAddress']?.toString() ?? '';
 
                                 return ListTile(
-                                  leading: const Icon(Icons.location_on_outlined),
+                                  leading: const Icon(
+                                    Icons.location_on_outlined,
+                                  ),
                                   title: Text(name),
-                                  subtitle: address.isEmpty ? null : Text(address),
-                                  onTap: searching ? null : () => choosePlace(place),
+                                  subtitle: address.isEmpty
+                                      ? null
+                                      : Text(address),
+                                  onTap: searching
+                                      ? null
+                                      : () => choosePlace(place),
                                 );
                               },
                             ),
@@ -2535,14 +2588,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     return _opponentVenues.any((venue) {
       final existingPlaceId = venue['google_place_id']?.toString().trim();
-      if (placeId != null &&
-          placeId.isNotEmpty &&
-          existingPlaceId == placeId) {
+      if (placeId != null && placeId.isNotEmpty && existingPlaceId == placeId) {
         return true;
       }
 
-      final existingName =
-          venue['name']?.toString().trim().toLowerCase() ?? '';
+      final existingName = venue['name']?.toString().trim().toLowerCase() ?? '';
       final existingPostcode =
           venue['postcode']?.toString().trim().toUpperCase() ?? '';
       return name.isNotEmpty &&
@@ -2558,8 +2608,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final name = place['name']?.toString().trim() ?? '';
     if (name.isEmpty) return null;
 
-    final postcode =
-        place['postcode']?.toString().trim().toUpperCase() ?? '';
+    final postcode = place['postcode']?.toString().trim().toUpperCase() ?? '';
 
     final result = await _client.rpc(
       'create_club_venue',
@@ -2569,8 +2618,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'p_is_home_venue': false,
         'p_address_line1':
             place['addressLine1']?.toString().trim().isEmpty == false
-                ? place['addressLine1'].toString().trim()
-                : null,
+            ? place['addressLine1'].toString().trim()
+            : null,
         'p_town_city': place['townCity']?.toString().trim().isEmpty == false
             ? place['townCity'].toString().trim()
             : null,
@@ -2636,10 +2685,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                 final rawPlaces = result['places'];
                 final found = rawPlaces is List
                     ? rawPlaces
-                        .map(_asStringDynamicMap)
-                        .where((place) =>
-                            place['placeId']?.toString().isNotEmpty == true)
-                        .toList()
+                          .map(_asStringDynamicMap)
+                          .where(
+                            (place) =>
+                                place['placeId']?.toString().isNotEmpty == true,
+                          )
+                          .toList()
                     : <Map<String, dynamic>>[];
 
                 setStateDialog(() {
@@ -2699,8 +2750,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                         ),
                         const Spacer(),
                         FilledButton.icon(
-                          onPressed:
-                              searching || importing ? null : searchNearby,
+                          onPressed: searching || importing
+                              ? null
+                              : searchNearby,
                           icon: const Icon(Icons.radar),
                           label: const Text('Search'),
                         ),
@@ -2737,17 +2789,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                 final place = places[index];
                                 final placeId =
                                     place['placeId']?.toString() ?? '';
-                                final alreadySaved =
-                                    _nearbyPlaceAlreadySaved(place);
-                                final selected =
-                                    selectedPlaceIds.contains(placeId);
+                                final alreadySaved = _nearbyPlaceAlreadySaved(
+                                  place,
+                                );
+                                final selected = selectedPlaceIds.contains(
+                                  placeId,
+                                );
                                 final distance = place['distanceMiles'];
                                 final distanceText = distance is num
                                     ? '${distance.toStringAsFixed(1)} miles away'
                                     : null;
-                                final address = place['formattedAddress']
-                                        ?.toString() ??
-                                    '';
+                                final address =
+                                    place['formattedAddress']?.toString() ?? '';
 
                                 return CheckboxListTile(
                                   value: alreadySaved ? true : selected,
@@ -2778,7 +2831,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                       if (alreadySaved) 'Already in venue list',
                                     ].join('\n'),
                                   ),
-                                  isThreeLine: alreadySaved || address.isNotEmpty,
+                                  isThreeLine:
+                                      alreadySaved || address.isNotEmpty,
                                   controlAffinity:
                                       ListTileControlAffinity.leading,
                                 );
@@ -2808,16 +2862,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                       ? null
                       : () {
                           final selected = places
-                              .where((place) => selectedPlaceIds.contains(
-                                    place['placeId']?.toString(),
-                                  ))
+                              .where(
+                                (place) => selectedPlaceIds.contains(
+                                  place['placeId']?.toString(),
+                                ),
+                              )
                               .toList();
                           Navigator.of(dialogContext).pop(selected);
                         },
                   icon: const Icon(Icons.playlist_add),
-                  label: Text(
-                    'Add selected (${selectedPlaceIds.length})',
-                  ),
+                  label: Text('Add selected (${selectedPlaceIds.length})'),
                 ),
               ],
             );
@@ -2848,9 +2902,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       final message = failures.isEmpty
           ? '$created bowls club${created == 1 ? '' : 's'} added.'
           : '$created added; ${failures.length} could not be added.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
 
     if (failures.isNotEmpty && mounted) {
@@ -2925,12 +2979,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                 final rawLatitude = place['latitude'];
                 final rawLongitude = place['longitude'];
                 latitude = rawLatitude is num ? rawLatitude.toDouble() : null;
-                longitude = rawLongitude is num ? rawLongitude.toDouble() : null;
+                longitude = rawLongitude is num
+                    ? rawLongitude.toDouble()
+                    : null;
               });
             }
 
             return AlertDialog(
-              title: Text(isHomeVenue ? 'Add home venue' : 'Add external venue'),
+              title: Text(
+                isHomeVenue ? 'Add home venue' : 'Add external venue',
+              ),
               content: SizedBox(
                 width: 540,
                 child: Form(
@@ -2961,7 +3019,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             labelText: 'Venue or club name',
                             border: OutlineInputBorder(),
                           ),
-                          validator: (value) => value == null || value.trim().isEmpty
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
                               ? 'Please enter a venue name.'
                               : null,
                         ),
@@ -3015,14 +3074,21 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             border: OutlineInputBorder(),
                           ),
                         ),
-                        if (googlePlaceId != null && googlePlaceId!.isNotEmpty) ...[
+                        if (googlePlaceId != null &&
+                            googlePlaceId!.isNotEmpty) ...[
                           const SizedBox(height: 10),
                           Row(
                             children: [
-                              Icon(Icons.verified, size: 18, color: Colors.green.shade700),
+                              Icon(
+                                Icons.verified,
+                                size: 18,
+                                color: Colors.green.shade700,
+                              ),
                               const SizedBox(width: 7),
                               const Expanded(
-                                child: Text('Details loaded from Google Places.'),
+                                child: Text(
+                                  'Details loaded from Google Places.',
+                                ),
                               ),
                             ],
                           ),
@@ -3030,7 +3096,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             const SizedBox(height: 4),
                             Text(
                               formattedAddress!,
-                              style: Theme.of(dialogContext).textTheme.bodySmall,
+                              style: Theme.of(
+                                dialogContext,
+                              ).textTheme.bodySmall,
                             ),
                           ],
                         ],
@@ -3132,9 +3200,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              isHomeVenue
-                  ? 'Home venue created.'
-                  : 'External venue created.',
+              isHomeVenue ? 'Home venue created.' : 'External venue created.',
             ),
           ),
         );
@@ -3524,7 +3590,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           throw Exception('Please select a home venue.');
         }
 
-        if (!isInternalFixtureType && _opponentVenueId == null) {
+        if (!isInternalFixtureType && !_isHome && _opponentVenueId == null) {
           throw Exception('Please select an opponent venue.');
         }
 
@@ -3547,7 +3613,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           ? null
           : (isInternalFixtureType
                 ? null
-                : (_isHome ? _opponentVenueId! : _homeVenueId!));
+                : (_isHome ? _opponentVenueId : _homeVenueId));
 
       final fixtureLabel = _isTeamFixture
           ? (_selectedTeamName() ?? '')
@@ -4883,12 +4949,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             onTap: () async {
                               final selected = await _pickVenue(
                                 getVenues: () => _opponentVenues,
-                                title: 'Select Opponent Club',
+                                title: 'Select opponent',
                                 creationType: VenueCreationType.external,
                               );
+
                               if (selected != null) {
-                                setState(() => _opponentVenueId = selected);
-                                _markDirty();
+                                setState(() {
+                                  _opponentVenueId = selected == '__TBC__'
+                                      ? null
+                                      : selected;
+                                });
                               }
                             },
                             child: InputDecorator(

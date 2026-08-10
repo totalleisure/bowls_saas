@@ -78,7 +78,7 @@ String fixtureTitleUnified(
   if (isHome) {
     final opponent = opponentVenueName.isNotEmpty
         ? opponentVenueName
-        : 'Opponent';
+        : 'opponent to be confirmed';
 
     if (hasTeam) {
       return 'Home $teamName v $opponent';

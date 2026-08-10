@@ -42,7 +42,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs access to the camera so you can take photos to include in the app.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Total Leisure Bowls may use your location while the App is in use to help identify nearby bowling clubs, venues, fixtures, and other location-related services.</string>
+	<string>Total Leisure Bowls uses your location while the App is open to show the approximate distance to fixture venues and help you navigate there.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
