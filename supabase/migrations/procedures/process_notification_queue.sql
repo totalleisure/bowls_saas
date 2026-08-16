@@ -595,26 +595,116 @@ begin
             || chr(10)
             || 'Away at '
             || coalesce(r.payload->>'venue_name', 'Venue not set');
-        end if;  
+        end if;
+
+      elsif r.event_type = 'fixture_rescheduled_selected' then
+        v_source := 'Fixture Rescheduled';
+        v_title := v_source;
+
+        v_body :=
+          coalesce(r.payload->>'fixture_label', 'Fixture')
+          || chr(10)
+          || chr(10)
+          || 'This fixture has been rescheduled.'
+          || chr(10)
+          || chr(10)
+          || 'Old: '
+          || to_char(
+               (r.payload->>'old_start_at')::timestamptz
+                 at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             )
+          || chr(10)
+          || 'New: '
+          || to_char(
+               (r.payload->>'new_start_at')::timestamptz
+                 at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             )
+          || chr(10)
+          || chr(10)
+          || 'Your previous team selection has been carried forward.'
+          || chr(10)
+          || 'Please check the new fixture and Accept or Decline your selection.';
+
+      elsif r.event_type = 'fixture_rescheduled_manager' then
+        v_source := 'Fixture Rescheduled';
+        v_title := v_source;
+
+        v_body :=
+          coalesce(r.payload->>'fixture_label', 'Fixture')
+          || chr(10)
+          || chr(10)
+          || 'This fixture has been rescheduled.'
+          || chr(10)
+          || chr(10)
+          || 'Old: '
+          || to_char(
+               (r.payload->>'old_start_at')::timestamptz
+                 at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             )
+          || chr(10)
+          || 'New: '
+          || to_char(
+               (r.payload->>'new_start_at')::timestamptz
+                 at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             )
+          || chr(10)
+          || chr(10)
+          || 'The existing team has been carried forward.'
+          || chr(10)
+          || 'Player acceptance responses have been reset for the new date.';
+
+      elsif r.event_type = 'fixture_rescheduled_availability' then
+        v_source := 'Fixture Rescheduled';
+        v_title := v_source;
+
+        v_body :=
+          coalesce(r.payload->>'fixture_label', 'Fixture')
+          || chr(10)
+          || chr(10)
+          || 'This fixture has been rescheduled.'
+          || chr(10)
+          || chr(10)
+          || 'Old: '
+          || to_char(
+               (r.payload->>'old_start_at')::timestamptz
+                 at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             )
+          || chr(10)
+          || 'New: '
+          || to_char(
+               (r.payload->>'new_start_at')::timestamptz
+                 at time zone 'Europe/London',
+               'FMDay DD Mon YYYY "at" HH24:MI'
+             )
+          || chr(10)
+          || chr(10)
+          || 'Please indicate your availability for the new date.';
+
       elsif r.event_type = 'acceptance_reminder' then
-      v_source := 'Selection Reminder';
-      v_title := v_source;
+        
+        v_source := 'Selection Reminder';
+        v_title := v_source;
 
-      v_body :=
-          'Please confirm whether you accept your team selection for '
-          || v_fixture_label
-          || '.';
+        v_body :=
+            'Please confirm whether you accept your team selection for '
+            || v_fixture_label
+            || '.';
 
-      if v_fixture_date_text <> '' then
-          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
-      end if;
+        if v_fixture_date_text <> '' then
+            v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
 
-      if v_home_away <> '' then
-          v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
-      end if;
-      if v_venue_name <> '' then
-          v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
-      end if;
+        if v_home_away <> '' then
+            v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
+        end if;
+        if v_venue_name <> '' then
+            v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
+        end if;
 
       elsif r.event_type = 'team_published_player' then
         v_source := 'Team Published';
@@ -784,6 +874,40 @@ begin
              )
           || '.';
 
+      elsif r.event_type = 'fixture_cancelled' then
+        v_source := 'Fixture Cancelled';
+        v_title := v_source;
+
+        v_start_at := nullif(r.payload->>'start_at', '')::timestamptz;
+
+        v_fixture_date_text :=
+          case
+            when v_start_at is not null then
+              to_char(
+                v_start_at at time zone 'Europe/London',
+                'FMDay DD Mon YYYY "at" HH24:MI'
+              )
+            else ''
+          end;
+
+        v_body := coalesce(nullif(r.payload->>'fixture_label', ''), 'Fixture');
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || v_fixture_date_text;
+        end if;
+
+        if coalesce(r.payload->>'home_away', '') = 'Home' then
+          v_body := v_body || chr(10) || 'Home against ' || coalesce(nullif(r.payload->>'opponent_name', ''), 'opponent to be confirmed');
+        elsif coalesce(r.payload->>'home_away', '') = 'Away' then
+          v_body := v_body || chr(10) || 'Away at ' || coalesce(nullif(r.payload->>'venue_name', ''), 'venue not set');
+        end if;
+
+        v_body := v_body || chr(10) || chr(10) || 'This fixture has been cancelled.';
+
+        if coalesce(nullif(r.payload->>'reason', ''), '') <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'Reason: ' || (r.payload->>'reason');
+        end if;
+
       elsif r.event_type = 'fixture_message' then
         v_source := coalesce(
           nullif(r.payload->>'title', ''),
@@ -864,7 +988,11 @@ begin
         'guest_membership_approved',
         'fixture_selected',
         'fixture_moved',
+        'fixture_rescheduled_selected',
+        'fixture_rescheduled_manager',
+        'fixture_rescheduled_availability',        
         'fixture_opponent_changed',
+        'fixture_cancelled',
         'marker_request_opened',
         'team_published_player',
         'team_published_reserve',

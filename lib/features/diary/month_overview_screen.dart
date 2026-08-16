@@ -91,6 +91,7 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
             club_id,
             start_at,
             end_at,
+            cancelled_at,
             is_home,
             opponent_name,
             green_area_id,
@@ -162,6 +163,8 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
 
     final homeAway = row['is_home'] == true ? 'H' : 'A';
 
+    final isCancelled = row['cancelled_at'] != null;
+
     return _MonthDiaryItem(
       fixtureId: row['id'].toString(),
       startAt: startAt,
@@ -173,6 +176,7 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
       foregroundColor: fg,
       isMine: _fixtureContainsCurrentUser(row),
       rinksUsed: (row['fixture_rinks'] as List?)?.length ?? 0,
+      isCancelled: isCancelled,
     );
   }
 
@@ -272,7 +276,7 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: SizedBox(
-                  width: 980,
+                  width: 1050,
                   child: _MonthGrid(
                     month: _visibleMonth,
                     items: _items,
@@ -651,6 +655,14 @@ class _MonthFixtureChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final backgroundColor = item.isCancelled
+        ? Colors.grey.shade300
+        : item.backgroundColor;
+
+    final foregroundColor = item.isCancelled
+        ? Colors.grey.shade800
+        : item.foregroundColor;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: InkWell(
@@ -660,10 +672,10 @@ class _MonthFixtureChip extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           decoration: BoxDecoration(
-            color: item.backgroundColor,
+            color: backgroundColor,
             borderRadius: BorderRadius.circular(4),
             border: item.isMine
-                ? Border.all(color: item.foregroundColor, width: 1.4)
+                ? Border.all(color: foregroundColor, width: 1.4)
                 : null,
           ),
           child: Row(
@@ -677,13 +689,13 @@ class _MonthFixtureChip extends StatelessWidget {
                     fontSize: 11,
                     height: 1.05,
                     fontWeight: FontWeight.w700,
-                    color: item.foregroundColor,
+                    color: foregroundColor,
                   ),
                 ),
               ),
               if (item.isMine) ...[
                 const SizedBox(width: 2),
-                Icon(Icons.person, size: 11, color: item.foregroundColor),
+                Icon(Icons.person, size: 11, color: foregroundColor),
               ],
             ],
           ),
@@ -733,6 +745,7 @@ class _MonthDiaryItem {
     required this.foregroundColor,
     required this.isMine,
     required this.rinksUsed,
+    required this.isCancelled,
   });
 
   final String fixtureId;
@@ -743,6 +756,7 @@ class _MonthDiaryItem {
   final Color foregroundColor;
   final bool isMine;
   final int rinksUsed;
+  final bool isCancelled;
 }
 
 String _monthLabel(DateTime date) {

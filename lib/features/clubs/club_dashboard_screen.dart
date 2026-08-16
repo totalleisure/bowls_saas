@@ -927,7 +927,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .from('fixtures')
           .select(
             'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-            'requires_rsvp, team_id, team_name, '
+            'requires_rsvp, team_id, team_name, cancelled_at, '
+            'rescheduled_from_fixture_id, rescheduled_to_fixture_id, rescheduled_at, '
             'captain_member_profile_id, vice_captain_member_profile_id, '
             'venue_id, opponent_venue_id, green_area_id, '
             'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
@@ -964,19 +965,24 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         return status == 'published';
       }
 
+      bool isRescheduled(Map<String, dynamic> f) {
+        final fromId = f['rescheduled_from_fixture_id']?.toString();
+        return fromId != null && fromId.isNotEmpty;
+      }
+
       final toRsvp = allFixtures.where((f) {
         if (!_canRsvpFromDashboard) return false;
-
         if (_isOpenSessionOrEvent(f)) return false;
 
         final requiresRsvp = f['requires_rsvp'] == true;
         if (!requiresRsvp) return false;
 
-        // RSVP is only open before the team is published.
-        if (isPublished(f)) return false;
+        final rescheduled = isRescheduled(f);
 
-        // Men should not see Ladies RSVP.
-        // Ladies should not see Mens RSVP.
+        // Normal published RSVP fixture is closed.
+        // Rescheduled published RSVP fixture reopens availability.
+        if (isPublished(f) && !rescheduled) return false;
+
         if (!_isEligibleForFixtureSection(f)) return false;
 
         return _matchesFilter(f);
@@ -988,7 +994,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         final requiresRsvp = f['requires_rsvp'] == true;
         if (requiresRsvp) return false;
 
-        if (isPublished(f)) return false;
+        final rescheduled =
+            f['rescheduled_from_fixture_id']?.toString().isNotEmpty == true;
+
+        if (isPublished(f) && !rescheduled) return false;
 
         final selectionMode = _selectionMode(f);
 
@@ -1030,8 +1039,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .select(
             'acceptance, role, team_selections(status, fixture:fixtures('
             'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-            'requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
-            'competition_type_id, '
+            'requires_rsvp, team_id, team_name, cancelled_at, '
+            'captain_member_profile_id, vice_captain_member_profile_id, '
+            'fixture_rinks(format, players_per_rink), '
             'competition_type:competition_types!fixtures_competition_type_id_fkey('
             'id, name, is_internal, selection_mode, uses_rinks, tags, '
             'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
@@ -1085,8 +1095,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             'team_selections!inner('
             '  status, '
             '  fixture:fixtures!inner('
-            '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+            '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, cancelled_at, '
             '    requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
+            '    fixture_rinks(format, players_per_rink), '
             '    competition_type_id, '
             '    competition_type:competition_types!fixtures_competition_type_id_fkey('
             '      id, name, is_internal, selection_mode, uses_rinks, '
@@ -1182,7 +1193,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           ? upcomingAcceptedAll.first
           : null;
 
-      Map<String, dynamic>? secondMatch;
+      /*      Map<String, dynamic>? secondMatch;
       if (upcomingAcceptedAll.length > 1) {
         final candidate = upcomingAcceptedAll[1];
         final startAt = parseClubTime(candidate['start_at'].toString());
@@ -1191,6 +1202,13 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         if (!diff.isNegative && diff.inDays < 3) {
           secondMatch = candidate;
         }
+      }
+*/
+
+      Map<String, dynamic>? secondMatch;
+
+      if (upcomingAcceptedAll.length > 1) {
+        secondMatch = upcomingAcceptedAll[1];
       }
 
       debugPrint(
@@ -1278,7 +1296,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     final row = await client
         .from('fixtures')
         .select(
-          'id, club_id, captain_member_profile_id, vice_captain_member_profile_id, start_at, is_home, section, rinks_required, players_per_rink, orientation, '
+          'id, club_id, captain_member_profile_id, vice_captain_member_profile_id, start_at, is_home, cancelled_at, section, rinks_required, players_per_rink, orientation, '
           'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
           'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
           'green_areas(name, discipline, orientation_mode)',
@@ -1369,13 +1387,22 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       return;
     }
 
-    final bg = _fixtureTypeBackgroundColor(fixture) ?? Colors.white;
-    final fg = _fixtureTypeForegroundColor(fixture) ?? Colors.black87;
+    final isCancelled = fixture['cancelled_at'] != null;
+
+    final bg = isCancelled
+        ? Colors.grey.shade300
+        : (_fixtureTypeBackgroundColor(fixture) ?? Colors.white);
+
+    final fg = isCancelled
+        ? Colors.grey.shade800
+        : (_fixtureTypeForegroundColor(fixture) ?? Colors.black87);
 
     final title = fixtureTitleUnified(fixture, myClubName: _myClubName);
+
     final startsIn = _timeUntilFixture(fixture['start_at'].toString());
 
     final startAt = parseClubTime(fixture['start_at'].toString());
+
     final formattedStart = DateFormat(
       'EEEE d MMMM yyyy • HH:mm',
     ).format(startAt);
@@ -1383,11 +1410,12 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     final venue = _physicalVenueForFixture(fixture);
     final venueName = VenueActionsService.text(venue?['name']);
     final address = venue == null ? '' : VenueActionsService.address(venue);
+
     final hasVenue = venueName.isNotEmpty || address.isNotEmpty;
 
     await showDialog<void>(
       context: context,
-      builder: (_) => Dialog(
+      builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.all(18),
         child: SingleChildScrollView(
@@ -1402,15 +1430,37 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Your next match is in $startsIn',
-                        style: TextStyle(
-                          color: fg,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 26,
+                      if (isCancelled) ...[
+                        Text(
+                          'CANCELLED',
+                          style: TextStyle(
+                            color: Colors.grey.shade900,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 26,
+                            letterSpacing: 1.2,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'This fixture was due in $startsIn',
+                          style: TextStyle(
+                            color: fg,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ] else
+                        Text(
+                          'Your next match is in $startsIn',
+                          style: TextStyle(
+                            color: fg,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 26,
+                          ),
+                        ),
+
                       const SizedBox(height: 18),
+
                       Text(
                         title,
                         style: TextStyle(
@@ -1419,13 +1469,19 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                           fontSize: 18,
                         ),
                       ),
+
                       const SizedBox(height: 8),
+
                       Text(formattedStart, style: TextStyle(color: fg)),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Special instructions: none at the moment',
-                        style: TextStyle(color: fg),
-                      ),
+
+                      if (!isCancelled) ...[
+                        const SizedBox(height: 14),
+                        Text(
+                          'Special instructions: none at the moment',
+                          style: TextStyle(color: fg),
+                        ),
+                      ],
+
                       if (hasVenue) ...[
                         const SizedBox(height: 18),
                         Text(
@@ -1436,6 +1492,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
+
                         if (venueName.isNotEmpty)
                           Text(
                             venueName,
@@ -1444,28 +1501,54 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+
                         if (address.isNotEmpty) ...[
                           const SizedBox(height: 3),
                           Text(address, style: TextStyle(color: fg)),
                         ],
-                        const SizedBox(height: 12),
-                        _buildFixtureTravelActions(
-                          fixture: fixture,
-                          foregroundColor: fg,
-                        ),
+
+                        if (!isCancelled) ...[
+                          const SizedBox(height: 12),
+                          _buildFixtureTravelActions(
+                            fixture: fixture,
+                            foregroundColor: fg,
+                          ),
+                        ],
                       ],
+
                       const SizedBox(height: 18),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: Text('OK', style: TextStyle(color: fg)),
-                        ),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () async {
+                              Navigator.pop(dialogContext);
+
+                              await _openFixtureById(
+                                fixture['id']?.toString() ?? '',
+                              );
+                            },
+                            child: Text(
+                              'View fixture',
+                              style: TextStyle(
+                                color: fg,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            child: Text('OK', style: TextStyle(color: fg)),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
+
               if (_secondMatch != null)
                 _buildSecondMatchPopupCard(_secondMatch!),
             ],
@@ -1476,13 +1559,22 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   Widget _buildSecondMatchPopupCard(Map<String, dynamic> fixture) {
-    final bg = _fixtureTypeBackgroundColor(fixture) ?? Colors.grey.shade100;
-    final fg = _fixtureTypeForegroundColor(fixture) ?? Colors.black87;
+    final isCancelled = fixture['cancelled_at'] != null;
+
+    final bg = isCancelled
+        ? Colors.grey.shade300
+        : (_fixtureTypeBackgroundColor(fixture) ?? Colors.grey.shade100);
+
+    final fg = isCancelled
+        ? Colors.grey.shade800
+        : (_fixtureTypeForegroundColor(fixture) ?? Colors.black87);
 
     final title = fixtureTitleUnified(fixture, myClubName: _myClubName);
+
     final startsIn = _timeUntilFixture(fixture['start_at'].toString());
 
     final startAt = parseClubTime(fixture['start_at'].toString());
+
     final formattedStart = DateFormat(
       'EEEE d MMMM yyyy • HH:mm',
     ).format(startAt);
@@ -1497,33 +1589,76 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         elevation: 4,
         margin: const EdgeInsets.only(top: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Also coming up in $startsIn',
-                style: TextStyle(
-                  color: fg,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () async {
+            Navigator.of(context).pop();
+
+            await _openFixtureById(fixture['id']?.toString() ?? '');
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isCancelled) ...[
+                  Text(
+                    'CANCELLED',
+                    style: TextStyle(
+                      color: Colors.grey.shade900,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      letterSpacing: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'This fixture was due in $startsIn',
+                    style: TextStyle(color: fg, fontWeight: FontWeight.w700),
+                  ),
+                ] else
+                  Text(
+                    'Also coming up in $startsIn',
+                    style: TextStyle(
+                      color: fg,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  title,
+                  style: TextStyle(color: fg, fontWeight: FontWeight.w700),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: TextStyle(color: fg, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 6),
-              Text(formattedStart, style: TextStyle(color: fg)),
-              if (venueName.isNotEmpty) ...[
+
                 const SizedBox(height: 6),
-                Text(venueName, style: TextStyle(color: fg)),
+
+                Text(formattedStart, style: TextStyle(color: fg)),
+
+                if (venueName.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(venueName, style: TextStyle(color: fg)),
+                ],
+
+                if (!isCancelled) ...[
+                  const SizedBox(height: 10),
+                  _buildFixtureTravelActions(
+                    fixture: fixture,
+                    foregroundColor: fg,
+                  ),
+                ],
+
+                if (isCancelled) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Tap to view cancellation details',
+                    style: TextStyle(color: fg, fontWeight: FontWeight.w600),
+                  ),
+                ],
               ],
-              const SizedBox(height: 10),
-              _buildFixtureTravelActions(fixture: fixture, foregroundColor: fg),
-            ],
+            ),
           ),
         ),
       ),
@@ -1549,92 +1684,13 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     String? actionHint,
     Widget? trailing,
   }) {
-    final backgroundColor = _fixtureTypeBackgroundColor(fixture);
-    final foregroundColor = _fixtureTypeForegroundColor(fixture);
-    final fixtureTypeName = _fixtureTypeName(fixture);
-
-    final subtitleWidget = actionHint == null || actionHint.trim().isEmpty
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_shouldShowFixtureTypeLine(
-                title: title,
-                fixtureTypeName: fixtureTypeName,
-              )) ...[
-                Text(
-                  fixtureTypeName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: foregroundColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-              ],
-              Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: foregroundColor),
-              ),
-            ],
-          )
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_shouldShowFixtureTypeLine(
-                title: title,
-                fixtureTypeName: fixtureTypeName,
-              )) ...[
-                Text(
-                  fixtureTypeName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: foregroundColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-              ],
-              Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: foregroundColor),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                actionHint,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: foregroundColor,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          );
-
-    return Card(
-      color: backgroundColor,
+    return UnifiedFixtureCard(
+      fixture: fixture,
+      myClubName: _myClubName,
+      actionHint: actionHint,
+      trailing: trailing,
+      onTap: onTap,
       margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        dense: true,
-        visualDensity: VisualDensity.compact,
-        title: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: foregroundColor, fontWeight: FontWeight.w600),
-        ),
-        subtitle: subtitleWidget,
-        trailing: trailing ?? Icon(Icons.chevron_right, color: foregroundColor),
-        onTap: onTap,
-      ),
     );
   }
 
@@ -1648,8 +1704,19 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     required VoidCallback onNotAvailableTap,
     Widget? trailing,
   }) {
-    final backgroundColor = _fixtureTypeBackgroundColor(fixture);
-    final foregroundColor = _fixtureTypeForegroundColor(fixture);
+    final isCancelled = fixture['cancelled_at'] != null;
+
+    final normalBackgroundColor = _fixtureTypeBackgroundColor(fixture);
+    final normalForegroundColor = _fixtureTypeForegroundColor(fixture);
+
+    final backgroundColor = isCancelled
+        ? Colors.grey.shade300
+        : normalBackgroundColor;
+
+    final foregroundColor = isCancelled
+        ? Colors.grey.shade800
+        : normalForegroundColor;
+
     final fixtureTypeName = _fixtureTypeName(fixture);
 
     return Card(
@@ -1667,6 +1734,19 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (isCancelled) ...[
+                      Text(
+                        'CANCELLED',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Colors.grey.shade900,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                            ),
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+
                     Row(
                       children: [
                         Expanded(
@@ -1685,7 +1765,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                         Icon(Icons.chevron_right, color: foregroundColor),
                       ],
                     ),
+
                     const SizedBox(height: 4),
+
                     if (fixtureTypeName.isNotEmpty) ...[
                       Text(
                         fixtureTypeName,
@@ -1696,50 +1778,63 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                       ),
                       const SizedBox(height: 2),
                     ],
+
                     Text(
                       subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: foregroundColor),
                     ),
+
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Text(
-                          'Availability:',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: foregroundColor,
-                                fontWeight: FontWeight.w600,
-                              ),
+
+                    if (isCancelled)
+                      Text(
+                        'Availability closed — fixture cancelled',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: foregroundColor,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _buildAvailabilityButton(
-                                label: 'Available',
-                                isSelected: myStatus == 'yes',
-                                selectedColor: Colors.green,
-                                onTap: onAvailableTap,
-                              ),
-                              _buildAvailabilityButton(
-                                label: 'Not available',
-                                isSelected: myStatus == 'no',
-                                selectedColor: Colors.red,
-                                onTap: onNotAvailableTap,
-                              ),
-                            ],
+                      )
+                    else
+                      Row(
+                        children: [
+                          Text(
+                            'Availability:',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: foregroundColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _buildAvailabilityButton(
+                                  label: 'Available',
+                                  isSelected: myStatus == 'yes',
+                                  selectedColor: Colors.green,
+                                  onTap: onAvailableTap,
+                                ),
+                                _buildAvailabilityButton(
+                                  label: 'Not available',
+                                  isSelected: myStatus == 'no',
+                                  selectedColor: Colors.red,
+                                  onTap: onNotAvailableTap,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),
             ),
+
             if (trailing != null) ...[
               const SizedBox(width: 8),
               Center(child: trailing),

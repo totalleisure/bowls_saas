@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/utils/date_format.dart';
 
@@ -138,4 +139,242 @@ String fixtureSubtitleUnified(Map<String, dynamic> f) {
   if (section.isNotEmpty) parts.add(section.toUpperCase());
 
   return parts.join(' • ');
+}
+
+class UnifiedFixtureCard extends StatelessWidget {
+  const UnifiedFixtureCard({
+    super.key,
+    required this.fixture,
+    required this.myClubName,
+    required this.onTap,
+    this.actionHint,
+    this.trailing,
+    this.margin = const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+  });
+
+  final Map<String, dynamic> fixture;
+  final String myClubName;
+  final VoidCallback onTap;
+  final String? actionHint;
+  final Widget? trailing;
+  final EdgeInsetsGeometry margin;
+
+  Color _colourFromHex(String? hex, Color fallback) {
+    if (hex == null || hex.trim().isEmpty) return fallback;
+
+    final clean = hex.replaceAll('#', '').trim();
+
+    if (clean.length != 6) return fallback;
+
+    return Color(int.parse('FF$clean', radix: 16));
+  }
+
+  String _formatLabel() {
+    String? formatCode;
+
+    final fixtureRinks = fixture['fixture_rinks'];
+
+    if (fixtureRinks is List && fixtureRinks.isNotEmpty) {
+      final first = fixtureRinks.first;
+
+      if (first is Map) {
+        formatCode = first['format']?.toString().trim().toLowerCase();
+      }
+    }
+
+    switch (formatCode) {
+      case 'singles':
+        return 'Singles';
+      case 'pairs':
+        return 'Pairs';
+      case 'aussie_pairs':
+        return 'Aussie Pairs';
+      case 'triples':
+        return 'Triples';
+      case 'fours':
+      case 'rinks':
+        return 'Fours';
+    }
+
+    final playersPerRink = fixture['players_per_rink'];
+
+    if (playersPerRink == 1) return 'Singles';
+    if (playersPerRink == 2) return 'Pairs';
+    if (playersPerRink == 3) return 'Triples';
+    if (playersPerRink == 4) return 'Fours';
+
+    return '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isCancelled = fixture['cancelled_at'] != null;
+    final isHome = fixture['is_home'] == true;
+
+    final title = fixtureTitleUnified(fixture, myClubName: myClubName);
+
+    final whenText = formatWhenLocal(fixture['start_at'].toString());
+
+    final section = (fixture['section'] ?? '').toString().trim();
+    final rinks = fixture['rinks_required'] as int? ?? 0;
+    final orientation = fixture['orientation']?.toString();
+
+    final competitionType =
+        fixture['competition_type'] as Map<String, dynamic>?;
+
+    final competitionTypeName = (competitionType?['name'] ?? '')
+        .toString()
+        .trim();
+
+    final colourScheme =
+        competitionType?['colour_scheme'] as Map<String, dynamic>?;
+
+    final greenArea = fixture['green_areas'] as Map<String, dynamic>?;
+
+    final discipline = greenArea?['discipline']?.toString().toLowerCase();
+
+    final orientationMode = greenArea?['orientation_mode']
+        ?.toString()
+        .toLowerCase();
+
+    final showOrientation =
+        isHome &&
+        discipline == 'outdoor' &&
+        orientationMode != 'not_applicable';
+
+    final formatLabel = _formatLabel();
+
+    final normalBackground = _colourFromHex(
+      colourScheme?['background_hex']?.toString(),
+      Theme.of(context).colorScheme.surface,
+    );
+
+    final normalForeground = _colourFromHex(
+      colourScheme?['foreground_hex']?.toString(),
+      Theme.of(context).colorScheme.onSurface,
+    );
+
+    final background = isCancelled ? Colors.grey.shade300 : normalBackground;
+
+    final foreground = isCancelled ? Colors.grey.shade800 : normalForeground;
+
+    final detailParts = <String>[
+      whenText,
+      if (section.isNotEmpty) section,
+      if (formatLabel.isNotEmpty) formatLabel,
+      if (rinks > 0) '$rinks rinks',
+      if (showOrientation) 'orient: ${orientation ?? 'not set'}',
+    ];
+
+    return Card(
+      margin: margin,
+      color: background,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isCancelled) ...[
+                Text(
+                  'CANCELLED',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.grey.shade900,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
+
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isCancelled
+                          ? Colors.grey.shade400
+                          : foreground.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: isCancelled
+                            ? Colors.grey.shade600
+                            : foreground.withOpacity(0.28),
+                      ),
+                    ),
+                    child: Text(
+                      isHome ? 'HOME' : 'AWAY',
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              if (competitionTypeName.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  competitionTypeName,
+                  style: TextStyle(
+                    color: foreground,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 3),
+
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      detailParts.join(' • '),
+                      style: TextStyle(color: foreground),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  trailing ?? Icon(Icons.chevron_right, color: foreground),
+                ],
+              ),
+
+              if (actionHint != null && actionHint!.trim().isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  actionHint!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: foreground,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

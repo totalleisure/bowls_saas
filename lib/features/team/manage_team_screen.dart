@@ -500,7 +500,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _clearAssignmentSlot(String rinkId, int position) async {
-    if (!_canAssignRinks || _savingAssignments) return;
+    if (effectiveReadOnly || !_canAssignRinks || _savingAssignments) return;
 
     final previous = <String, Map<int, Map<String, dynamic>>>{};
     for (final entry in _assignmentsByRink.entries) {
@@ -573,7 +573,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     required int position,
     required String memberProfileId,
   }) async {
-    if (!_canAssignRinks || _savingAssignments) return;
+    if (effectiveReadOnly || !_canAssignRinks || _savingAssignments) return;
 
     final confirmed = await _confirmReservePromotion(memberProfileId);
     if (!confirmed) return;
@@ -623,7 +623,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     required int position,
     required String title,
   }) async {
-    if (!_canAssignRinks || _savingAssignments) return;
+    if (effectiveReadOnly || !_canAssignRinks || _savingAssignments) return;
 
     final rows = _assignableSelectedRows();
 

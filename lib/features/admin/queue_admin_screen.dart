@@ -26,11 +26,16 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
   bool _notificationCronActive = false;
   bool _busyNotificationCron = false;
 
+  bool _loadingEmailCron = true;
+  bool _emailCronActive = false;
+  bool _busyEmailCron = false;
+
   @override
   void initState() {
     super.initState();
     _loadStats();
     _loadNotificationCronStatus();
+    _loadEmailCronStatus();
   }
 
   Future<bool> _isSuperuser() async {
@@ -75,6 +80,88 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
           content: Text('Could not load automatic processing status: $e'),
         ),
       );
+    }
+  }
+
+  Future<void> _loadEmailCronStatus() async {
+    setState(() => _loadingEmailCron = true);
+
+    try {
+      final result = await Supabase.instance.client.rpc(
+        'get_email_queue_cron_status',
+      );
+
+      final status = result is Map
+          ? Map<String, dynamic>.from(result)
+          : <String, dynamic>{};
+
+      if (!mounted) return;
+
+      setState(() {
+        _emailCronActive = status['active'] == true;
+        _loadingEmailCron = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => _loadingEmailCron = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not load automatic email processing status: $e'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _setEmailCronEnabled(bool enabled) async {
+    if (!await _isSuperuser()) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Superuser access required.')),
+      );
+      return;
+    }
+
+    setState(() => _busyEmailCron = true);
+
+    try {
+      await Supabase.instance.client.rpc(
+        'set_email_queue_cron_enabled',
+        params: {'p_enabled': enabled},
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _emailCronActive = enabled;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Automatic email processing resumed.'
+                : 'Automatic email processing paused.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not ${enabled ? 'resume' : 'pause'} '
+            'automatic email processing: $e',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busyEmailCron = false);
+      }
     }
   }
 
@@ -269,13 +356,7 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
     );
   }
 
-  Widget _buildQueueCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool busy,
-    required VoidCallback? onPressed,
-  }) {
+  Widget _buildNotificationQueueCard() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -392,6 +473,116 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
     );
   }
 
+  Widget _buildEmailQueueCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.email_outlined),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Email Queue',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        _loadingStats
+                            ? 'Loading queue status...'
+                            : 'Pending: $_emailPending   '
+                                  'Sent: $_emailSent   '
+                                  'Failed: $_emailFailed'
+                                  '${_lastEmailError == null ? '' : '\nLast error: $_lastEmailError'}',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            Row(
+              children: [
+                Icon(
+                  _emailCronActive
+                      ? Icons.play_circle_outline
+                      : Icons.pause_circle_outline,
+                  color: _emailCronActive ? Colors.green : Colors.orange,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _loadingEmailCron
+                        ? 'Checking automatic processing...'
+                        : _emailCronActive
+                        ? 'Automatic processing: Running every 5 minutes'
+                        : 'Automatic processing: Paused',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: _emailCronActive ? Colors.green : Colors.orange,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _busyEmails ? null : _processEmails,
+                  icon: _busyEmails
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.play_arrow),
+                  label: const Text('Process now'),
+                ),
+
+                OutlinedButton.icon(
+                  onPressed: _loadingEmailCron || _busyEmailCron
+                      ? null
+                      : () => _setEmailCronEnabled(!_emailCronActive),
+                  icon: _busyEmailCron
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(_emailCronActive ? Icons.pause : Icons.play_arrow),
+                  label: Text(
+                    _emailCronActive
+                        ? 'Pause automatic processing'
+                        : 'Resume automatic processing',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<bool>(
@@ -417,30 +608,9 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
                   children: [
                     _buildHeader(),
                     const SizedBox(height: 12),
-                    _buildQueueCard(
-                      icon: Icons.notifications_active,
-                      title: 'Process Notification Queue',
-                      subtitle: _loadingStats
-                          ? 'Loading queue status...'
-                          : 'Pending: $_notificationPending   '
-                                'Failed: $_notificationFailed'
-                                '${_lastNotificationError == null ? '' : '\nLast error: $_lastNotificationError'}',
-                      busy: _busyNotifications,
-                      onPressed: _processNotifications,
-                    ),
+                    _buildNotificationQueueCard(),
                     const SizedBox(height: 12),
-                    _buildQueueCard(
-                      icon: Icons.email,
-                      title: 'Process Email Queue',
-                      subtitle: _loadingStats
-                          ? 'Loading queue status...'
-                          : 'Pending: $_emailPending   '
-                                'Sent: $_emailSent   '
-                                'Failed: $_emailFailed'
-                                '${_lastEmailError == null ? '' : '\nLast error: $_lastEmailError'}',
-                      busy: _busyEmails,
-                      onPressed: _processEmails,
-                    ),
+                    _buildEmailQueueCard(),
                   ],
                 ),
         );

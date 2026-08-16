@@ -535,6 +535,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
           rinks_required,
           green_area_id,
           opponent_name,
+          cancelled_at,
 
           competition_types (
             id,
@@ -558,6 +559,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         ''')
         .eq('club_id', widget.clubId)
         .eq('is_home', true)
+        .isFilter('cancelled_at', null)
         .gte('start_at', clubTimeToUtc(dayStart).toIso8601String())
         .lt('start_at', clubTimeToUtc(dayEnd).toIso8601String())
         .order('start_at');

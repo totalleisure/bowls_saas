@@ -49,6 +49,17 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant SetCaptainSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.readOnly && !oldWidget.readOnly && _editing) {
+      setState(() {
+        _editing = false;
+      });
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -398,7 +409,7 @@ class _SetCaptainSectionState extends State<SetCaptainSection> {
                       ],
                     ),
                   ),
-                  if (_isAdmin) ...[
+                  if (_isAdmin && !widget.readOnly) ...[
                     const SizedBox(width: 8),
                     TextButton(
                       onPressed: () => setState(() => _editing = true),

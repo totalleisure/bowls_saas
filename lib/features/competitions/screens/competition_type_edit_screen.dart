@@ -161,6 +161,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
               tags,
               default_rinks_required,
               default_players_per_rink,
+              default_format,
               default_duration_minutes,
               dress_code,
               team_selection_enabled,
@@ -179,15 +180,24 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
 
         final row = CompetitionType.fromMap(Map<String, dynamic>.from(res));
 
-        final ppr = row.defaultPlayersPerRink;
+        final savedFormat = (res['default_format'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
 
-        _defaultFormat = switch (ppr) {
-          1 => 'singles',
-          2 => 'pairs', // or aussie_pairs if you want to detect it later
-          3 => 'triples',
-          4 => 'rinks',
-          _ => null,
-        };
+        if (savedFormat.isNotEmpty) {
+          _defaultFormat = savedFormat;
+        } else {
+          final ppr = row.defaultPlayersPerRink;
+
+          _defaultFormat = switch (ppr) {
+            1 => 'singles',
+            2 => 'pairs',
+            3 => 'triples',
+            4 => 'rinks',
+            _ => null,
+          };
+        }
 
         _nameController.text = row.name;
         _rinksController.text = row.defaultRinksRequired?.toString() ?? '';
@@ -313,6 +323,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
         'uses_rinks': _usesRinks,
         'default_rinks_required': _usesRinks ? rinks : null,
         'default_players_per_rink': _usesRinks ? players : null,
+        'default_format': _usesRinks ? _defaultFormat : null,
         'default_duration_minutes': duration,
         'dress_code': _dressCode,
         'team_selection_enabled': _teamSelectionEnabled,
@@ -322,7 +333,6 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
         'colour_scheme_id': _selectedColourScheme?.id,
         'tags': _selectedTags.toList()..sort(),
       };
-
       if (_isEdit) {
         await _client
             .from('competition_types')
@@ -701,6 +711,10 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                                   child: Text('Pairs'),
                                 ),
                                 DropdownMenuItem(
+                                  value: 'aussie_pairs',
+                                  child: Text('Aussie Pairs'),
+                                ),
+                                DropdownMenuItem(
                                   value: 'triples',
                                   child: Text('Triples'),
                                 ),
@@ -720,6 +734,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                                             switch (value) {
                                               'singles' => '1',
                                               'pairs' => '2',
+                                              'aussie_pairs' => '2',
                                               'triples' => '3',
                                               'rinks' => '4',
                                               _ => '',

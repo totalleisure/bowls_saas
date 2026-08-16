@@ -146,7 +146,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   // Defaults requested
   int _rinksRequired = 6;
-  int _playersPerRink = 4; // 4 = rinks, 3 = triples, 2 = pairs
+  int _playersPerRink = 4;
+  String _format = 'fours';
   int _rinksRequiredFieldVersion = 0;
 
   // Fixture types
@@ -481,6 +482,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           section,
           default_rinks_required,
           default_players_per_rink,
+          default_format,
           team_selection_enabled,
           selection_mode,
           uses_rinks,
@@ -548,6 +550,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'p_section': _section.isEmpty ? 'open' : _section,
         'p_rinks_required': usesRinks ? _rinksRequired : 0,
         'p_players_per_rink': usesRinks ? _playersPerRink : 1,
+        'p_format': usesRinks ? _format : 'singles',
         'p_competition_type_id': _fixtureTypeId,
         'p_team_id': _isTeamFixture ? _teamId : null,
         'p_team_name': fixtureLabel?.trim().isEmpty == true
@@ -1440,6 +1443,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final isInternal = row['is_internal'] == true;
     final defaultRinksRequired = row['default_rinks_required'] as int?;
     final defaultPlayersPerRink = row['default_players_per_rink'] as int?;
+
+    final defaultFormat = (row['default_format'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
     final linkedTeamId = row['team_id']?.toString();
     final usesRinks = row['uses_rinks'] == true;
 
@@ -1516,10 +1525,51 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (section.isNotEmpty) {
         _section = section;
       }
+
       if (usesRinks) {
-        if (defaultPlayersPerRink != null) {
+        if (defaultFormat.isNotEmpty) {
+          _format = defaultFormat;
+
+          switch (_format) {
+            case 'singles':
+              _playersPerRink = 1;
+              break;
+            case 'pairs':
+            case 'aussie_pairs':
+              _playersPerRink = 2;
+              break;
+            case 'triples':
+              _playersPerRink = 3;
+              break;
+            case 'fours':
+            case 'rinks':
+              _playersPerRink = 4;
+              break;
+            default:
+              if (defaultPlayersPerRink != null) {
+                _playersPerRink = defaultPlayersPerRink;
+              }
+          }
+        } else if (defaultPlayersPerRink != null) {
           _playersPerRink = defaultPlayersPerRink;
+
+          switch (_playersPerRink) {
+            case 1:
+              _format = 'singles';
+              break;
+            case 2:
+              _format = 'pairs';
+              break;
+            case 3:
+              _format = 'triples';
+              break;
+            case 4:
+            default:
+              _format = 'fours';
+              break;
+          }
         }
+
         if (defaultRinksRequired != null) {
           _rinksRequired = defaultRinksRequired;
         }
@@ -5094,27 +5144,57 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           const SizedBox(height: 12),
 
                           if (!_isEventStyleFixture) ...[
-                            DropdownButtonFormField<int>(
-                              value: _playersPerRink,
+                            DropdownButtonFormField<String>(
+                              value: _format,
                               decoration: const InputDecoration(
                                 labelText: 'Format',
                               ),
-                              items: const [4, 3, 2, 1].map((ppr) {
-                                return DropdownMenuItem(
-                                  value: ppr,
-                                  child: Text(
-                                    ppr == 4
-                                        ? 'Fours (4)'
-                                        : ppr == 3
-                                        ? 'Triples (3)'
-                                        : ppr == 2
-                                        ? 'Pairs (2)'
-                                        : 'Singles (1)',
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (v) {
-                                setState(() => _playersPerRink = v ?? 4);
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'fours',
+                                  child: Text('Fours (4)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'triples',
+                                  child: Text('Triples (3)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'pairs',
+                                  child: Text('Pairs (2)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'aussie_pairs',
+                                  child: Text('Aussie Pairs (2)'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'singles',
+                                  child: Text('Singles (1)'),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                if (value == null) return;
+
+                                setState(() {
+                                  _format = value;
+
+                                  switch (value) {
+                                    case 'singles':
+                                      _playersPerRink = 1;
+                                      break;
+                                    case 'pairs':
+                                    case 'aussie_pairs':
+                                      _playersPerRink = 2;
+                                      break;
+                                    case 'triples':
+                                      _playersPerRink = 3;
+                                      break;
+                                    case 'fours':
+                                    case 'rinks':
+                                      _playersPerRink = 4;
+                                      break;
+                                  }
+                                });
+
                                 _markDirty();
                               },
                             ),

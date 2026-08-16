@@ -65,8 +65,12 @@ begin
 
   select count(*)
   into v_assigned
-  from public.fixture_rink_assignments
-  where fixture_id = p_fixture_id;
+  from public.fixture_rink_assignments fra
+  join public.fixture_rinks fr
+    on fr.id = fra.fixture_rink_id
+  where fra.fixture_id = p_fixture_id
+    and fra.member_profile_id is not null
+    and fra.position between 1 and fr.players_per_rink;
 
   v_missing := greatest(v_required - v_assigned, 0);
 
@@ -96,7 +100,16 @@ begin
     ),
     'pending'
   from public.fixture_rink_assignments fra
+  join public.fixture_rinks fr
+    on fr.id = fra.fixture_rink_id
   where fra.fixture_id = p_fixture_id
+
+    -- Only real club members can receive a player notification.
+    and fra.member_profile_id is not null
+
+    -- Only actual player positions, not opponents/markers/request rows.
+    and fra.position between 1 and fr.players_per_rink
+
     and not exists (
       select 1
       from public.notification_queue nq
@@ -251,6 +264,7 @@ begin
       'pending'
     from public.team_members tm
     where tm.team_id = v_team_id
+      and tm.member_profile_id is not null
       and coalesce(tm.is_active, true) = true
       and not exists (
         select 1
