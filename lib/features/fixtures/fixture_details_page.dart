@@ -4105,107 +4105,142 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                             playerNo++
                           ) ...[
                             Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                SizedBox(
-                                  width: 80,
-                                  child: Text('Player $playerNo'),
-                                ),
                                 Expanded(
-                                  child: Builder(
-                                    builder: (context) {
-                                      final assignment = _assignmentFor(
-                                        fixtureRinkId: rinkId,
-                                        position: playerNo,
-                                      );
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Player $playerNo',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Builder(
+                                        builder: (context) {
+                                          final assignment = _assignmentFor(
+                                            fixtureRinkId: rinkId,
+                                            position: playerNo,
+                                          );
 
-                                      final acceptance =
-                                          assignment?['acceptance']?.toString();
+                                          final acceptance =
+                                              assignment?['acceptance']
+                                                  ?.toString();
 
-                                      return OutlinedButton(
-                                        style: assignment == null
-                                            ? null
-                                            : OutlinedButton.styleFrom(
-                                                backgroundColor:
-                                                    _acceptanceBackgroundColor(
-                                                      acceptance,
-                                                    ),
-                                                foregroundColor:
-                                                    _acceptanceForegroundColor(
-                                                      acceptance,
-                                                    ),
+                                          return OutlinedButton(
+                                            style: assignment == null
+                                                ? null
+                                                : OutlinedButton.styleFrom(
+                                                    backgroundColor:
+                                                        _acceptanceBackgroundColor(
+                                                          acceptance,
+                                                        ),
+                                                    foregroundColor:
+                                                        _acceptanceForegroundColor(
+                                                          acceptance,
+                                                        ),
+                                                  ),
+                                            onPressed:
+                                                _canMaintainMemberPreselectFixture
+                                                ? () => _selectMemberPreselectSlot(
+                                                    context: context,
+                                                    fixtureRinkId: rinkId,
+                                                    position: playerNo,
+                                                    pickerTitle:
+                                                        'Select Player $playerNo',
+                                                    useFixtureSection: true,
+                                                  )
+                                                : null,
+                                            child: Text(
+                                              _memberLabelFromAssignment(
+                                                assignment,
                                               ),
-                                        onPressed:
-                                            _canMaintainMemberPreselectFixture
-                                            ? () => _selectMemberPreselectSlot(
-                                                context: context,
-                                                fixtureRinkId: rinkId,
-                                                position: playerNo,
-                                                pickerTitle:
-                                                    'Select Player $playerNo',
-                                                useFixtureSection: true,
-                                              )
-                                            : null,
-                                        child: Text(
-                                          _memberLabelFromAssignment(
-                                            assignment,
-                                          ),
-                                        ),
-                                      );
-                                    },
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 16),
-                                SizedBox(
-                                  width: 90,
-                                  child: Text('Opponent $playerNo'),
-                                ),
+
+                                const SizedBox(width: 6),
+
                                 Expanded(
-                                  child: Builder(
-                                    builder: (context) {
-                                      final assignment = _assignmentFor(
-                                        fixtureRinkId: rinkId,
-                                        position: 100 + playerNo,
-                                      );
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Text(
+                                        'Opponent $playerNo',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Builder(
+                                        builder: (context) {
+                                          final assignment = _assignmentFor(
+                                            fixtureRinkId: rinkId,
+                                            position: 100 + playerNo,
+                                          );
 
-                                      final acceptance =
-                                          assignment?['acceptance']?.toString();
-                                      final isExternal =
-                                          (assignment?['display_name'] ?? '')
-                                              .toString()
-                                              .trim()
-                                              .isNotEmpty;
+                                          final acceptance =
+                                              assignment?['acceptance']
+                                                  ?.toString();
 
-                                      return OutlinedButton(
-                                        style: assignment == null
-                                            ? null
-                                            : OutlinedButton.styleFrom(
-                                                backgroundColor: isExternal
-                                                    ? Colors.blueGrey.shade50
-                                                    : _acceptanceBackgroundColor(
-                                                        acceptance,
-                                                      ),
-                                                foregroundColor: isExternal
-                                                    ? Colors.blueGrey.shade900
-                                                    : _acceptanceForegroundColor(
-                                                        acceptance,
-                                                      ),
+                                          final isExternal =
+                                              (assignment?['display_name'] ??
+                                                      '')
+                                                  .toString()
+                                                  .trim()
+                                                  .isNotEmpty;
+
+                                          return OutlinedButton(
+                                            style: assignment == null
+                                                ? null
+                                                : OutlinedButton.styleFrom(
+                                                    backgroundColor: isExternal
+                                                        ? Colors
+                                                              .blueGrey
+                                                              .shade50
+                                                        : _acceptanceBackgroundColor(
+                                                            acceptance,
+                                                          ),
+                                                    foregroundColor: isExternal
+                                                        ? Colors
+                                                              .blueGrey
+                                                              .shade900
+                                                        : _acceptanceForegroundColor(
+                                                            acceptance,
+                                                          ),
+                                                  ),
+                                            onPressed:
+                                                _canMaintainMemberPreselectFixture
+                                                ? () =>
+                                                      _editOpponentPreselectSlot(
+                                                        context: context,
+                                                        fixtureRinkId: rinkId,
+                                                        position:
+                                                            100 + playerNo,
+                                                        opponentNo: playerNo,
+                                                      )
+                                                : null,
+                                            child: Text(
+                                              _memberLabelFromAssignment(
+                                                assignment,
                                               ),
-                                        onPressed:
-                                            _canMaintainMemberPreselectFixture
-                                            ? () => _editOpponentPreselectSlot(
-                                                context: context,
-                                                fixtureRinkId: rinkId,
-                                                position: 100 + playerNo,
-                                                opponentNo: playerNo,
-                                              )
-                                            : null,
-                                        child: Text(
-                                          _memberLabelFromAssignment(
-                                            assignment,
-                                          ),
-                                        ),
-                                      );
-                                    },
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
