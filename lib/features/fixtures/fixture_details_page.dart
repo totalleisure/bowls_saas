@@ -410,6 +410,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         _isFixtureViceCaptain;
   }
 
+  bool get _canCancelFixture {
+    final isCancelled = _fixture?['cancelled_at'] != null;
+
+    return !isCancelled &&
+        (_canEditAdminFixtureDetails ||
+            _isFixtureCaptain ||
+            _isFixtureViceCaptain);
+  }
+
   void _handleRinkTap(Map<String, dynamic> rink) {
     if (_preselectDirty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1824,6 +1833,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         .select('id, club_id, member_profile_id, role')
         .eq('member_profile_id', myProfileId)
         .eq('club_id', _fixture!['club_id'])
+        .eq('is_active', true)
         .maybeSingle();
 
     debugPrint('AUTH user.id       = ${user.id}');
@@ -5579,10 +5589,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ),
         title: Text(pageTitle),
         actions: [
-          if (_canEditFixture && !isCancelled)
+          if (_canCancelFixture)
             IconButton(
               tooltip: 'Cancel fixture',
-              icon: const Icon(Icons.cancel_outlined),
+              icon: const Icon(Icons.event_busy_outlined),
               onPressed: _confirmAndCancelFixture,
             ),
 

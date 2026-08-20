@@ -2096,7 +2096,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       Object? preparationError;
 
       try {
-        processedCount = await _processPublicationNotifications();
+        // Notification processing is handled centrally by the queue processor.
+        // Do not process the global notification queue from this workflow.
+        processedCount = 0;
+
         attachedCount = await _attachPublicationTeamSheetToQueuedEmails();
       } catch (e) {
         preparationError = e;

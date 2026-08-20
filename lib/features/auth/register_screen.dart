@@ -12,6 +12,24 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
 
+  final _clubFieldKey = GlobalKey();
+  final _firstNameFieldKey = GlobalKey();
+  final _surnameFieldKey = GlobalKey();
+  final _phoneFieldKey = GlobalKey();
+  final _emailFieldKey = GlobalKey();
+  final _confirmEmailFieldKey = GlobalKey();
+  final _passwordFieldKey = GlobalKey();
+  final _confirmPasswordFieldKey = GlobalKey();
+
+  final _clubFocus = FocusNode();
+  final _firstNameFocus = FocusNode();
+  final _surnameFocus = FocusNode();
+  final _phoneFocus = FocusNode();
+  final _emailFocus = FocusNode();
+  final _confirmEmailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _confirmPasswordFocus = FocusNode();
+
   final _firstName = TextEditingController();
   final _surname = TextEditingController();
   final _address1 = TextEditingController();
@@ -28,6 +46,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _loading = false;
   bool _clubsLoading = true;
   bool _hasUnsavedChanges = false;
+  bool _validateOnChange = false;
+  bool _showPassword = false;
+  bool _showConfirmPassword = false;
 
   int _brandingSetNo = 0;
 
@@ -56,6 +77,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  Widget _requiredLabel(String text) {
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: text),
+          const TextSpan(
+            text: ' *',
+            style: TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _requiredValidator(String? value, String fieldName) {
+    if (value == null || value.trim().isEmpty) {
+      return '$fieldName is required';
+    }
+    return null;
+  }
+
+  bool _looksLikeEmail(String value) {
+    final email = value.trim();
+    final at = email.indexOf('@');
+    final dot = email.lastIndexOf('.');
+    return at > 0 && dot > at + 1 && dot < email.length - 1;
+  }
+
   void _markDirty() {
     if (!_hasUnsavedChanges) {
       setState(() {
@@ -73,6 +125,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
+    _clubFocus.dispose();
+    _firstNameFocus.dispose();
+    _surnameFocus.dispose();
+    _phoneFocus.dispose();
+    _emailFocus.dispose();
+    _confirmEmailFocus.dispose();
+    _passwordFocus.dispose();
+    _confirmPasswordFocus.dispose();
+
     _firstName.dispose();
     _surname.dispose();
     _address1.dispose();
@@ -149,25 +210,79 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return 'Registration could not be completed. Please check your details and try again.';
   }
 
-  Future<void> _register() async {
-    if (_selectedClubId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please select a club')));
-      return;
-    }
+  Future<void> _revealAndFocus(GlobalKey key, FocusNode focusNode) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    if (!mounted) return;
 
-    if (_email.text.trim() != _confirmEmail.text.trim()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email addresses do not match')),
+    final fieldContext = key.currentContext;
+    if (fieldContext != null) {
+      await Scrollable.ensureVisible(
+        fieldContext,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        alignment: 0.20,
       );
+    }
+
+    if (mounted) {
+      focusNode.requestFocus();
+    }
+  }
+
+  Future<void> _focusFirstInvalidField() async {
+    if (_selectedClubId == null) {
+      await _revealAndFocus(_clubFieldKey, _clubFocus);
       return;
     }
 
-    if (_password.text != _confirmPassword.text) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Passwords do not match')));
+    if (_firstName.text.trim().isEmpty) {
+      await _revealAndFocus(_firstNameFieldKey, _firstNameFocus);
+      return;
+    }
+
+    if (_surname.text.trim().isEmpty) {
+      await _revealAndFocus(_surnameFieldKey, _surnameFocus);
+      return;
+    }
+
+    if (_phone.text.trim().isEmpty) {
+      await _revealAndFocus(_phoneFieldKey, _phoneFocus);
+      return;
+    }
+
+    final email = _email.text.trim();
+    if (email.isEmpty || !_looksLikeEmail(email)) {
+      await _revealAndFocus(_emailFieldKey, _emailFocus);
+      return;
+    }
+
+    final confirmEmail = _confirmEmail.text.trim();
+    if (confirmEmail.isEmpty || confirmEmail != email) {
+      await _revealAndFocus(_confirmEmailFieldKey, _confirmEmailFocus);
+      return;
+    }
+
+    if (_password.text.isEmpty) {
+      await _revealAndFocus(_passwordFieldKey, _passwordFocus);
+      return;
+    }
+
+    if (_confirmPassword.text.isEmpty ||
+        _confirmPassword.text != _password.text) {
+      await _revealAndFocus(_confirmPasswordFieldKey, _confirmPasswordFocus);
+    }
+  }
+
+  Future<void> _register() async {
+    final formIsValid = _formKey.currentState?.validate() ?? false;
+
+    if (!formIsValid) {
+      if (!_validateOnChange) {
+        setState(() {
+          _validateOnChange = true;
+        });
+      }
+      await _focusFirstInvalidField();
       return;
     }
 
@@ -334,215 +449,357 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           child: _clubsLoading
               ? const Center(child: CircularProgressIndicator())
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.72),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 24),
-
-                          DropdownButtonFormField<String>(
-                            value: _selectedClubId,
-                            decoration: const InputDecoration(
-                              labelText: 'Select your Club',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: _clubs.map((club) {
-                              return DropdownMenuItem<String>(
-                                value: club['id'].toString(),
-                                child: Text(club['name'].toString()),
-                              );
-                            }).toList(),
-                            onChanged: (value) {
-                              setState(() {
-                                _selectedClubId = value;
-
-                                final selected = _clubs.firstWhere(
-                                  (c) => c['id'].toString() == value,
-                                );
-
-                                _selectedClubName = selected['name'].toString();
-                              });
-
-                              _markDirty();
-                            },
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          TextField(
-                            controller: _firstName,
-                            decoration: const InputDecoration(
-                              labelText: 'First Name',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _surname,
-                            decoration: const InputDecoration(
-                              labelText: 'Surname',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _address1,
-                            decoration: const InputDecoration(
-                              labelText: 'Address Line 1',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _address2,
-                            decoration: const InputDecoration(
-                              labelText: 'Address Line 2',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _town,
-                            decoration: const InputDecoration(
-                              labelText: 'Town / City',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _county,
-                            decoration: const InputDecoration(
-                              labelText: 'County',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _postcode,
-                            decoration: const InputDecoration(
-                              labelText: 'Postcode',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _phone,
-                            keyboardType: TextInputType.phone,
-                            decoration: const InputDecoration(
-                              labelText: 'Telephone',
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (_) => _markDirty(),
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          DropdownButtonFormField<String>(
-                            value: _gender,
-                            decoration: const InputDecoration(
-                              labelText: 'Gender',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'male',
-                                child: Text('Male'),
+              : Form(
+                  key: _formKey,
+                  autovalidateMode: _validateOnChange
+                      ? AutovalidateMode.onUserInteraction
+                      : AutovalidateMode.disabled,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.72),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const SizedBox(height: 8),
+                            const Text(
+                              '* Required',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.w600,
                               ),
-                              DropdownMenuItem(
-                                value: 'female',
-                                child: Text('Female'),
+                            ),
+                            const SizedBox(height: 16),
+
+                            Container(
+                              key: _clubFieldKey,
+                              child: DropdownButtonFormField<String>(
+                                focusNode: _clubFocus,
+                                initialValue: _selectedClubId,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel('Select your Club'),
+                                  border: const OutlineInputBorder(),
+                                ),
+                                validator: (value) => value == null
+                                    ? 'Club is required'
+                                    : null,
+                                items: _clubs.map((club) {
+                                  return DropdownMenuItem<String>(
+                                    value: club['id'].toString(),
+                                    child: Text(club['name'].toString()),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedClubId = value;
+
+                                    if (value != null) {
+                                      final selected = _clubs.firstWhere(
+                                        (c) => c['id'].toString() == value,
+                                      );
+                                      _selectedClubName = selected['name']
+                                          .toString();
+                                    } else {
+                                      _selectedClubName = null;
+                                    }
+                                  });
+
+                                  _markDirty();
+                                },
                               ),
-                            ],
-                            onChanged: (value) {
-                              setState(() {
-                                _gender = value;
-                              });
-
-                              _markDirty();
-                            },
-                          ),
-
-                          const SizedBox(height: 8),
-
-                          TextField(
-                            controller: _email,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(
-                              labelText: 'Email Address',
-                              border: OutlineInputBorder(),
                             ),
-                            onChanged: (_) => _markDirty(),
-                          ),
 
-                          const SizedBox(height: 8),
+                            const SizedBox(height: 16),
 
-                          TextField(
-                            controller: _confirmEmail,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(
-                              labelText: 'Confirm Email Address',
-                              border: OutlineInputBorder(),
+                            Container(
+                              key: _firstNameFieldKey,
+                              child: TextFormField(
+                                controller: _firstName,
+                                focusNode: _firstNameFocus,
+                                textInputAction: TextInputAction.next,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel('First Name'),
+                                  border: const OutlineInputBorder(),
+                                ),
+                                validator: (value) =>
+                                    _requiredValidator(value, 'First name'),
+                                onChanged: (_) => _markDirty(),
+                              ),
                             ),
-                            onChanged: (_) => _markDirty(),
-                          ),
 
-                          const SizedBox(height: 8),
+                            const SizedBox(height: 8),
 
-                          TextField(
-                            controller: _password,
-                            obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Password',
-                              border: OutlineInputBorder(),
+                            Container(
+                              key: _surnameFieldKey,
+                              child: TextFormField(
+                                controller: _surname,
+                                focusNode: _surnameFocus,
+                                textInputAction: TextInputAction.next,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel('Surname'),
+                                  border: const OutlineInputBorder(),
+                                ),
+                                validator: (value) =>
+                                    _requiredValidator(value, 'Surname'),
+                                onChanged: (_) => _markDirty(),
+                              ),
                             ),
-                            onChanged: (_) => _markDirty(),
-                          ),
 
-                          const SizedBox(height: 8),
+                            const SizedBox(height: 8),
 
-                          TextField(
-                            controller: _confirmPassword,
-                            obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Confirm Password',
-                              border: OutlineInputBorder(),
+                            TextField(
+                              controller: _address1,
+                              decoration: const InputDecoration(
+                                labelText: 'Address Line 1',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _markDirty(),
                             ),
-                            onChanged: (_) => _markDirty(),
-                          ),
 
-                          const SizedBox(height: 24),
-                        ],
+                            const SizedBox(height: 8),
+
+                            TextField(
+                              controller: _address2,
+                              decoration: const InputDecoration(
+                                labelText: 'Address Line 2',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _markDirty(),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            TextField(
+                              controller: _town,
+                              decoration: const InputDecoration(
+                                labelText: 'Town / City',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _markDirty(),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            TextField(
+                              controller: _county,
+                              decoration: const InputDecoration(
+                                labelText: 'County',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _markDirty(),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            TextField(
+                              controller: _postcode,
+                              decoration: const InputDecoration(
+                                labelText: 'Postcode',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _markDirty(),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            Container(
+                              key: _phoneFieldKey,
+                              child: TextFormField(
+                                controller: _phone,
+                                focusNode: _phoneFocus,
+                                keyboardType: TextInputType.phone,
+                                textInputAction: TextInputAction.next,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel('Mobile phone'),
+                                  border: const OutlineInputBorder(),
+                                ),
+                                validator: (value) =>
+                                    _requiredValidator(value, 'Mobile phone'),
+                                onChanged: (_) => _markDirty(),
+                              ),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            DropdownButtonFormField<String>(
+                              initialValue: _gender,
+                              decoration: const InputDecoration(
+                                labelText: 'Gender',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'male',
+                                  child: Text('Male'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'female',
+                                  child: Text('Female'),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                setState(() {
+                                  _gender = value;
+                                });
+
+                                _markDirty();
+                              },
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            Container(
+                              key: _emailFieldKey,
+                              child: TextFormField(
+                                controller: _email,
+                                focusNode: _emailFocus,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                                autocorrect: false,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel('Email Address'),
+                                  border: const OutlineInputBorder(),
+                                ),
+                                validator: (value) {
+                                  final email = value?.trim() ?? '';
+                                  if (email.isEmpty) {
+                                    return 'Email address is required';
+                                  }
+                                  if (!_looksLikeEmail(email)) {
+                                    return 'Please enter a valid email address';
+                                  }
+                                  return null;
+                                },
+                                onChanged: (_) => _markDirty(),
+                              ),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            Container(
+                              key: _confirmEmailFieldKey,
+                              child: TextFormField(
+                                controller: _confirmEmail,
+                                focusNode: _confirmEmailFocus,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                                autocorrect: false,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel(
+                                    'Confirm Email Address',
+                                  ),
+                                  border: const OutlineInputBorder(),
+                                ),
+                                validator: (value) {
+                                  final email = value?.trim() ?? '';
+                                  if (email.isEmpty) {
+                                    return 'Confirm email address is required';
+                                  }
+                                  if (email != _email.text.trim()) {
+                                    return 'Email addresses do not match';
+                                  }
+                                  return null;
+                                },
+                                onChanged: (_) => _markDirty(),
+                              ),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            Container(
+                              key: _passwordFieldKey,
+                              child: TextFormField(
+                                controller: _password,
+                                focusNode: _passwordFocus,
+                                obscureText: !_showPassword,
+                                textInputAction: TextInputAction.next,
+                                enableSuggestions: false,
+                                autocorrect: false,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel('Password'),
+                                  border: const OutlineInputBorder(),
+                                  suffixIcon: IconButton(
+                                    tooltip: _showPassword
+                                        ? 'Hide password'
+                                        : 'Show password',
+                                    icon: Icon(
+                                      _showPassword
+                                          ? Icons.visibility_off
+                                          : Icons.visibility,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _showPassword = !_showPassword;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                validator: (value) =>
+                                    _requiredValidator(value, 'Password'),
+                                onChanged: (_) => _markDirty(),
+                              ),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            Container(
+                              key: _confirmPasswordFieldKey,
+                              child: TextFormField(
+                                controller: _confirmPassword,
+                                focusNode: _confirmPasswordFocus,
+                                obscureText: !_showConfirmPassword,
+                                textInputAction: TextInputAction.done,
+                                enableSuggestions: false,
+                                autocorrect: false,
+                                decoration: InputDecoration(
+                                  label: _requiredLabel('Confirm Password'),
+                                  border: const OutlineInputBorder(),
+                                  suffixIcon: IconButton(
+                                    tooltip: _showConfirmPassword
+                                        ? 'Hide password'
+                                        : 'Show password',
+                                    icon: Icon(
+                                      _showConfirmPassword
+                                          ? Icons.visibility_off
+                                          : Icons.visibility,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _showConfirmPassword =
+                                            !_showConfirmPassword;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Confirm password is required';
+                                  }
+                                  if (value != _password.text) {
+                                    return 'Passwords do not match';
+                                  }
+                                  return null;
+                                },
+                                onFieldSubmitted: (_) {
+                                  if (!_loading) {
+                                    _register();
+                                  }
+                                },
+                                onChanged: (_) => _markDirty(),
+                              ),
+                            ),
+
+                            const SizedBox(height: 24),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
         ),
       ),

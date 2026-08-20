@@ -147,7 +147,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   // Defaults requested
   int _rinksRequired = 6;
   int _playersPerRink = 4;
-  String _format = 'fours';
+  String _format = 'rinks';
   int _rinksRequiredFieldVersion = 0;
 
   // Fixture types
@@ -1528,7 +1528,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
       if (usesRinks) {
         if (defaultFormat.isNotEmpty) {
-          _format = defaultFormat;
+          _format = defaultFormat == 'fours' ? 'rinks' : defaultFormat;
 
           switch (_format) {
             case 'singles':
@@ -1565,7 +1565,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
               break;
             case 4:
             default:
-              _format = 'fours';
+              _format = 'rinks';
               break;
           }
         }
@@ -3510,7 +3510,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       case 3:
         return 'Triples (3)';
       case 4:
-        return 'Rinks (4)';
+        return 'Fours (4)';
       default:
         return '$ppr per rink';
     }
@@ -3827,16 +3827,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
             '$rawCommunicationsResult',
           );
 
-          // Complete the same preparation stage currently performed by the
-          // Communications Control Centre Continue button.
-          final processedResult = await _client.rpc(
-            'process_notification_queue',
-            params: {'p_limit': 200},
-          );
-
+          // Notification processing is handled centrally by the queue processor.
+          // Do not drain the global notification queue from fixture creation.
           debugPrint(
-            'CREATE FIXTURE COMMUNICATIONS notification processing result='
-            '$processedResult',
+            'CREATE FIXTURE COMMUNICATIONS: '
+            'notifications queued for central processing',
           );
         } catch (e, stackTrace) {
           debugPrint(
@@ -5151,7 +5146,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               ),
                               items: const [
                                 DropdownMenuItem(
-                                  value: 'fours',
+                                  value: 'rinks',
                                   child: Text('Fours (4)'),
                                 ),
                                 DropdownMenuItem(

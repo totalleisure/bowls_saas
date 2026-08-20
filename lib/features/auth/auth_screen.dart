@@ -408,9 +408,9 @@ class _AuthScreenState extends State<AuthScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
+            child: Text(connectionFailure ? 'Close' : 'Check details'),
           ),
-          if (retry != null)
+          if (connectionFailure && retry != null)
             FilledButton.icon(
               onPressed: () {
                 Navigator.of(dialogContext).pop();

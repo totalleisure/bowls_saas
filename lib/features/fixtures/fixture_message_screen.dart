@@ -246,8 +246,8 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
 
       await supabase.from('notification_queue').insert(rows);
 
-      // Keep this if you want immediate delivery into app_notifications.
-      await supabase.rpc('process_notification_queue');
+      // Notification processing is handled centrally.
+      // Do not process the global notification queue from this workflow.
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

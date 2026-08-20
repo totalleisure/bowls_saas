@@ -58,7 +58,7 @@ begin
     where cm.club_id = v_club_id
       and cm.member_profile_id = v_current_member
       and cm.is_active = true
-      and cm.role = 'admin'
+      and cm.role in ('admin', 'selector')
   ) into v_is_admin;
 
   select exists (
