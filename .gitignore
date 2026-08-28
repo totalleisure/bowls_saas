@@ -80,3 +80,6 @@ android/key.properties
 *.jks
 *.keystore
 lib/Mac Git Access Code.txt
+
+# Supabase CLI generated state
+supabase/.temp/
