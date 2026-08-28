@@ -27,6 +27,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   final _email = TextEditingController();
   final _password = TextEditingController();
+  bool _obscurePassword = true;
   bool _loading = false;
   String _version = '';
   String _buildNumber = '';
@@ -79,6 +80,7 @@ class _AuthScreenState extends State<AuthScreen> {
     required TextEditingController controller,
     required String hintText,
     bool obscureText = false,
+    Widget? suffixIcon,
     TextInputType? keyboardType,
     double height = 50,
   }) {
@@ -94,6 +96,7 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
         decoration: InputDecoration(
           hintText: hintText,
+          suffixIcon: suffixIcon,
           hintStyle: TextStyle(
             color: Colors.blue.shade800.withOpacity(0.75),
             fontWeight: FontWeight.w600,
@@ -658,7 +661,19 @@ class _AuthScreenState extends State<AuthScreen> {
                           _buildOverlayField(
                             controller: _password,
                             hintText: 'Password',
-                            obscureText: true,
+                            obscureText: _obscurePassword,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
                             height: fieldHeight,
                           ),
                           const SizedBox(height: 14),

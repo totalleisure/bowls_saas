@@ -149,7 +149,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
                     final data =
                         (r['data'] as Map?)?.cast<String, dynamic>() ?? {};
-                    final fixtureId = data['fixture_id']?.toString();
+                    final dataFixtureId = data['fixture_id']?.toString();
+                    final fixtureId = dataFixtureId?.isNotEmpty == true
+                        ? dataFixtureId
+                        : r['fixture_id']?.toString();
                     final type = (r['type'] ?? '').toString();
 
                     if (!mounted) return;

@@ -148,6 +148,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   int _rinksRequired = 6;
   int _playersPerRink = 4;
   String _format = 'rinks';
+  String _dressCode = 'open';
   int _rinksRequiredFieldVersion = 0;
 
   // Fixture types
@@ -483,6 +484,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           default_rinks_required,
           default_players_per_rink,
           default_format,
+          dress_code,
           team_selection_enabled,
           selection_mode,
           uses_rinks,
@@ -541,7 +543,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     required List<Map<String, dynamic>> teamSelectionMembers,
   }) async {
     final result = await _client.rpc(
-      'create_fixture_with_setup',
+      'create_fixture_with_setup_v2',
       params: {
         'p_club_id': widget.clubId,
         'p_start_at': clubTimeToUtc(startAtLocal).toIso8601String(),
@@ -552,6 +554,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'p_players_per_rink': usesRinks ? _playersPerRink : 1,
         'p_format': usesRinks ? _format : 'singles',
         'p_competition_type_id': _fixtureTypeId,
+        'p_dress_code': _dressCode,
         'p_team_id': _isTeamFixture ? _teamId : null,
         'p_team_name': fixtureLabel?.trim().isEmpty == true
             ? null
@@ -1448,6 +1451,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         .toString()
         .trim()
         .toLowerCase();
+    final defaultDressCode = (row['dress_code'] ?? 'open')
+        .toString()
+        .trim()
+        .toLowerCase();
 
     final linkedTeamId = row['team_id']?.toString();
     final usesRinks = row['uses_rinks'] == true;
@@ -1525,6 +1532,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (section.isNotEmpty) {
         _section = section;
       }
+      _dressCode = defaultDressCode.isEmpty ? 'open' : defaultDressCode;
 
       if (usesRinks) {
         if (defaultFormat.isNotEmpty) {
@@ -3547,6 +3555,131 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   String _slotKey(int teamNo, int slotNo) => '$teamNo:$slotNo';
 
+  int _playersForFormat(String format) {
+    switch (format) {
+      case 'singles':
+        return 1;
+      case 'pairs':
+      case 'aussie_pairs':
+        return 2;
+      case 'triples':
+        return 3;
+      case 'fours':
+      case 'rinks':
+        return 4;
+      default:
+        return _playersPerRink;
+    }
+  }
+
+  bool _hasDraftAssignmentsOutside(int rinks, int playersPerRink) {
+    for (var teamNo = 1; teamNo <= _rinksRequired; teamNo++) {
+      final rinkWillBeRemoved = teamNo > rinks;
+      if (rinkWillBeRemoved &&
+          ((_selectedHomeRinkByTeam[teamNo]?.isNotEmpty ?? false) ||
+              (_markerSelections[_slotKey(teamNo, 1)]?.isNotEmpty ?? false) ||
+              _markerRequiredByTeam[teamNo] == true ||
+              _markerRequestByTeam[teamNo] == true)) {
+        return true;
+      }
+
+      for (var playerNo = 1; playerNo <= _playersPerRink; playerNo++) {
+        if (!rinkWillBeRemoved && playerNo <= playersPerRink) continue;
+        final key = _slotKey(teamNo, playerNo);
+        if ((_playerSelections[key]?.isNotEmpty ?? false) ||
+            (_opponentSelections[key]?.isNotEmpty ?? false) ||
+            (_opponentExternalNames[key]?.trim().isNotEmpty ?? false)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _clearDraftAssignmentsOutside(int rinks, int playersPerRink) {
+    for (var teamNo = 1; teamNo <= _rinksRequired; teamNo++) {
+      final rinkWillBeRemoved = teamNo > rinks;
+      if (rinkWillBeRemoved) {
+        _selectedHomeRinkByTeam.remove(teamNo);
+        _markerSelections.remove(_slotKey(teamNo, 1));
+        _markerRequiredByTeam.remove(teamNo);
+        _markerRequestByTeam.remove(teamNo);
+      }
+
+      for (var playerNo = 1; playerNo <= _playersPerRink; playerNo++) {
+        if (!rinkWillBeRemoved && playerNo <= playersPerRink) continue;
+        final key = _slotKey(teamNo, playerNo);
+        _playerSelections.remove(key);
+        _opponentSelections.remove(key);
+        _opponentExternalNames.remove(key);
+      }
+    }
+  }
+
+  Future<bool> _confirmStructuralOverride(
+    int rinks,
+    int playersPerRink,
+  ) async {
+    if (!_hasDraftAssignmentsOutside(rinks, playersPerRink)) return true;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Change playing format?'),
+        content: const Text(
+          'This change will remove draft rink, player, opponent, or marker '
+          'assignments that no longer fit. No saved fixture data is affected.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+
+    return confirmed == true;
+  }
+
+  Future<void> _resetPlayingDefaults() async {
+    final row = _fixtureTypeById(_fixtureTypeId);
+    if (row == null || row['uses_rinks'] != true) return;
+
+    final defaultRinks = row['default_rinks_required'] as int? ?? 1;
+    final rawFormat = (row['default_format'] ?? '').toString().toLowerCase();
+    final defaultPlayers = row['default_players_per_rink'] as int? ?? 4;
+    final defaultFormat = rawFormat.isEmpty
+        ? _formatCodeForRinks(defaultPlayers)
+        : (rawFormat == 'fours' ? 'rinks' : rawFormat);
+    final players = _playersForFormat(defaultFormat);
+
+    if (!await _confirmStructuralOverride(defaultRinks, players) || !mounted) {
+      return;
+    }
+    if (!await _canAcceptRinksRequiredChange(defaultRinks) || !mounted) {
+      await _showInsufficientRinksDialog();
+      return;
+    }
+
+    setState(() {
+      _clearDraftAssignmentsOutside(defaultRinks, players);
+      _section = (row['section'] ?? 'open').toString();
+      _format = defaultFormat;
+      _playersPerRink = players;
+      _rinksRequired = defaultRinks;
+      _dressCode = (row['dress_code'] ?? 'open').toString();
+      _rinksRequiredFieldVersion++;
+    });
+    _defaultBookerIntoFirstPlayerSlot();
+    _markDirty();
+    await _loadRinkAvailability();
+  }
+
   Future<void> _showSaveErrorDialog(String message) async {
     if (!mounted) return;
 
@@ -4477,6 +4610,29 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     );
 
     if (selected == null) return;
+    final selectedType = _fixtureTypeById(selected);
+    if (selectedType != null) {
+      final usesRinks = selectedType['uses_rinks'] == true;
+      final targetRinks = usesRinks
+          ? (selectedType['default_rinks_required'] as int? ?? 1)
+          : 0;
+      final rawFormat = (selectedType['default_format'] ?? '')
+          .toString()
+          .toLowerCase();
+      final targetPlayers = usesRinks
+          ? (rawFormat.isEmpty
+                ? (selectedType['default_players_per_rink'] as int? ?? 4)
+                : _playersForFormat(rawFormat))
+          : 1;
+
+      if (!await _confirmStructuralOverride(targetRinks, targetPlayers) ||
+          !mounted) {
+        return;
+      }
+      setState(() {
+        _clearDraftAssignmentsOutside(targetRinks, targetPlayers);
+      });
+    }
     _applyFixtureType(selected);
   }
 
@@ -4650,6 +4806,19 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                         const SizedBox(height: 8),
                         _selectedFixtureTypeField(),
                         const SizedBox(height: 12),
+
+                        if (_isPreselectFixture && !_isEventStyleFixture) ...[
+                          TextField(
+                            controller: _teamNameCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Fixture label',
+                              hintText:
+                                  'e.g. Club Championship Semi-final or Mixed Singles',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
 
                         if (!_simpleBookingMode && !_isEventStyleFixture) ...[
                           const Text(
@@ -4922,19 +5091,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                         ],
 
                         if (!_isTeamFixture &&
+                            !_isPreselectFixture &&
                             !_simpleBookingMode &&
                             !_isEventStyleFixture) ...[
                           TextField(
                             controller: _teamNameCtrl,
-                            readOnly: _isPreselectFixture,
-                            decoration: InputDecoration(
-                              labelText: _isPreselectFixture
-                                  ? 'Pre-Selected fixture label'
-                                  : 'Fixture label (optional)',
-                              hintText: _isPreselectFixture
-                                  ? 'Set from Fixture Type'
-                                  : 'e.g. Mid-week National Team Selection',
-                              border: const OutlineInputBorder(),
+                            decoration: const InputDecoration(
+                              labelText: 'Fixture label (optional)',
+                              hintText: 'e.g. Mid-week National Team Selection',
+                              border: OutlineInputBorder(),
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -5101,7 +5266,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           const SizedBox(height: 12),
                         ],
 
-                        if (!_simpleBookingMode && !_isEventStyleFixture) ...[
+                        if (!_isEventStyleFixture) ...[
                           DropdownButtonFormField<String>(
                             value: _section.isEmpty ? null : _section,
                             decoration: const InputDecoration(
@@ -5125,15 +5290,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                 child: Text("Ladies"),
                               ),
                             ],
-                            onChanged: _fixtureTypeId == null
-                                ? (value) {
-                                    setState(() {
-                                      _section = value ?? '';
-                                    });
-                                    _defaultBookerIntoFirstPlayerSlot();
-                                    _markDirty();
-                                  }
-                                : null,
+                            onChanged: (value) {
+                              setState(() {
+                                _section = value ?? '';
+                              });
+                              _defaultBookerIntoFirstPlayerSlot();
+                              _markDirty();
+                            },
                           ),
 
                           const SizedBox(height: 12),
@@ -5166,28 +5329,24 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   child: Text('Singles (1)'),
                                 ),
                               ],
-                              onChanged: (value) {
+                              onChanged: (value) async {
                                 if (value == null) return;
+                                final players = _playersForFormat(value);
+                                if (!await _confirmStructuralOverride(
+                                      _rinksRequired,
+                                      players,
+                                    ) ||
+                                    !mounted) {
+                                  return;
+                                }
 
                                 setState(() {
+                                  _clearDraftAssignmentsOutside(
+                                    _rinksRequired,
+                                    players,
+                                  );
                                   _format = value;
-
-                                  switch (value) {
-                                    case 'singles':
-                                      _playersPerRink = 1;
-                                      break;
-                                    case 'pairs':
-                                    case 'aussie_pairs':
-                                      _playersPerRink = 2;
-                                      break;
-                                    case 'triples':
-                                      _playersPerRink = 3;
-                                      break;
-                                    case 'fours':
-                                    case 'rinks':
-                                      _playersPerRink = 4;
-                                      break;
-                                  }
+                                  _playersPerRink = players;
                                 });
 
                                 _markDirty();
@@ -5195,6 +5354,90 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             ),
 
                             const SizedBox(height: 12),
+
+                            DropdownButtonFormField<int>(
+                              value: _playersPerRink,
+                              decoration: const InputDecoration(
+                                labelText: 'Players per rink',
+                              ),
+                              items: List.generate(4, (i) => i + 1).map((n) {
+                                return DropdownMenuItem(
+                                  value: n,
+                                  child: Text(n.toString()),
+                                );
+                              }).toList(),
+                              onChanged: (value) async {
+                                if (value == null) return;
+                                if (!await _confirmStructuralOverride(
+                                      _rinksRequired,
+                                      value,
+                                    ) ||
+                                    !mounted) {
+                                  return;
+                                }
+                                setState(() {
+                                  _clearDraftAssignmentsOutside(
+                                    _rinksRequired,
+                                    value,
+                                  );
+                                  _playersPerRink = value;
+                                  if (!(_format == 'aussie_pairs' &&
+                                      value == 2)) {
+                                    _format = _formatCodeForRinks(value);
+                                  }
+                                });
+                                _markDirty();
+                              },
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            DropdownButtonFormField<String>(
+                              value: _dressCode,
+                              decoration: const InputDecoration(
+                                labelText: 'Dress code',
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'open',
+                                  child: Text('Open'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'whites',
+                                  child: Text('Whites'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'greys',
+                                  child: Text('Greys'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'blacks',
+                                  child: Text('Blacks'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'jackets',
+                                  child: Text('Jackets'),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() => _dressCode = value);
+                                _markDirty();
+                              },
+                            ),
+
+                            if (_fixtureTypeId != null) ...[
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: _resetPlayingDefaults,
+                                  icon: const Icon(Icons.restart_alt),
+                                  label: const Text(
+                                    'Reset to Fixture Type defaults',
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ],
 
@@ -5215,6 +5458,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               final previousRinks = _rinksRequired;
                               final requestedRinks = v ?? previousRinks;
 
+                              if (!await _confirmStructuralOverride(
+                                    requestedRinks,
+                                    _playersPerRink,
+                                  ) ||
+                                  !mounted) {
+                                setState(() {
+                                  _rinksRequiredFieldVersion++;
+                                });
+                                return;
+                              }
+
                               final canAccept =
                                   await _canAcceptRinksRequiredChange(
                                     requestedRinks,
@@ -5234,6 +5488,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                               }
 
                               setState(() {
+                                _clearDraftAssignmentsOutside(
+                                  requestedRinks,
+                                  _playersPerRink,
+                                );
                                 _rinksRequired = requestedRinks;
                                 _shownInsufficientRinksWarning = false;
                               });

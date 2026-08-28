@@ -90,4 +90,24 @@ class FixturesRepository {
         })
         .eq('id', fixtureId);
   }
+
+  Future<void> updateFixtureLabel({
+    required String fixtureId,
+    required String? fixtureLabel,
+  }) async {
+    await _client
+        .from('fixtures')
+        .update({'team_name': fixtureLabel})
+        .eq('id', fixtureId);
+  }
+
+  Future<void> updateFixtureDressCode({
+    required String fixtureId,
+    required List<String> dressCode,
+  }) async {
+    await _client
+        .from('fixtures')
+        .update({'dress_code': dressCode})
+        .eq('id', fixtureId);
+  }
 }

@@ -358,6 +358,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         case 'training':
           labels.add('Training');
           break;
+        case 'meeting':
+          labels.add('Meetings');
+          break;
         case 'internal':
           labels.add('Internal');
           break;
@@ -892,6 +895,39 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         }
       }
 
+      // Selected fixtures where this member still needs to accept or decline.
+      final needsRows = await client
+          .from('team_selection_members')
+          .select(
+            'acceptance, role, team_selections(status, fixture:fixtures('
+            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+            'requires_rsvp, team_id, team_name, cancelled_at, '
+            'captain_member_profile_id, vice_captain_member_profile_id, '
+            'fixture_rinks(format, players_per_rink), '
+            'competition_type:competition_types!fixtures_competition_type_id_fkey('
+            'id, name, is_internal, selection_mode, uses_rinks, tags, '
+            'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
+            'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+            'team:teams(name), '
+            'green_areas(name, discipline, orientation_mode)'
+            '))',
+          )
+          .eq('member_profile_id', myId)
+          .eq('is_selected', true)
+          .eq('acceptance', 'pending');
+
+      final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
+      final selectedPendingFixtureIds = rawNeeds
+          .map(
+            (r) =>
+                ((r['team_selections'] as Map<String, dynamic>?)?['fixture']
+                        as Map<String, dynamic>?)?['id']
+                    ?.toString(),
+          )
+          .whereType<String>()
+          .toSet();
+
       // 1) Load my club name
       final clubRow = await client
           .from('clubs')
@@ -971,6 +1007,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       }
 
       final toRsvp = allFixtures.where((f) {
+        if (f['cancelled_at'] != null) return false;
         if (!_canRsvpFromDashboard) return false;
         if (_isOpenSessionOrEvent(f)) return false;
 
@@ -991,11 +1028,18 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       final canManagePreselect = _isSuperuser || _isClubAdmin || _isSelector;
 
       final awaitingSelection = allFixtures.where((f) {
+        if (f['cancelled_at'] != null) return false;
+
         final requiresRsvp = f['requires_rsvp'] == true;
         if (requiresRsvp) return false;
 
         final rescheduled =
             f['rescheduled_from_fixture_id']?.toString().isNotEmpty == true;
+
+        final fixtureId = f['id']?.toString();
+        if (rescheduled && selectedPendingFixtureIds.contains(fixtureId)) {
+          return false;
+        }
 
         if (isPublished(f) && !rescheduled) return false;
 
@@ -1034,29 +1078,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       }).toList();
 
       // Needs my acceptance (published team + pending) for this club only
-      final needsRows = await client
-          .from('team_selection_members')
-          .select(
-            'acceptance, role, team_selections(status, fixture:fixtures('
-            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-            'requires_rsvp, team_id, team_name, cancelled_at, '
-            'captain_member_profile_id, vice_captain_member_profile_id, '
-            'fixture_rinks(format, players_per_rink), '
-            'competition_type:competition_types!fixtures_competition_type_id_fkey('
-            'id, name, is_internal, selection_mode, uses_rinks, tags, '
-            'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
-            'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            'team:teams(name), '
-            'green_areas(name, discipline, orientation_mode)'
-            '))',
-          )
-          .eq('member_profile_id', myId)
-          .eq('is_selected', true)
-          .eq('acceptance', 'pending');
-
-      final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
-
       final nowUtcIso = DateTime.now().toUtc().toIso8601String();
       final needsAcceptance = rawNeeds.where((r) {
         final ts = r['team_selections'] as Map<String, dynamic>?;
@@ -1064,6 +1085,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         final fx = ts?['fixture'] as Map<String, dynamic>?;
         if (fx == null) return false;
+
+        if (fx['cancelled_at'] != null) return false;
 
         if (fx['club_id']?.toString() != widget.clubId) return false;
 

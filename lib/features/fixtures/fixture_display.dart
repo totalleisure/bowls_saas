@@ -225,6 +225,10 @@ class UnifiedFixtureCard extends StatelessWidget {
     final competitionTypeName = (competitionType?['name'] ?? '')
         .toString()
         .trim();
+    final showCompetitionTypeName =
+        competitionTypeName.isNotEmpty &&
+        competitionTypeName.trim().toLowerCase() !=
+            title.trim().toLowerCase();
 
     final colourScheme =
         competitionType?['colour_scheme'] as Map<String, dynamic>?;
@@ -331,7 +335,7 @@ class UnifiedFixtureCard extends StatelessWidget {
                 ],
               ),
 
-              if (competitionTypeName.isNotEmpty) ...[
+              if (showCompetitionTypeName) ...[
                 const SizedBox(height: 4),
                 Text(
                   competitionTypeName,

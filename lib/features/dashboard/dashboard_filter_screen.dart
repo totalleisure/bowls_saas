@@ -301,6 +301,11 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
           onTap: () => _toggleCategory('training'),
         ),
         _chip(
+          label: 'Meetings',
+          selected: _draft.categories.contains('meeting'),
+          onTap: () => _toggleCategory('meeting'),
+        ),
+        _chip(
           label: 'Internal',
           selected: _draft.categories.contains('internal'),
           onTap: () => _toggleCategory('internal'),

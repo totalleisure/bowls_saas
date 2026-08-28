@@ -134,6 +134,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
             chip('cup', 'Cup'),
             chip('social', 'Social'),
             chip('training', 'Training'),
+            chip('meeting', 'Meetings'),
           ],
         ),
       ],
@@ -351,10 +352,32 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
 
       Navigator.of(context).pop(true);
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
-        _error = e.toString();
         _saving = false;
       });
+
+      final rawMessage = e is PostgrestException ? e.message : e.toString();
+      final message = rawMessage.toLowerCase().contains(
+        'competition_types_tags_allowed',
+      )
+          ? 'One or more selected tags are not supported. Please review the tags and try again.'
+          : 'The Fixture Type could not be saved. Please try again.\n\nDetails: $rawMessage';
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Unable to save Fixture Type'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
