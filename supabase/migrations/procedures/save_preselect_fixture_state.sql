@@ -73,15 +73,17 @@ begin
 
   v_has_permission :=
     v_is_superuser
-    or v_actor_member_profile_id = v_captain_member_profile_id
-    or v_actor_member_profile_id = v_vice_captain_member_profile_id
     or exists (
       select 1
       from public.club_memberships cm
       where cm.club_id = v_club_id
         and cm.member_profile_id = v_actor_member_profile_id
         and cm.is_active = true
-        and lower(cm.role::text) in ('admin', 'selector')
+        and (
+          lower(cm.role::text) in ('admin', 'selector')
+          or v_actor_member_profile_id = v_captain_member_profile_id
+          or v_actor_member_profile_id = v_vice_captain_member_profile_id
+        )
     );
 
   if not v_has_permission then
@@ -705,7 +707,7 @@ $$;
 
 revoke all
 on function public.save_preselect_fixture_state(uuid, jsonb)
-from public;
+from public, anon, service_role;
 
 grant execute
 on function public.save_preselect_fixture_state(uuid, jsonb)

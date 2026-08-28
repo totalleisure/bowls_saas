@@ -1,6 +1,3 @@
--- Temporary compatibility wrapper for installed clients that do not yet
--- send p_dress_code. All validation, authorization and creation are performed
--- by public.create_fixture_with_setup_v2.
 create or replace function public.create_fixture_with_setup(
   p_club_id uuid,
   p_start_at timestamptz,
@@ -11,9 +8,10 @@ create or replace function public.create_fixture_with_setup(
   p_players_per_rink integer,
   p_format text,
   p_competition_type_id uuid,
+  p_dress_code text,
   p_team_id uuid default null,
   p_team_name text default null,
-  p_requires_rsvp boolean default true,
+  p_requires_rsvp boolean default false,
   p_venue_id uuid default null,
   p_opponent_venue_id uuid default null,
   p_green_area_id uuid default null,
@@ -22,7 +20,7 @@ create or replace function public.create_fixture_with_setup(
   p_vice_captain_member_profile_id uuid default null,
   p_notes text default null,
   p_create_team_selection boolean default false,
-  p_team_selection_status text default 'published',
+  p_team_selection_status text default 'draft',
   p_home_rink_labels jsonb default '[]'::jsonb,
   p_rink_assignments jsonb default '[]'::jsonb,
   p_team_selection_members jsonb default '[]'::jsonb
@@ -33,23 +31,21 @@ security definer
 set search_path = public
 as $$
 declare
-  v_dress_code text;
+  v_fixture_id uuid;
+  v_dress_code text := lower(coalesce(nullif(trim(p_dress_code), ''), 'open'));
+  v_dress_codes public.dress_code[];
 begin
-  if auth.uid() is null then
-    raise exception 'You must be signed in.';
+  if v_dress_code = 'open' then
+    v_dress_codes := '{}'::public.dress_code[];
+  elsif v_dress_code in ('whites', 'greys', 'blacks', 'jackets') then
+    v_dress_codes := array[v_dress_code::public.dress_code];
+  else
+    raise exception 'Unsupported dress code: %', p_dress_code;
   end if;
 
-  select coalesce(nullif(btrim(ct.dress_code), ''), 'open')
-  into v_dress_code
-  from public.competition_types ct
-  where ct.id = p_competition_type_id
-    and ct.club_id = p_club_id;
-
-  if not found then
-    raise exception 'Fixture Type does not belong to this club.';
-  end if;
-
-  return public.create_fixture_with_setup_v2(
+  -- Delegate fixture, rink and Pre-Select creation to the existing deployed
+  -- implementation. The UUID in argument 10 selects the original overload.
+  v_fixture_id := public.create_fixture_with_setup(
     p_club_id,
     p_start_at,
     p_end_at,
@@ -59,7 +55,6 @@ begin
     p_players_per_rink,
     p_format,
     p_competition_type_id,
-    v_dress_code,
     p_team_id,
     p_team_name,
     p_requires_rsvp,
@@ -76,17 +71,39 @@ begin
     p_rink_assignments,
     p_team_selection_members
   );
+
+  update public.fixtures
+  set dress_code = v_dress_codes
+  where id = v_fixture_id;
+
+  return v_fixture_id;
 end;
 $$;
 
-revoke all on function public.create_fixture_with_setup(
-  uuid, timestamptz, timestamptz, boolean, text, integer, integer, text,
-  uuid, uuid, text, boolean, uuid, uuid, uuid, text, uuid, uuid, text,
-  boolean, text, jsonb, jsonb, jsonb
-) from public, anon, service_role;
-
 grant execute on function public.create_fixture_with_setup(
-  uuid, timestamptz, timestamptz, boolean, text, integer, integer, text,
-  uuid, uuid, text, boolean, uuid, uuid, uuid, text, uuid, uuid, text,
-  boolean, text, jsonb, jsonb, jsonb
-) to authenticated;
+  uuid,
+  timestamptz,
+  timestamptz,
+  boolean,
+  text,
+  integer,
+  integer,
+  text,
+  uuid,
+  text,
+  uuid,
+  text,
+  boolean,
+  uuid,
+  uuid,
+  uuid,
+  text,
+  uuid,
+  uuid,
+  text,
+  boolean,
+  text,
+  jsonb,
+  jsonb,
+  jsonb
+) to authenticated, service_role;

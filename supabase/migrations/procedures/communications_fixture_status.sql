@@ -509,7 +509,8 @@ begin
         'emails_actual', v_emails_actual,
         'team_sheets_expected', v_sheets_expected,
         'team_sheets_actual', v_sheets_actual
-      )
+      );
+
     return;
   end if;
 
@@ -648,4 +649,4 @@ begin
       'team_sheets_sent', v_sheets_sent_actual
     );
 end;
-$function$
+$function$;

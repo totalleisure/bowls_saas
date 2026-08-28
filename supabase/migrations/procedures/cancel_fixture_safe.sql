@@ -87,6 +87,60 @@ begin
   order by ts.created_at desc nulls last
   limit 1;
 
+  --------------------------------------------------------------------
+  -- Suppress undelivered operational communications for this fixture.
+  -- Cancellation is a lifecycle event and is deliberately preserved.
+  --------------------------------------------------------------------
+
+  update public.email_queue eq
+  set status = 'cancelled'
+  where eq.fixture_id = p_fixture_id
+    and eq.event_type in (
+      'acceptance_reminder',
+      'fixture_message',
+      'fixture_moved',
+      'fixture_opponent_changed',
+      'fixture_rescheduled_availability',
+      'fixture_rescheduled_manager',
+      'fixture_rescheduled_selected',
+      'fixture_selected',
+      'marker_request_opened',
+      'reserve_promoted',
+      'team_acceptance_changed',
+      'team_published_captain',
+      'team_published_incomplete_request',
+      'team_published_not_selected',
+      'team_published_player',
+      'team_published_reserve',
+      'team_published_vice'
+    )
+    and eq.status in ('pending', 'failed')
+    and eq.sent_at is null;
+
+  update public.notification_queue nq
+  set status = 'cancelled'
+  where nq.fixture_id = p_fixture_id
+    and nq.event_type in (
+      'acceptance_reminder',
+      'fixture_message',
+      'fixture_moved',
+      'fixture_opponent_changed',
+      'fixture_rescheduled_availability',
+      'fixture_rescheduled_manager',
+      'fixture_rescheduled_selected',
+      'fixture_selected',
+      'marker_request_opened',
+      'reserve_promoted',
+      'team_acceptance_changed',
+      'team_published_captain',
+      'team_published_incomplete_request',
+      'team_published_not_selected',
+      'team_published_player',
+      'team_published_reserve',
+      'team_published_vice'
+    )
+    and nq.status = 'pending';
+
   update public.fixtures
   set
     cancelled_at = now(),
@@ -186,4 +240,4 @@ begin
 
   return v_count;
 end;
-$function$
+$function$;

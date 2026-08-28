@@ -107,60 +107,6 @@ begin
   end if;
 
   --------------------------------------------------------------------
-  -- Defensively suppress legacy undelivered operational communications
-  -- for the cancelled fixture. Its lifecycle cancellation is preserved.
-  --------------------------------------------------------------------
-
-  update public.email_queue eq
-  set status = 'cancelled'
-  where eq.fixture_id = p_fixture_id
-    and eq.event_type in (
-      'acceptance_reminder',
-      'fixture_message',
-      'fixture_moved',
-      'fixture_opponent_changed',
-      'fixture_rescheduled_availability',
-      'fixture_rescheduled_manager',
-      'fixture_rescheduled_selected',
-      'fixture_selected',
-      'marker_request_opened',
-      'reserve_promoted',
-      'team_acceptance_changed',
-      'team_published_captain',
-      'team_published_incomplete_request',
-      'team_published_not_selected',
-      'team_published_player',
-      'team_published_reserve',
-      'team_published_vice'
-    )
-    and eq.status in ('pending', 'failed')
-    and eq.sent_at is null;
-
-  update public.notification_queue nq
-  set status = 'cancelled'
-  where nq.fixture_id = p_fixture_id
-    and nq.event_type in (
-      'acceptance_reminder',
-      'fixture_message',
-      'fixture_moved',
-      'fixture_opponent_changed',
-      'fixture_rescheduled_availability',
-      'fixture_rescheduled_manager',
-      'fixture_rescheduled_selected',
-      'fixture_selected',
-      'marker_request_opened',
-      'reserve_promoted',
-      'team_acceptance_changed',
-      'team_published_captain',
-      'team_published_incomplete_request',
-      'team_published_not_selected',
-      'team_published_player',
-      'team_published_reserve',
-      'team_published_vice'
-    )
-    and nq.status = 'pending';
-
-  --------------------------------------------------------------------
   -- Final capacity check for a HOME fixture using rinks
   --------------------------------------------------------------------
 
@@ -500,24 +446,7 @@ begin
   )
   select
     r.member_profile_id,
-    r.event_type,
-    case
-      when r.event_type = 'fixture_rescheduled_selected'
-       and exists (
-         select 1
-         from public.fixture_rink_assignments fra
-         join public.team_selection_members tsm
-           on tsm.team_selection_id = v_new_team_selection_id
-          and tsm.member_profile_id = fra.member_profile_id
-          and coalesce(tsm.is_selected, false) = true
-          and lower(tsm.role::text) = 'marker'
-         where fra.fixture_id = v_new_fixture_id
-           and fra.member_profile_id = r.member_profile_id
-           and fra.position = 201
-       )
-        then 'marker'::text
-      else null::text
-    end as recipient_role
+    r.event_type
   from recipients r
   where r.member_profile_id is not null
   loop
@@ -552,8 +481,7 @@ begin
           'old_start_at', v_source.start_at,
           'old_end_at', v_source.end_at,
           'new_start_at', p_new_start_at,
-          'new_end_at', p_new_end_at,
-          'recipient_role', v_recipient.recipient_role
+          'new_end_at', p_new_end_at
         )
       ),
       'pending'

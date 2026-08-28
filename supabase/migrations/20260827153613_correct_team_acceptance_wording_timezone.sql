@@ -751,7 +751,7 @@ begin
           || 'Please indicate your availability for the new date.';
 
       elsif r.event_type = 'acceptance_reminder' then
-        
+
         v_source := 'Selection Reminder';
         v_title := v_source;
 
@@ -1055,7 +1055,7 @@ begin
         'fixture_moved',
         'fixture_rescheduled_selected',
         'fixture_rescheduled_manager',
-        'fixture_rescheduled_availability',        
+        'fixture_rescheduled_availability',
         'fixture_opponent_changed',
         'fixture_cancelled',
         'marker_request_opened',
@@ -1064,7 +1064,7 @@ begin
         'team_published_captain',
         'team_published_vice',
         'team_published_not_selected',
-        'team_published_incomplete_request',        
+        'team_published_incomplete_request',
         'acceptance_reminder'
       ) then
         insert into public.email_queue (
