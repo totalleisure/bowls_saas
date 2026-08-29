@@ -1,6 +1,6 @@
 # Total Leisure Bowls App — Project To-Do
 
-Last updated: 27 August 2026
+Last updated: 29 August 2026
 
 This repository file is the authoritative project task list. Update statuses here as relevant work is completed or new agreed tasks are added.
 
@@ -101,6 +101,15 @@ This repository file is the authoritative project task list. Update statuses her
   - Test in Outlook, Gmail and common mobile email clients before general rollout.
   - Consider an **Open Fixture** deep-link button only after App deep-link behaviour is proven reliable.
   - Allow approximately two focused development days for implementation and cross-client testing.
+
+- [ ] **11. Measure and reduce the remaining normal-member dashboard startup time**
+  - Keep the completed first-stage optimisation: parallel dashboard reads, reuse of the resolved member profile ID, notification loading outside the visible-dashboard critical path, and the member-led `team_selection_members` index.
+  - Current measured improvement on the test device is approximately 8 seconds to 4 seconds from club selection to a usable dashboard.
+  - The new `team_selection_members (member_profile_id, is_selected, acceptance)` index produced no clearly measurable additional reduction after the reads were parallelised.
+  - Add temporary per-request timing logs around the parallel dashboard queries and repeat normal-member testing to identify the actual critical-path request.
+  - Investigate the general future-fixtures query first; it currently loads all future club fixtures with several nested relationships and applies dashboard filters afterward in Flutter.
+  - Only after measurement, make the smallest targeted change, such as limiting the date range, reducing the selected payload, or introducing a purpose-built dashboard RPC.
+  - Re-test cold and warm starts using both normal-member and administrator accounts and record median timings.
 
 ## Agreed design principle
 
