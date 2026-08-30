@@ -1,4 +1,4 @@
-# Active Email team-selection responses
+# Active Email selection responses
 
 This document records the external configuration required by the deployed Active Email implementation. Secret values must never be committed to this repository.
 
@@ -9,6 +9,20 @@ This document records the external configuration required by the deployed Active
 - Both deployed functions have JWT verification enabled.
 
 The exact deployed TypeScript is stored under `supabase/functions/`.
+
+## Actionable selection emails
+
+Active Email action blocks support:
+
+- Pre-Select players whose email event is `fixture_selected`.
+- Ordinary players named when a team is published, whose email event is `team_published_player`.
+- Named Pre-Select markers whose email event is `fixture_selected`, whose selection role is `marker`, and who have the canonical fixture-rink position `201` assignment.
+
+Player replies use action type `team_selection`. Named-marker replies use action type `marker_assignment`. Both update the existing `team_selection_members` acceptance, `responded_at`, and `acceptance_by` fields. Declining a named-marker assignment records the declined response but retains the position-201 assignment so the captain or selector can review and replace it explicitly.
+
+Reserve-selection emails and open marker-request broadcasts remain informational. Open marker requests continue to direct volunteers to the fixture captain; they do not create an email action request. Direct team-sheet emails are also unchanged.
+
+Outbound notification preparation and email sending remain manual through the Communications Control Centre. The inbound `process-email-responses` schedule remains active and checks the restricted mailbox every two minutes.
 
 ## Microsoft Graph
 
