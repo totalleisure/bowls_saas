@@ -643,10 +643,11 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
   Future<void> _initDashboard() async {
     try {
-      await _loadUserPermissions();
-      await _loadSavedFilter();
+      await Future.wait([_loadUserPermissions(), _loadSavedFilter()]);
+      unawaited(
+        _loadUnreadNotificationCount(memberProfileId: _currentMemberId),
+      );
       await _load();
-      await _loadUnreadNotificationCount();
     } catch (e, st) {
       debugPrint('Dashboard init failed: $e');
       debugPrintStack(stackTrace: st);
@@ -794,27 +795,32 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
 
     // 1) Global superuser
-    final superuserRow = await supabase
-        .from('app_superusers')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+    final permissionRows = await Future.wait<dynamic>([
+      supabase
+          .from('app_superusers')
+          .select('user_id')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+      supabase
+          .from('club_memberships')
+          .select('id, club_id, member_profile_id, role')
+          .eq('member_profile_id', myProfileId)
+          .eq('club_id', widget.clubId)
+          .maybeSingle(),
+      supabase
+          .from('member_profiles')
+          .select('sex_at_birth')
+          .eq('id', myProfileId)
+          .maybeSingle(),
+    ]);
+
+    final superuserRow = permissionRows[0];
 
     _isSuperuser = superuserRow != null;
 
     // 2) Club membership for this club, using member_profile_id
-    final membership = await supabase
-        .from('club_memberships')
-        .select('id, club_id, member_profile_id, role')
-        .eq('member_profile_id', myProfileId)
-        .eq('club_id', widget.clubId)
-        .maybeSingle();
-
-    final profile = await supabase
-        .from('member_profiles')
-        .select('sex_at_birth')
-        .eq('id', myProfileId)
-        .maybeSingle();
+    final membership = permissionRows[1] as Map<String, dynamic>?;
+    final profile = permissionRows[2] as Map<String, dynamic>?;
 
     _mySexAtBirth = profile?['sex_at_birth']?.toString().trim().toLowerCase();
 
@@ -869,22 +875,110 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
     try {
       final client = Supabase.instance.client;
-      final myId = (await client.rpc('my_member_profile_id')).toString();
+      final myId =
+          _currentMemberId ??
+          (await client.rpc('my_member_profile_id')).toString();
 
-      final myTeamRows = await client
-          .from('team_members')
-          .select('team_id')
-          .eq('member_profile_id', myId)
-          .eq('is_active', true);
+      final dashboardRows = await Future.wait<dynamic>([
+        client
+            .from('team_members')
+            .select('team_id')
+            .eq('member_profile_id', myId)
+            .eq('is_active', true),
+        client
+            .from('fixture_rsvps')
+            .select('fixture_id, status')
+            .eq('member_profile_id', myId),
+        client
+            .from('team_selection_members')
+            .select(
+              'acceptance, role, team_selections(status, fixture:fixtures('
+              'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+              'requires_rsvp, team_id, team_name, cancelled_at, '
+              'captain_member_profile_id, vice_captain_member_profile_id, '
+              'fixture_rinks(format, players_per_rink), '
+              'competition_type:competition_types!fixtures_competition_type_id_fkey('
+              'id, name, is_internal, selection_mode, uses_rinks, tags, '
+              'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
+              'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+              'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+              'team:teams(name), '
+              'green_areas(name, discipline, orientation_mode)'
+              '))',
+            )
+            .eq('member_profile_id', myId)
+            .eq('is_selected', true)
+            .eq('acceptance', 'pending'),
+        client
+            .from('clubs')
+            .select('name, primary_color_hex, secondary_color_hex')
+            .eq('id', widget.clubId)
+            .single(),
+        client
+            .from('venues')
+            .select('id, name')
+            .eq('club_id', widget.clubId),
+        client
+            .from('green_areas')
+            .select('id, name')
+            .eq('club_id', widget.clubId),
+        client
+            .from('fixtures')
+            .select(
+              'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+              'requires_rsvp, team_id, team_name, cancelled_at, '
+              'rescheduled_from_fixture_id, rescheduled_to_fixture_id, rescheduled_at, '
+              'captain_member_profile_id, vice_captain_member_profile_id, '
+              'venue_id, opponent_venue_id, green_area_id, '
+              'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+              'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+              'team:teams(name), '
+              'green_areas(name, discipline, orientation_mode), '
+              'ts:team_selections(status), '
+              'competition_type_id, '
+              'competition_type:competition_types!fixtures_competition_type_id_fkey('
+              'id, name, is_internal, selection_mode, uses_rinks, tags, '
+              'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex))',
+            )
+            .eq('club_id', widget.clubId)
+            .gte('start_at', DateTime.now().toUtc().toIso8601String())
+            .order('start_at', ascending: true),
+        client
+            .from('team_selection_members')
+            .select(
+              'team_selections!inner('
+              '  status, '
+              '  fixture:fixtures!inner('
+              '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, cancelled_at, '
+              '    requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
+              '    fixture_rinks(format, players_per_rink), '
+              '    competition_type_id, '
+              '    competition_type:competition_types!fixtures_competition_type_id_fkey('
+              '      id, name, is_internal, selection_mode, uses_rinks, '
+              '      colour_scheme:fixture_colour_schemes('
+              '      id, name, background_hex, foreground_hex)'
+              '    ), '
+              '    venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+              '    opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
+              '    team:teams(name), '
+              '    green_areas(name, discipline, orientation_mode)'
+              '  )'
+              ')',
+            )
+            .eq('member_profile_id', myId)
+            .eq('acceptance', 'accepted')
+            .eq('is_selected', true)
+            .eq('team_selections.status', 'published')
+            .eq('team_selections.fixture.club_id', widget.clubId),
+      ]);
+
+      final myTeamRows = dashboardRows[0];
 
       final myTeamIds = List<Map<String, dynamic>>.from(
         myTeamRows,
       ).map((r) => r['team_id']?.toString()).whereType<String>().toSet();
 
-      final myAvailabilityRows = await client
-          .from('fixture_rsvps')
-          .select('fixture_id, status')
-          .eq('member_profile_id', myId);
+      final myAvailabilityRows = dashboardRows[1];
 
       final myAvailabilityByFixtureId = <String, String>{};
       for (final r in List<Map<String, dynamic>>.from(myAvailabilityRows)) {
@@ -896,26 +990,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       }
 
       // Selected fixtures where this member still needs to accept or decline.
-      final needsRows = await client
-          .from('team_selection_members')
-          .select(
-            'acceptance, role, team_selections(status, fixture:fixtures('
-            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-            'requires_rsvp, team_id, team_name, cancelled_at, '
-            'captain_member_profile_id, vice_captain_member_profile_id, '
-            'fixture_rinks(format, players_per_rink), '
-            'competition_type:competition_types!fixtures_competition_type_id_fkey('
-            'id, name, is_internal, selection_mode, uses_rinks, tags, '
-            'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex)), '
-            'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            'team:teams(name), '
-            'green_areas(name, discipline, orientation_mode)'
-            '))',
-          )
-          .eq('member_profile_id', myId)
-          .eq('is_selected', true)
-          .eq('acceptance', 'pending');
+      final needsRows = dashboardRows[2];
 
       final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
       final selectedPendingFixtureIds = rawNeeds
@@ -929,29 +1004,19 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           .toSet();
 
       // 1) Load my club name
-      final clubRow = await client
-          .from('clubs')
-          .select('name, primary_color_hex, secondary_color_hex')
-          .eq('id', widget.clubId)
-          .single();
+      final clubRow = dashboardRows[3] as Map<String, dynamic>;
 
       final myClubName = (clubRow['name'] ?? '').toString();
 
       // Lookup maps (ids -> names) so dashboard can show venue/green/opponent names
-      final venuesRows = await client
-          .from('venues')
-          .select('id, name')
-          .eq('club_id', widget.clubId);
+      final venuesRows = dashboardRows[4];
 
       final venueNameById = {
         for (final v in List<Map<String, dynamic>>.from(venuesRows))
           v['id'].toString(): (v['name'] ?? '').toString(),
       };
 
-      final greensRows = await client
-          .from('green_areas')
-          .select('id, name')
-          .eq('club_id', widget.clubId);
+      final greensRows = dashboardRows[5];
 
       final greenNameById = {
         for (final g in List<Map<String, dynamic>>.from(greensRows))
@@ -959,27 +1024,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       };
 
       // Fixtures (future only)
-      final fixturesRows = await client
-          .from('fixtures')
-          .select(
-            'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-            'requires_rsvp, team_id, team_name, cancelled_at, '
-            'rescheduled_from_fixture_id, rescheduled_to_fixture_id, rescheduled_at, '
-            'captain_member_profile_id, vice_captain_member_profile_id, '
-            'venue_id, opponent_venue_id, green_area_id, '
-            'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            'team:teams(name), '
-            'green_areas(name, discipline, orientation_mode), '
-            'ts:team_selections(status), '
-            'competition_type_id, '
-            'competition_type:competition_types!fixtures_competition_type_id_fkey('
-            'id, name, is_internal, selection_mode, uses_rinks, tags, '
-            'colour_scheme:fixture_colour_schemes(id, name, background_hex, foreground_hex))',
-          )
-          .eq('club_id', widget.clubId)
-          .gte('start_at', DateTime.now().toUtc().toIso8601String())
-          .order('start_at', ascending: true);
+      final fixturesRows = dashboardRows[6];
 
       final allFixtures = List<Map<String, dynamic>>.from(fixturesRows);
 
@@ -1112,33 +1157,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       });
 
       // Accepted & upcoming (published + I'm selected + accepted)
-      final acceptedRows = await client
-          .from('team_selection_members')
-          .select(
-            'team_selections!inner('
-            '  status, '
-            '  fixture:fixtures!inner('
-            '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, cancelled_at, '
-            '    requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
-            '    fixture_rinks(format, players_per_rink), '
-            '    competition_type_id, '
-            '    competition_type:competition_types!fixtures_competition_type_id_fkey('
-            '      id, name, is_internal, selection_mode, uses_rinks, '
-            '      colour_scheme:fixture_colour_schemes('
-            '      id, name, background_hex, foreground_hex)'
-            '    ), '
-            '    venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            '    opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
-            '    team:teams(name), '
-            '    green_areas(name, discipline, orientation_mode)'
-            '  )'
-            ')',
-          )
-          .eq('member_profile_id', myId)
-          .eq('acceptance', 'accepted')
-          .eq('is_selected', true)
-          .eq('team_selections.status', 'published')
-          .eq('team_selections.fixture.club_id', widget.clubId);
+      final acceptedRows = dashboardRows[7];
 
       final upcomingAcceptedAll = <Map<String, dynamic>>[];
       final upcomingAccepted = <Map<String, dynamic>>[];
@@ -1359,10 +1378,13 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
   }
 
-  Future<void> _loadUnreadNotificationCount() async {
+  Future<void> _loadUnreadNotificationCount({String? memberProfileId}) async {
     try {
       final client = Supabase.instance.client;
-      final myId = (await client.rpc('my_member_profile_id')).toString();
+      final myId =
+          memberProfileId ??
+          _currentMemberId ??
+          (await client.rpc('my_member_profile_id')).toString();
 
       final rows = await client
           .from('app_notifications')
@@ -1395,9 +1417,14 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
+          backgroundColor: Colors.lightBlue.shade50,
           title: const Text('Fixtures available'),
           content: Text(
-            'You have ${_toRsvp.length} fixture(s) available to RSVP to.',
+            _toRsvp.length == 1
+                ? 'You have 1 fixture available to Sign Up to (RSVP).\n\n'
+                      'If you wish to play, click the fixture and select your availability.'
+                : 'You have ${_toRsvp.length} fixtures available to Sign Up to (RSVP).\n\n'
+                      'If you wish to play, click a fixture and select your availability.',
           ),
           actions: [
             TextButton(
@@ -1407,6 +1434,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           ],
         ),
       );
+
       return;
     }
 
