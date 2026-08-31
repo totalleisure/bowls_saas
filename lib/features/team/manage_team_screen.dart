@@ -575,6 +575,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }) async {
     if (effectiveReadOnly || !_canAssignRinks || _savingAssignments) return;
 
+    final selectedRow = _selected.firstWhere(
+      (row) => row['member_profile_id']?.toString() == memberProfileId,
+      orElse: () => <String, dynamic>{},
+    );
+    final wasReserve =
+        (selectedRow['role'] ?? '').toString().toLowerCase().trim() ==
+        'reserve';
+
     final confirmed = await _confirmReservePromotion(memberProfileId);
     if (!confirmed) return;
 
@@ -605,6 +613,21 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       });
 
       await _saveCurrentAssignments();
+
+      if (wasReserve && mounted) {
+        setState(() {
+          for (final row in _selected) {
+            if (row['member_profile_id']?.toString() == memberProfileId) {
+              row['role'] = 'player';
+              row['acceptance'] = 'pending';
+              row['responded_at'] = null;
+              row['acceptance_by'] = null;
+              row['accepted_by_profile'] = null;
+              break;
+            }
+          }
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _assignmentsByRink = previous);
@@ -1391,24 +1414,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         throw Exception('Team selection not loaded yet.');
       }
 
-      final payload = selectedIds
-          .map(
-            (id) => {
-              'team_selection_id': _selectionId,
-              'member_profile_id': id,
-              'role': 'player',
-              'acceptance': 'pending',
-              'is_selected': true,
-            },
-          )
-          .toList();
-
-      inserted = List<Map<String, dynamic>>.from(
-        await _client
-            .from('team_selection_members')
-            .insert(payload)
-            .select('member_profile_id, role, acceptance, is_selected'),
-      );
+      for (final id in selectedIds) {
+        await _client.rpc(
+          'set_team_selection_member_active',
+          params: {
+            'p_team_selection_id': _selectionId,
+            'p_member_profile_id': id,
+            'p_is_selected': true,
+          },
+        );
+        inserted.add({'member_profile_id': id});
+      }
     } else {
       final payload = selectedIds
           .map(
@@ -1538,21 +1554,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         if (!confirmedAvailable) return;
       }
 
-      if (existingAny == null) {
-        await client.from('team_selection_members').insert({
-          'team_selection_id': _selectionId,
-          'member_profile_id': memberId,
-          'role': 'player',
-          'acceptance': 'pending',
-          'is_selected': true,
-        });
-      } else {
-        await client
-            .from('team_selection_members')
-            .update({'is_selected': !currentlySelected})
-            .eq('team_selection_id', _selectionId!)
-            .eq('member_profile_id', memberId);
-      }
+      await client.rpc(
+        'set_team_selection_member_active',
+        params: {
+          'p_team_selection_id': _selectionId,
+          'p_member_profile_id': memberId,
+          'p_is_selected': !currentlySelected,
+        },
+      );
 
       if (!mounted) return;
 
@@ -1586,9 +1595,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
             _selected.add({
               'member_profile_id': memberId,
-              'role': (existingAny?['role'] ?? 'player').toString(),
-              'acceptance': (existingAny?['acceptance'] ?? 'pending')
-                  .toString(),
+              'role': 'player',
+              'acceptance': 'pending',
               'is_selected': true,
               'member_profiles': poolRow?['member_profiles'],
               'accepted_by_profile': null,
@@ -1663,11 +1671,22 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       debugPrint('SETROLE oldRole=$oldRole newRole=$newRole');
       debugPrint('SETROLE selectionId=$_selectionId');
 
-      await Supabase.instance.client
-          .from('team_selection_members')
-          .update({'role': role})
-          .eq('team_selection_id', _selectionId!)
-          .eq('member_profile_id', memberId);
+      if (newRole == 'player' || newRole == 'reserve') {
+        await Supabase.instance.client.rpc(
+          'set_team_selection_member_role',
+          params: {
+            'p_team_selection_id': _selectionId,
+            'p_member_profile_id': memberId,
+            'p_role': newRole,
+          },
+        );
+      } else {
+        await Supabase.instance.client
+            .from('team_selection_members')
+            .update({'role': role})
+            .eq('team_selection_id', _selectionId!)
+            .eq('member_profile_id', memberId);
+      }
 
       if (newRole == 'reserve' && hasTeamPosition) {
         for (final byPosition in _assignmentsByRink.values) {
@@ -1676,70 +1695,19 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           );
         }
         _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
-        await _saveCurrentAssignments();
-      }
-
-      if (oldRole == 'reserve' && newRole == 'player') {
-        debugPrint('SETROLE reserve->player trigger fired for $memberId');
-
-        final fixture = widget.fixture;
-        final profileRow = await Supabase.instance.client
-            .from('member_profiles')
-            .select('display_name, first_name, last_name, preferred_position')
-            .eq('id', memberId)
-            .maybeSingle();
-
-        final playerProfile = profileRow == null
-            ? null
-            : Map<String, dynamic>.from(profileRow);
-
-        final playerName =
-            playerProfile?['display_name']?.toString().trim().isNotEmpty == true
-            ? playerProfile!['display_name'].toString().trim()
-            : [
-                playerProfile?['first_name']?.toString().trim() ?? '',
-                playerProfile?['last_name']?.toString().trim() ?? '',
-              ].where((s) => s.isNotEmpty).join(' ');
-
-        final isHome = fixture['is_home'] == true;
-        final startAtText = fixture['start_at']?.toString();
-
-        final fixtureLabel =
-            (fixture['team_name']?.toString().trim().isNotEmpty ?? false)
-            ? fixture['team_name'].toString().trim()
-            : 'Fixture';
-
-        final venueName =
-            (fixture['venue_name']?.toString().trim().isNotEmpty ?? false)
-            ? fixture['venue_name'].toString().trim()
-            : ((fixture['opponent_name']?.toString().trim().isNotEmpty ?? false)
-                  ? fixture['opponent_name'].toString().trim()
-                  : '');
-
-        await Supabase.instance.client.from('notification_queue').insert({
-          'event_type': 'reserve_promoted',
-          'member_profile_id': _currentMemberProfileId,
-          'target_member_profile_id': memberId,
-          'fixture_id': fixture['id'],
-          'team_selection_id': _selectionId,
-          'payload': {
-            'player_name': playerName,
-            'fixture_label': fixtureLabel,
-            'fixture_date': startAtText,
-            'home_away': isHome ? 'Home' : 'Away',
-            'venue_name': venueName,
-            'old_role': 'reserve',
-            'new_role': 'player',
-          },
-          'status': 'pending',
-        });
       }
 
       if (!mounted) return;
       setState(() {
         for (final row in _selected) {
           if (row['member_profile_id']?.toString() == memberId) {
-            row['role'] = role;
+            row['role'] = newRole;
+            if (oldRole == 'reserve' && newRole == 'player') {
+              row['acceptance'] = 'pending';
+              row['responded_at'] = null;
+              row['acceptance_by'] = null;
+              row['accepted_by_profile'] = null;
+            }
             break;
           }
         }
@@ -2163,29 +2131,15 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     }
 
     try {
-      final fixtureId = widget.fixture['id']?.toString();
-      if (fixtureId == null || fixtureId.isEmpty) {
-        throw Exception('Fixture id missing.');
-      }
-
       final client = Supabase.instance.client;
-
-      final updated = await client
-          .from('team_selection_members')
-          .update({'is_selected': false})
-          .eq('team_selection_id', _selectionId!)
-          .eq('member_profile_id', memberProfileId)
-          .select('member_profile_id, is_selected');
-
-      if ((updated as List).isEmpty) {
-        throw Exception('No team selection row was updated.');
-      }
-
-      await client
-          .from('fixture_rink_assignments')
-          .delete()
-          .eq('fixture_id', fixtureId)
-          .eq('member_profile_id', memberProfileId);
+      await client.rpc(
+        'set_team_selection_member_active',
+        params: {
+          'p_team_selection_id': _selectionId,
+          'p_member_profile_id': memberProfileId,
+          'p_is_selected': false,
+        },
+      );
 
       if (!mounted) return;
 

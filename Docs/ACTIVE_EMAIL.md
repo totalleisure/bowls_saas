@@ -16,11 +16,24 @@ Active Email action blocks support:
 
 - Pre-Select players whose email event is `fixture_selected`.
 - Ordinary players named when a team is published, whose email event is `team_published_player`.
+- Players promoted from reserve after publication, whose email event is `reserve_promoted`.
 - Named Pre-Select markers whose email event is `fixture_selected`, whose selection role is `marker`, and who have the canonical fixture-rink position `201` assignment.
 
 Player replies use action type `team_selection`. Named-marker replies use action type `marker_assignment`. Both update the existing `team_selection_members` acceptance, `responded_at`, and `acceptance_by` fields. Declining a named-marker assignment records the declined response but retains the position-201 assignment so the captain or selector can review and replace it explicitly.
 
 Reserve-selection emails and open marker-request broadcasts remain informational. Open marker requests continue to direct volunteers to the fixture captain; they do not create an email action request. Direct team-sheet emails are also unchanged.
+
+## Post-publication selection transitions
+
+Manage Team uses narrow transactional database operations for selection changes:
+
+- A newly selected or reactivated player is reset to `pending`, has previous response attribution cleared, and receives one `fixture_selected` event when the selection is already published.
+- Promoting a reserve resets the response fields and creates one `reserve_promoted` event for a published selection.
+- Moving an existing active player between rink positions preserves their response and creates no new selection event.
+- Demoting a player to reserve removes their playing-position assignment and invalidates an outstanding player action. The reserve email remains informational.
+- Removing a selected player retains the historical response fields, marks the selection inactive, removes the playing-position assignment, and cancels outstanding actionable or unsent player communications.
+- Draft-selection changes update selection state without creating publication communications.
+- Repeating an already completed transition is a no-op and does not reset acceptance or duplicate a notification.
 
 Outbound notification preparation and email sending remain manual through the Communications Control Centre. The inbound `process-email-responses` schedule remains active and checks the restricted mailbox every two minutes.
 
