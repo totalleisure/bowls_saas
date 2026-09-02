@@ -238,8 +238,11 @@ class _CommunicationsControlCentreScreenState
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Communications rebuilt; team sheet attached to '
-              '${result.attachedTeamSheets} email(s).',
+              'Communications rebuilt; revision '
+              '${result.attachmentResult.compositionVersion} attached to '
+              '${result.attachmentResult.notificationRowsUpdated} pending '
+              'notification(s) and '
+              '${result.attachmentResult.emailRowsUpdated} unsent email(s).',
             ),
           ),
         );
@@ -290,7 +293,13 @@ class _CommunicationsControlCentreScreenState
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Team sheet attached to $attached email(s).')),
+        SnackBar(
+          content: Text(
+            'Revision ${attached.compositionVersion} attached to '
+            '${attached.notificationRowsUpdated} pending notification(s) '
+            'and ${attached.emailRowsUpdated} unsent email(s).',
+          ),
+        ),
       );
       await _refreshSelectedFixture();
     } catch (e) {

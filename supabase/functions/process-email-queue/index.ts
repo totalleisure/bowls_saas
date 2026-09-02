@@ -139,6 +139,34 @@ function buildEmailActionBlock(
     </div>`;
 }
 
+const TEAM_SHEET_EVENT_TYPES = new Set([
+  "team_published_player",
+  "team_published_reserve",
+  "team_published_captain",
+  "team_published_vice",
+  "fixture_selected",
+  "reserve_promoted",
+]);
+
+function validPdfAttachment(attachment: Record<string, unknown>): boolean {
+  if (
+    attachment.contentType !== "application/pdf" ||
+    typeof attachment.contentBytes !== "string" ||
+    typeof attachment.compositionVersion !== "number"
+  ) {
+    return false;
+  }
+  try {
+    const bytes = Uint8Array.from(atob(attachment.contentBytes), (value) =>
+      value.charCodeAt(0)
+    );
+    return bytes.length > 0 && bytes.length <= 2_000_000 &&
+      new TextDecoder().decode(bytes.subarray(0, 4)) === "%PDF";
+  } catch {
+    return false;
+  }
+}
+
 serve(async (req) => {
   if (req.method !== "POST") {
     return json(405, { error: "Method not allowed" });
@@ -188,6 +216,38 @@ serve(async (req) => {
 
     for (const email of emails ?? []) {
       try {
+        if (TEAM_SHEET_EVENT_TYPES.has(email.event_type)) {
+          const attachments = Array.isArray(email.attachments)
+            ? email.attachments as Record<string, unknown>[]
+            : [];
+          const attachment = attachments.length === 1 ? attachments[0] : null;
+          const { data: selection } = await supabase
+            .from("team_selections")
+            .select("composition_version, status")
+            .eq("id", email.team_selection_id)
+            .eq("fixture_id", email.fixture_id)
+            .maybeSingle();
+          if (
+            !attachment ||
+            !validPdfAttachment(attachment) ||
+            selection?.status !== "published" ||
+            attachment.compositionVersion !== selection?.composition_version
+          ) {
+            await supabase
+              .from("email_queue")
+              .update({
+                status: "failed",
+                last_error:
+                  "Required Team Sheet attachment is missing or stale.",
+                last_attempt_at: new Date().toISOString(),
+              })
+              .eq("id", email.id)
+              .eq("status", "pending");
+            failed++;
+            continue;
+          }
+        }
+
         await supabase
           .from("email_queue")
           .update({

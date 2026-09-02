@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:bowls_saas/services/team_sheet_builder_service.dart';
 import 'package:bowls_saas/services/team_sheet_pdf.dart';
+import 'package:bowls_saas/services/fixture_communications_service.dart';
 
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
@@ -3616,10 +3617,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     }
   }
 
-  Future<bool> _confirmStructuralOverride(
-    int rinks,
-    int playersPerRink,
-  ) async {
+  Future<bool> _confirmStructuralOverride(int rinks, int playersPerRink) async {
     if (!_hasDraftAssignmentsOutside(rinks, playersPerRink)) return true;
 
     final confirmed = await showDialog<bool>(
@@ -3958,6 +3956,17 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           debugPrint(
             'CREATE FIXTURE COMMUNICATIONS reconciliation result='
             '$rawCommunicationsResult',
+          );
+
+          final attachmentResult = await FixtureCommunicationsService(
+            _client,
+          ).rebuildTeamSheetAttachmentForFixture(fixtureId: fixtureId);
+
+          debugPrint(
+            'CREATE FIXTURE COMMUNICATIONS: revision '
+            '${attachmentResult.compositionVersion} attached to '
+            '${attachmentResult.notificationRowsUpdated} queued row(s) and '
+            '${attachmentResult.emailRowsUpdated} unsent email row(s)',
           );
 
           // Notification processing is handled centrally by the queue processor.

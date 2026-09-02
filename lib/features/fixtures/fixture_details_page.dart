@@ -19,6 +19,7 @@ import '../../core/widgets/club_member_picker_page.dart';
 import '../../features/fixtures/fixture_rsvp_section.dart';
 import '../../features/clubs/club_access.dart';
 import '../../services/fixture_readiness_service.dart';
+import '../../services/fixture_communications_service.dart';
 import '../../services/venue_actions_service.dart';
 import '../../data/repositories/fixtures_repository.dart';
 
@@ -448,8 +449,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final primaryDetailsChanged = _isTeamFixtureUi
         ? _selectedTeamId != _savedTeamId
         : _teamNameCtrl.text.trim() != _savedFixtureLabel;
-    final dressCodeChanged =
-        _normaliseDressCode(_dressCode) != _savedDressCode;
+    final dressCodeChanged = _normaliseDressCode(_dressCode) != _savedDressCode;
 
     return primaryDetailsChanged ||
         (_usesSimpleBookingWorkflow && dressCodeChanged);
@@ -470,9 +470,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           (team) => team['id'].toString() == _selectedTeamId,
           orElse: () => <String, dynamic>{},
         );
-        final selectedTeamName = (selectedTeam['name'] ?? '')
-            .toString()
-            .trim();
+        final selectedTeamName = (selectedTeam['name'] ?? '').toString().trim();
 
         await _fixturesRepository.updateFixtureTeam(
           fixtureId: widget.fixtureId,
@@ -512,9 +510,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
     } finally {
       if (mounted) setState(() => _savingTeam = false);
     }
@@ -1616,6 +1614,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       debugPrint(
         'PRESELECT SAVE post-publish communications=$postPublishResult',
+      );
+
+      final attachmentResult = await FixtureCommunicationsService(
+        _client,
+      ).rebuildTeamSheetAttachmentForFixture(fixtureId: widget.fixtureId);
+      debugPrint(
+        'PRESELECT SAVE: revision ${attachmentResult.compositionVersion} '
+        'attached to ${attachmentResult.notificationRowsUpdated} queued '
+        'row(s) and ${attachmentResult.emailRowsUpdated} unsent email row(s)',
       );
     } catch (e) {
       debugPrint('PRESELECT SAVE: post-publish communications sync failed: $e');
@@ -5215,10 +5222,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: Theme.of(dialogContext).colorScheme.error,
               ),
-              onPressed: () => Navigator.pop(
-                dialogContext,
-                _CancelFixtureChoice.cancel,
-              ),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, _CancelFixtureChoice.cancel),
               icon: const Icon(Icons.cancel_outlined),
               label: const Text('Cancel fixture'),
             ),
@@ -6513,8 +6518,7 @@ class _RescheduleFixturePage extends StatefulWidget {
   final String? cancellationReason;
 
   @override
-  State<_RescheduleFixturePage> createState() =>
-      _RescheduleFixturePageState();
+  State<_RescheduleFixturePage> createState() => _RescheduleFixturePageState();
 }
 
 class _RescheduleFixturePageState extends State<_RescheduleFixturePage> {
@@ -6604,9 +6608,7 @@ class _RescheduleFixturePageState extends State<_RescheduleFixturePage> {
 
     final nowClubLocal = toClubTime(DateTime.now());
     if (_startAtLocal.isBefore(nowClubLocal)) {
-      setState(
-        () => _error = 'A fixture cannot be rescheduled into the past.',
-      );
+      setState(() => _error = 'A fixture cannot be rescheduled into the past.');
       return;
     }
 

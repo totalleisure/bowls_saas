@@ -57,6 +57,16 @@ An exact retry is an authoritative no-op, even when the caller supplies the pre-
 
 Outbound notification preparation and email sending remain manual through the Communications Control Centre. The inbound `process-email-responses` schedule remains active and checks the restricted mailbox every two minutes.
 
+## Versioned Team Sheet attachments
+
+Publication and post-publication player-entry communications that promise a Team Sheet carry one PDF attachment for the current `team_selections.composition_version`. The PDF is generated in Flutter from the server-authorised Team Sheet dataset and is submitted through an authorised attachment RPC. The RPC locks and validates the current published selection version, and the queue and email processors block missing, empty, oversized or stale attachments rather than sending without the promised sheet.
+
+This version check protects freshness and makes retries idempotent, but it does not cryptographically prove that the submitted PDF bytes represent the authoritative dataset. That trust boundary is acceptable for the current manager-authorised workflow. Server-side rendering or a signed content digest would be required if untrusted callers, evidential integrity or independent content verification become requirements.
+
+Microsoft Graph's direct file-attachment route requires files smaller than 3 MB. The application applies a conservative maximum of 2,000,000 decoded PDF bytes, before Base64 encoding, to leave encoding and transport headroom. Composition metadata remains internal queue metadata and is stripped from the attachment object sent to Microsoft Graph.
+
+After **Confirm Team Changes**, Phase II sends the revised Team Sheet only to newly positioned, replacement or promoted players who receive a new player-entry communication. Unchanged existing participants do not currently receive an informational revised Team Sheet. That remains future affected-team/rink communication work rather than completed Phase II behaviour.
+
 ## Microsoft Graph
 
 The Microsoft Entra application uses application permissions with administrator consent:

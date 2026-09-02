@@ -91,6 +91,7 @@ begin
       'players_per_rink', v_row.players_per_rink,
       'position', v_row.position,
       'role', 'player',
+      'team_sheet_required', true,
       'old_role', case when p_event_type = 'reserve_promoted' then 'reserve' end,
       'new_role', case when p_event_type = 'reserve_promoted' then 'player' end
     )),

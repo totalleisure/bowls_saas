@@ -12,6 +12,13 @@ declare
   v_is_superuser boolean := false;
   v_has_permission boolean := false;
   v_fixture_selected_queued integer := 0;
+  v_leadership_queued integer := 0;
+  v_fixture_label text;
+  v_start_at timestamptz;
+  v_is_home boolean;
+  v_venue_name text;
+  v_captain uuid;
+  v_vice uuid;
   v_marker_result jsonb := '{}'::jsonb;
 begin
   if auth.uid() is null then
@@ -21,14 +28,28 @@ begin
   select
     f.club_id,
     ts.id,
-    lower(coalesce(ct.selection_mode::text, ''))
+    lower(coalesce(ct.selection_mode::text, '')),
+    coalesce(nullif(btrim(f.team_name), ''), nullif(btrim(ct.name), ''), 'Pre-Select Fixture'),
+    f.start_at,
+    f.is_home,
+    coalesce(v.name, ov.name, ''),
+    f.captain_member_profile_id,
+    f.vice_captain_member_profile_id
   into
     v_club_id,
     v_team_selection_id,
-    v_selection_mode
+    v_selection_mode,
+    v_fixture_label,
+    v_start_at,
+    v_is_home,
+    v_venue_name,
+    v_captain,
+    v_vice
   from public.fixtures f
   left join public.competition_types ct
     on ct.id = f.competition_type_id
+  left join public.venues v on v.id = f.venue_id
+  left join public.venues ov on ov.id = f.opponent_venue_id
   left join lateral (
     select x.id
     from public.team_selections x
@@ -120,7 +141,8 @@ begin
           when fra.position between 101 and (100 + fr.players_per_rink)
             then 'opponent'
           else 'player'
-        end
+        end,
+      'team_sheet_required', true
     ),
     'pending'
   from public.fixture_rink_assignments fra
@@ -156,6 +178,54 @@ begin
 
   get diagnostics v_fixture_selected_queued = row_count;
 
+  -- Leadership who are not already receiving an assignment-specific message
+  -- receive one informational publication copy of the same Team Sheet.
+  insert into public.notification_queue (
+    event_type,
+    member_profile_id,
+    target_member_profile_id,
+    fixture_id,
+    team_selection_id,
+    payload,
+    status
+  )
+  select
+    leadership.event_type,
+    v_actor_member_profile_id,
+    leadership.member_profile_id,
+    p_fixture_id,
+    v_team_selection_id,
+    jsonb_build_object(
+      'fixture_label', v_fixture_label,
+      'fixture_date', v_start_at,
+      'start_at', v_start_at,
+      'home_away', case when v_is_home then 'Home' else 'Away' end,
+      'venue_name', v_venue_name,
+      'team_sheet_required', true
+    ),
+    'pending'
+  from (
+    values
+      ('team_published_captain'::text, v_captain),
+      ('team_published_vice'::text, v_vice)
+  ) as leadership(event_type, member_profile_id)
+  where leadership.member_profile_id is not null
+    and not exists (
+      select 1
+      from public.notification_queue existing
+      where existing.fixture_id = p_fixture_id
+        and existing.team_selection_id = v_team_selection_id
+        and existing.target_member_profile_id = leadership.member_profile_id
+        and existing.status in ('pending', 'sent')
+        and existing.event_type in (
+          'fixture_selected',
+          'team_published_captain',
+          'team_published_vice'
+        )
+    );
+
+  get diagnostics v_leadership_queued = row_count;
+
   -- Reuses the existing duplicate-safe marker routine.
   select public.queue_open_marker_request_communications(p_fixture_id)
   into v_marker_result;
@@ -163,10 +233,12 @@ begin
   return jsonb_build_object(
     'fixture_id', p_fixture_id,
     'fixture_selected_queued', v_fixture_selected_queued,
+    'leadership_queued', v_leadership_queued,
     'marker_communications',
       coalesce(v_marker_result, '{}'::jsonb),
     'total_communications_queued',
       v_fixture_selected_queued
+      + v_leadership_queued
       + coalesce(
           (v_marker_result ->> 'communications_queued')::integer,
           0

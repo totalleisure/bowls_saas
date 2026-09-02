@@ -8,11 +8,48 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class FixtureCommunicationsRepairResult {
   const FixtureCommunicationsRepairResult({
     required this.repairResult,
-    required this.attachedTeamSheets,
+    required this.attachmentResult,
   });
 
   final dynamic repairResult;
-  final int attachedTeamSheets;
+  final TeamSheetAttachmentResult attachmentResult;
+}
+
+class TeamSheetAttachmentBuild {
+  const TeamSheetAttachmentBuild({
+    required this.attachment,
+    required this.compositionVersion,
+    required this.teamSelectionId,
+  });
+
+  final Map<String, dynamic> attachment;
+  final int compositionVersion;
+  final String teamSelectionId;
+}
+
+class TeamSheetAttachmentResult {
+  const TeamSheetAttachmentResult({
+    required this.compositionVersion,
+    required this.notificationRowsUpdated,
+    required this.emailRowsUpdated,
+  });
+
+  final int compositionVersion;
+  final int notificationRowsUpdated;
+  final int emailRowsUpdated;
+
+  factory TeamSheetAttachmentResult.fromRpc(dynamic result) {
+    if (result is! Map) {
+      throw const FormatException('Invalid team-sheet attachment response.');
+    }
+    final data = Map<String, dynamic>.from(result);
+    int count(String key) => int.tryParse(data[key]?.toString() ?? '') ?? 0;
+    return TeamSheetAttachmentResult(
+      compositionVersion: count('composition_version'),
+      notificationRowsUpdated: count('notification_rows_updated'),
+      emailRowsUpdated: count('email_rows_updated'),
+    );
+  }
 }
 
 class FixtureCommunicationsService {
@@ -20,9 +57,9 @@ class FixtureCommunicationsService {
 
   final SupabaseClient client;
 
-  Future<Map<String, dynamic>> buildTeamSheetAttachment({
+  Future<TeamSheetAttachmentBuild> buildTeamSheetAttachment({
     required Map<String, dynamic> fixture,
-    required String teamSelectionId,
+    String? teamSelectionId,
   }) async {
     final fixtureId = fixture['id']?.toString();
     if (fixtureId == null || fixtureId.isEmpty) {
@@ -32,12 +69,19 @@ class FixtureCommunicationsService {
     final build = await TeamSheetBuilderService(
       client,
     ).buildForFixture(fixtureId);
-    if (build.teamSelectionId != teamSelectionId) {
+    if (teamSelectionId != null &&
+        teamSelectionId.isNotEmpty &&
+        build.teamSelectionId != teamSelectionId) {
       throw Exception('Team selection does not match this fixture');
     }
     final data = build.data;
 
     final pdfBytes = await buildTeamSheetPdf(data);
+    if (pdfBytes.isEmpty || pdfBytes.length > 2000000) {
+      throw const FormatException(
+        'The Team Sheet PDF is empty or exceeds the 2 MB email limit.',
+      );
+    }
     final d = toClubTime(data.startAt);
     final when =
         '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
@@ -47,14 +91,19 @@ class FixtureCommunicationsService {
       '-',
     );
 
-    return {
-      'name': '$safeClub v $safeOpponent - $when.pdf',
-      'contentType': 'application/pdf',
-      'contentBytes': base64Encode(pdfBytes),
-    };
+    return TeamSheetAttachmentBuild(
+      compositionVersion: build.compositionVersion,
+      teamSelectionId: build.teamSelectionId,
+      attachment: {
+        'name': '$safeClub v $safeOpponent - $when.pdf',
+        'contentType': 'application/pdf',
+        'contentBytes': base64Encode(pdfBytes),
+        'compositionVersion': build.compositionVersion,
+      },
+    );
   }
 
-  Future<int> rebuildTeamSheetAttachment({
+  Future<TeamSheetAttachmentResult> rebuildTeamSheetAttachment({
     required Map<String, dynamic> fixture,
     required String teamSelectionId,
   }) async {
@@ -63,32 +112,44 @@ class FixtureCommunicationsService {
       throw Exception('Fixture id not found');
     }
 
-    final attachment = await buildTeamSheetAttachment(
+    final build = await buildTeamSheetAttachment(
       fixture: fixture,
       teamSelectionId: teamSelectionId,
     );
+    if (build.teamSelectionId != teamSelectionId) {
+      throw const FormatException(
+        'Team selection does not match the authoritative fixture state.',
+      );
+    }
 
     final result = await client.rpc(
       'attach_publication_team_sheet',
       params: {
         'p_fixture_id': fixtureId,
         'p_team_selection_id': teamSelectionId,
-        'p_attachment': attachment,
+        'p_expected_composition_version': build.compositionVersion,
+        'p_attachment': build.attachment,
       },
     );
 
-    if (result is int) return result;
-    return int.tryParse(result?.toString() ?? '') ?? 0;
+    return TeamSheetAttachmentResult.fromRpc(result);
   }
 
-  Future<int> processPublicationNotifications({int limit = 50}) async {
-    final result = await client.rpc(
-      'process_notification_queue',
-      params: {'p_limit': limit},
-    );
+  Future<TeamSheetAttachmentResult> rebuildTeamSheetAttachmentForFixture({
+    required String fixtureId,
+  }) async {
+    final build = await buildTeamSheetAttachment(fixture: {'id': fixtureId});
 
-    if (result is int) return result;
-    return int.tryParse(result?.toString() ?? '') ?? 0;
+    final result = await client.rpc(
+      'attach_publication_team_sheet',
+      params: {
+        'p_fixture_id': fixtureId,
+        'p_team_selection_id': build.teamSelectionId,
+        'p_expected_composition_version': build.compositionVersion,
+        'p_attachment': build.attachment,
+      },
+    );
+    return TeamSheetAttachmentResult.fromRpc(result);
   }
 
   Future<FixtureCommunicationsRepairResult> repairPublicationCommunications({
@@ -105,14 +166,14 @@ class FixtureCommunicationsService {
       params: {'p_fixture_id': fixtureId},
     );
 
-    final attached = await rebuildTeamSheetAttachment(
+    final attachmentResult = await rebuildTeamSheetAttachment(
       fixture: fixture,
       teamSelectionId: teamSelectionId,
     );
 
     return FixtureCommunicationsRepairResult(
       repairResult: repairResult,
-      attachedTeamSheets: attached,
+      attachmentResult: attachmentResult,
     );
   }
 }

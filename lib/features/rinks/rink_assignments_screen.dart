@@ -1367,18 +1367,6 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
               icon: const Icon(Icons.picture_as_pdf_outlined),
               label: const Text('Save / Share Team Sheet PDF'),
             ),
-            ElevatedButton.icon(
-              onPressed: _canPublishTeamSheet
-                  ? _publishAndEmailTeamSheet
-                  : null,
-              icon: const Icon(Icons.publish),
-              label: const Text('Publish & Email Team Sheet'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _canPublishTeamSheet ? _resendTeamSheetEmails : null,
-              icon: const Icon(Icons.mark_email_read_outlined),
-              label: const Text('Resend Team Sheet Emails'),
-            ),
           ],
         ),
         if (!_canAssignRinks)

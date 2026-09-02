@@ -14,6 +14,7 @@ import '../../Core/widgets/app_badge.dart';
 import 'package:bowls_saas/services/team_sheet_pdf.dart';
 import 'package:bowls_saas/services/team_sheet_share.dart';
 import 'package:bowls_saas/services/team_sheet_builder_service.dart';
+import 'package:bowls_saas/services/fixture_communications_service.dart';
 import 'package:bowls_saas/features/team/team_sheet_screen.dart';
 
 import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
@@ -606,15 +607,40 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         },
       );
 
+      Object? attachmentError;
+      final resultMap = result is Map
+          ? Map<String, dynamic>.from(result)
+          : <String, dynamic>{};
+      if (resultMap['no_change'] != true) {
+        try {
+          await FixtureCommunicationsService(
+            _client,
+          ).rebuildTeamSheetAttachment(
+            fixture: widget.fixture,
+            teamSelectionId: _selectionId!,
+          );
+        } catch (error) {
+          attachmentError = error;
+          debugPrint('CONFIRM TEAM CHANGES attachment warning: $error');
+        }
+      }
+
       await _load();
       if (!mounted) return;
       final summary = result is Map
           ? 'Confirmed ${result['newly_positioned'] ?? 0} new player(s), '
                 '${result['position_only_moves'] ?? 0} position move(s).'
           : 'Team changes confirmed.';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(summary)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            attachmentError == null
+                ? summary
+                : '$summary The revised Team Sheet could not be attached; '
+                      'the communication remains blocked for repair.',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       if (e.toString().contains('TEAM_COMPOSITION_VERSION_CONFLICT')) {
@@ -2089,68 +2115,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     );
   }
 
-  Future<Map<String, dynamic>> _buildPublicationTeamSheetAttachment() async {
+  Future<TeamSheetAttachmentResult>
+  _attachPublicationTeamSheetToQueuedCommunications() async {
     if (_selectionId == null) throw Exception('Team selection not ready');
 
-    final fixtureId = widget.fixture['id']?.toString();
-    if (fixtureId == null || fixtureId.isEmpty) {
-      throw Exception('Fixture id not found');
-    }
-
-    final build = await TeamSheetBuilderService(
-      _client,
-    ).buildForFixture(fixtureId);
-    if (build.teamSelectionId != _selectionId) {
-      throw Exception('Team selection does not match this fixture');
-    }
-    final data = build.data;
-
-    final pdfBytes = await buildTeamSheetPdf(data);
-
-    final d = toClubTime(data.startAt);
-    final when =
-        '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
-    final safeClub = data.clubName.replaceAll(RegExp(r'[<>:"/\|?*]'), '-');
-    final safeOpp = data.opponentName.replaceAll(RegExp(r'[<>:"/\|?*]'), '-');
-
-    return {
-      'name': '$safeClub v $safeOpp - $when.pdf',
-      'contentType': 'application/pdf',
-      'contentBytes': base64Encode(pdfBytes),
-    };
-  }
-
-  Future<int> _attachPublicationTeamSheetToQueuedEmails() async {
-    if (_selectionId == null) throw Exception('Team selection not ready');
-
-    final fixtureId = widget.fixture['id']?.toString();
-    if (fixtureId == null || fixtureId.isEmpty) {
-      throw Exception('Fixture id not found');
-    }
-
-    final attachment = await _buildPublicationTeamSheetAttachment();
-
-    final result = await _client.rpc(
-      'attach_publication_team_sheet',
-      params: {
-        'p_fixture_id': fixtureId,
-        'p_team_selection_id': _selectionId!,
-        'p_attachment': attachment,
-      },
+    return FixtureCommunicationsService(_client).rebuildTeamSheetAttachment(
+      fixture: widget.fixture,
+      teamSelectionId: _selectionId!,
     );
-
-    if (result is int) return result;
-    return int.tryParse(result?.toString() ?? '') ?? 0;
-  }
-
-  Future<int> _processPublicationNotifications() async {
-    final result = await _client.rpc(
-      'process_notification_queue',
-      params: {'p_limit': 50},
-    );
-
-    if (result is int) return result;
-    return int.tryParse(result?.toString() ?? '') ?? 0;
   }
 
   Future<void> _publish() async {
@@ -2175,16 +2147,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         await _publishTeamSelection(allowIncomplete: true);
       }
 
-      var processedCount = 0;
-      var attachedCount = 0;
+      TeamSheetAttachmentResult? attachmentResult;
       Object? preparationError;
 
       try {
         // Notification processing is handled centrally by the queue processor.
         // Do not process the global notification queue from this workflow.
-        processedCount = 0;
-
-        attachedCount = await _attachPublicationTeamSheetToQueuedEmails();
+        attachmentResult =
+            await _attachPublicationTeamSheetToQueuedCommunications();
       } catch (e) {
         preparationError = e;
         debugPrint('Publish preparation warning: $e');
@@ -2194,7 +2164,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       setState(() => _status = 'published');
 
       final message = preparationError == null
-          ? 'Team published. $processedCount notification(s) processed; team sheet attached to $attachedCount email(s).'
+          ? 'Team published. Revision '
+                '${attachmentResult!.compositionVersion} attached to '
+                '${attachmentResult.notificationRowsUpdated} pending '
+                'notification(s) and ${attachmentResult.emailRowsUpdated} '
+                'unsent email(s).'
           : 'Team published, but preparing notifications/team sheet needs checking: $preparationError';
 
       ScaffoldMessenger.of(
