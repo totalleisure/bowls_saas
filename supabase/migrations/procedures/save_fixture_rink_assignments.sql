@@ -12,6 +12,10 @@ declare
   v_current_member uuid := public.my_member_profile_id();
   v_fixture_id uuid;
   v_club_id uuid;
+  v_selection_status text;
+  v_selection_mode text;
+  v_team_id uuid;
+  v_requires_rsvp boolean;
   v_promoted_ids uuid[] := array[]::uuid[];
   v_promoted_id uuid;
 begin
@@ -21,10 +25,14 @@ begin
 
   perform pg_advisory_xact_lock(hashtextextended(p_team_selection_id::text, 0));
 
-  select ts.fixture_id, f.club_id
-  into v_fixture_id, v_club_id
+  select ts.fixture_id, f.club_id, ts.status::text,
+         lower(btrim(coalesce(ct.selection_mode, ''))),
+         f.team_id, coalesce(f.requires_rsvp, false)
+  into v_fixture_id, v_club_id, v_selection_status,
+       v_selection_mode, v_team_id, v_requires_rsvp
   from public.team_selections ts
   join public.fixtures f on f.id = ts.fixture_id
+  left join public.competition_types ct on ct.id = f.competition_type_id
   where ts.id = p_team_selection_id
   for update of ts;
 
@@ -45,6 +53,12 @@ begin
     )
   ) then
     raise exception 'You do not have permission to manage this fixture.';
+  end if;
+
+  if v_selection_status = 'published'
+     and v_selection_mode <> 'preselect'
+     and (v_team_id is not null or v_requires_rsvp) then
+    raise exception 'Published Team/RSVP composition changes must be confirmed together.';
   end if;
 
   if exists (

@@ -1,15 +1,19 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseResponse } from "./response_parser.ts";
+import type { ResponseMessage } from "./response_parser.ts";
 
-type GraphMessage = {
+type GraphMessage = ResponseMessage & {
   id?: string;
-  subject?: string;
-  bodyPreview?: string;
   receivedDateTime?: string;
   from?: {
     emailAddress?: {
       address?: string;
     };
+  };
+  body?: {
+    contentType?: string;
+    content?: string;
   };
   ["@removed"]?: unknown;
 };
@@ -64,20 +68,36 @@ async function getGraphToken(): Promise<string> {
   return String(tokenData.access_token);
 }
 
-function parseResponse(message: GraphMessage): {
-  command: string;
-  responseCode: string;
-} | null {
-  const subject = String(message.subject ?? "");
-  const preview = String(message.bodyPreview ?? "");
-  const text = `${subject}\n${preview}`;
+async function getMessageForParsing(
+  mailbox: string,
+  messageId: string,
+  graphToken: string,
+): Promise<GraphMessage> {
+  const messageRes = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}` +
+      `/messages/${encodeURIComponent(messageId)}` +
+      "?$select=id,subject,body,receivedDateTime,from",
+    {
+      headers: {
+        Authorization: `Bearer ${graphToken}`,
+        Prefer: 'outlook.body-content-type="text"',
+      },
+    },
+  );
+  const message = await messageRes.json() as GraphMessage & {
+    error?: { code?: string; message?: string };
+  };
 
-  const match = text.match(/\b(ACCEPT|DECLINE)\s+(BWL-[A-F0-9]{12})\b/i);
-  if (!match) return null;
+  if (!messageRes.ok) {
+    throw new Error(
+      `Microsoft Graph message read failed (${messageRes.status}): ` +
+        `${message.error?.code ?? ""} ${message.error?.message ?? ""}`,
+    );
+  }
 
   return {
-    command: match[1].toUpperCase(),
-    responseCode: match[2].toUpperCase(),
+    ...message,
+    bodyText: String(message.body?.content ?? ""),
   };
 }
 
@@ -135,7 +155,7 @@ serve(async (req) => {
       if (!graphRes.ok) {
         throw new Error(
           `Microsoft Graph inbox read failed (${graphRes.status}): ` +
-          `${page.error?.code ?? ""} ${page.error?.message ?? ""}`,
+            `${page.error?.code ?? ""} ${page.error?.message ?? ""}`,
         );
       }
 
@@ -148,22 +168,33 @@ serve(async (req) => {
         // Establishing the first delta cursor must never process historical mail.
         if (initialSync) continue;
 
-        const parsed = parseResponse(message);
+        const completeMessage = await getMessageForParsing(
+          mailbox,
+          message.id,
+          graphToken,
+        );
+        const parsed = parseResponse(completeMessage);
         if (!parsed) continue;
         matched++;
 
+        if (parsed.kind === "ambiguous") {
+          rejected++;
+          continue;
+        }
+
         const sender = String(
-          message.from?.emailAddress?.address ?? "",
+          completeMessage.from?.emailAddress?.address ?? "",
         ).trim().toLowerCase();
 
         const { data: result, error: responseError } = await supabase.rpc(
           "apply_email_action_response",
           {
             p_response_code: parsed.responseCode,
+            p_response_token: parsed.responseToken,
             p_command: parsed.command,
             p_sender_email: sender,
             p_graph_message_id: message.id,
-            p_received_at: message.receivedDateTime ??
+            p_received_at: completeMessage.receivedDateTime ??
               new Date().toISOString(),
           },
         );
@@ -211,7 +242,9 @@ serve(async (req) => {
       }, { onConflict: "mailbox" });
 
     if (saveError) {
-      throw new Error(`Unable to save inbox delta cursor: ${saveError.message}`);
+      throw new Error(
+        `Unable to save inbox delta cursor: ${saveError.message}`,
+      );
     }
 
     return json(200, {

@@ -21,6 +21,10 @@ Active Email action blocks support:
 
 Player replies use action type `team_selection`. Named-marker replies use action type `marker_assignment`. Both update the existing `team_selection_members` acceptance, `responded_at`, and `acceptance_by` fields. Declining a named-marker assignment records the declined response but retains the position-201 assignment so the captain or selector can review and replace it explicitly.
 
+New action blocks include a single-use, high-entropy response token bound to the Action Request. The sending Edge Function generates the token immediately before delivery, stores only its SHA-256 hash through a service-role-only RPC, and adds the plaintext token only to the rendered outbound email. This token allows a valid response to be processed even when a mail client chooses a different configured sending account. The intended recipient and the actual inbound sender are both retained for audit. Older outstanding action emails without a token continue to require an exact sender-address match.
+
+The inbox processor fetches the complete Microsoft Graph message body as normalized plain text. A response is actionable only when one complete `ACCEPT BWL-... RSP-...` or `DECLINE BWL-... RSP-...` command is the first newly authored non-empty line. A command found only in the subject, signature, forwarded content or quoted reply history is not actionable. Multiple authored commands, or disagreement between the prepared subject and body, is rejected as ambiguous.
+
 Reserve-selection emails and open marker-request broadcasts remain informational. Open marker requests continue to direct volunteers to the fixture captain; they do not create an email action request. Direct team-sheet emails are also unchanged.
 
 ## Post-publication selection transitions
@@ -34,6 +38,22 @@ Manage Team uses narrow transactional database operations for selection changes:
 - Removing a selected player retains the historical response fields, marks the selection inactive, removes the playing-position assignment, and cancels outstanding actionable or unsent player communications.
 - Draft-selection changes update selection state without creating publication communications.
 - Repeating an already completed transition is a no-op and does not reset acceptance or duplicate a notification.
+
+## Confirmed published-team changes
+
+For ordinary Team and RSVP fixtures, composition changes made after publication are staged locally in Manage Team. Nothing is written until **Confirm Team Changes** is pressed. Confirmation sends the complete desired member and assignment state to one version-checked database transaction.
+
+The operational states are derived rather than stored:
+
+- **Selected** is an active player selection-member without a valid player-position assignment. Selected members are not awaiting acceptance and receive no selection communication.
+- **Player** is an active player selection-member occupying a valid player position. Acceptance and actionable communication begin when confirmation first creates this state.
+- **Reserve** is an active reserve without a player-position assignment. Reserve publication messages remain informational.
+
+Confirmation compares the final authoritative state with the state at the start of the transaction. New positioned players receive one `fixture_selected`; reserves promoted into a position receive one `reserve_promoted`; position-only moves preserve responses and send nothing. Removed, demoted, or unpositioned former players retain response history while obsolete unsent player communications and Action Requests are cancelled.
+
+An exact retry is an authoritative no-op, even when the caller supplies the pre-confirmation version after losing the original success response. It does not advance the version, reset acceptance, or create another communication. A stale version with a different desired state remains a conflict and must be reloaded.
+
+`team_selections.composition_version` prevents one editor overwriting another editor's confirmed changes. Pre-Select and draft workflows are unchanged. The legacy Rink Assignments screen is read-only for published Team/RSVP composition changes.
 
 Outbound notification preparation and email sending remain manual through the Communications Control Centre. The inbound `process-email-responses` schedule remains active and checks the restricted mailbox every two minutes.
 
@@ -80,5 +100,8 @@ It runs every two minutes. The cron command, Vault secret and mailbox/applicatio
 - Table access is reserved for `service_role`.
 - `apply_email_action_response` is `SECURITY DEFINER`, has a fixed search path, and is executable only by `service_role`.
 - Response codes are stored as SHA-256 hashes; plaintext codes exist only in the outgoing action payload.
+- Token-bearing Action Requests store only a SHA-256 token hash. The plaintext response token exists only in Edge Function memory and the delivered email; it is never persisted in `email_queue`. It is covered by the existing expiry and cancellation rules and can be used only while that request remains active.
+- For token-bearing responses, possession of the delivered action email authorises the response; the actual inbound sender is recorded but is not used as the sole identity check. Forwarded action emails therefore transfer the ability to respond until the request is used, cancelled or expires.
+- Legacy action emails without a token retain exact sender-address validation.
 - Graph message IDs provide idempotency for processed replies.
 - The first inbox delta synchronization establishes a cursor without processing historical mail.

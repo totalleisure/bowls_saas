@@ -44,9 +44,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
   String? _selectionId;
   String _status = 'draft';
+  int _compositionVersion = 0;
+  String _compositionBaseline = '';
+  bool _hasStagedChanges = false;
+  bool _confirmingTeamChanges = false;
 
   List<Map<String, dynamic>> _pool = []; // RSVP yes/maybe
   List<Map<String, dynamic>> _selected = []; // team_selection_members
+  Map<String, Map<String, dynamic>> _authoritativeSelectedById = {};
 
   List<Map<String, dynamic>> _rinks = [];
   Map<String, Map<int, Map<String, dynamic>>> _assignmentsByRink = {};
@@ -73,6 +78,48 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   bool get _canSendReminders => !widget.readOnly && _canEditSelection;
   bool get _canPublishTeam => !widget.readOnly && _canPublish;
   bool get _canForceAcceptSelection => !widget.readOnly && _canForceAccept;
+  bool get _usesPublishedCompositionStaging =>
+      _status == 'published' &&
+      !_isPreselectFixture &&
+      (_isTeamFixture || _usesRsvpPool);
+
+  String _compositionSignature() {
+    final members =
+        _selected
+            .where((row) {
+              final role = (row['role'] ?? '').toString().toLowerCase();
+              return row['is_selected'] == true &&
+                  (role == 'player' || role == 'reserve');
+            })
+            .map(
+              (row) => {
+                'member_profile_id': row['member_profile_id']?.toString(),
+                'role': (row['role'] ?? '').toString().toLowerCase(),
+              },
+            )
+            .toList()
+          ..sort(
+            (a, b) => (a['member_profile_id'] ?? '').toString().compareTo(
+              (b['member_profile_id'] ?? '').toString(),
+            ),
+          );
+
+    final assignments = _currentPlayerAssignmentPayload()
+      ..sort((a, b) {
+        final rink = a['fixture_rink_id'].toString().compareTo(
+          b['fixture_rink_id'].toString(),
+        );
+        if (rink != 0) return rink;
+        return (a['position'] as int).compareTo(b['position'] as int);
+      });
+
+    return jsonEncode({'members': members, 'assignments': assignments});
+  }
+
+  void _refreshCompositionDirty() {
+    if (!_usesPublishedCompositionStaging) return;
+    _hasStagedChanges = _compositionSignature() != _compositionBaseline;
+  }
 
   List<Map<String, dynamic>> _clubMembers = []; // for Add Member dialog
 
@@ -486,8 +533,32 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return rows;
   }
 
+  List<Map<String, dynamic>> _currentPlayerAssignmentPayload() {
+    final playersPerRink = {
+      for (final rink in _rinks)
+        if (rink['id'] != null)
+          rink['id'].toString(): _asInt(rink['players_per_rink']),
+    };
+
+    return _currentAssignmentPayload().where((assignment) {
+      final maximum = playersPerRink[assignment['fixture_rink_id']?.toString()];
+      final position = _asInt(assignment['position']);
+      return maximum != null &&
+          maximum > 0 &&
+          position >= 1 &&
+          position <= maximum;
+    }).toList();
+  }
+
   Future<void> _saveCurrentAssignments() async {
     if (_selectionId == null) return;
+
+    if (_usesPublishedCompositionStaging) {
+      if (mounted) {
+        setState(_refreshCompositionDirty);
+      }
+      return;
+    }
 
     await _client.rpc(
       'save_fixture_rink_assignments',
@@ -497,6 +568,111 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         'p_assignments': _currentAssignmentPayload(),
       },
     );
+  }
+
+  Future<void> _confirmTeamChanges() async {
+    if (!_usesPublishedCompositionStaging ||
+        !_hasStagedChanges ||
+        _selectionId == null ||
+        _confirmingTeamChanges) {
+      return;
+    }
+
+    final members = _selected
+        .where((row) {
+          final role = (row['role'] ?? '').toString().toLowerCase();
+          return row['is_selected'] == true &&
+              (role == 'player' || role == 'reserve');
+        })
+        .map(
+          (row) => {
+            'member_profile_id': row['member_profile_id']?.toString(),
+            'role': (row['role'] ?? '').toString().toLowerCase(),
+            'is_selected': true,
+          },
+        )
+        .toList();
+
+    setState(() => _confirmingTeamChanges = true);
+    try {
+      final result = await _client.rpc(
+        'confirm_team_changes',
+        params: {
+          'p_team_selection_id': _selectionId,
+          'p_expected_version': _compositionVersion,
+          'p_members': members,
+          'p_assignments': _currentPlayerAssignmentPayload(),
+        },
+      );
+
+      await _load();
+      if (!mounted) return;
+      final summary = result is Map
+          ? 'Confirmed ${result['newly_positioned'] ?? 0} new player(s), '
+                '${result['position_only_moves'] ?? 0} position move(s).'
+          : 'Team changes confirmed.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(summary)));
+    } catch (e) {
+      if (!mounted) return;
+      if (e.toString().contains('TEAM_COMPOSITION_VERSION_CONFLICT')) {
+        final reload = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Team changed elsewhere'),
+            content: const Text(
+              'Another editor confirmed team changes first. Reload the latest team before making further changes.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Keep reviewing'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Reload latest'),
+              ),
+            ],
+          ),
+        );
+        if (reload == true) await _load();
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Confirm failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _confirmingTeamChanges = false);
+    }
+  }
+
+  Future<void> _requestLeaveWithStagedChanges() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard unconfirmed team changes?'),
+        content: const Text(
+          'These team changes have not been confirmed and will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep editing'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Discard changes'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true && mounted) {
+      setState(() => _hasStagedChanges = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+    }
   }
 
   Future<void> _clearAssignmentSlot(String rinkId, int position) async {
@@ -619,13 +795,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           for (final row in _selected) {
             if (row['member_profile_id']?.toString() == memberProfileId) {
               row['role'] = 'player';
-              row['acceptance'] = 'pending';
-              row['responded_at'] = null;
-              row['acceptance_by'] = null;
-              row['accepted_by_profile'] = null;
+              if (!_usesPublishedCompositionStaging) {
+                row['acceptance'] = 'pending';
+                row['responded_at'] = null;
+                row['acceptance_by'] = null;
+                row['accepted_by_profile'] = null;
+              }
               break;
             }
           }
+          _refreshCompositionDirty();
         });
       }
     } catch (e) {
@@ -862,7 +1041,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       // get or create selection
       final existing = await client
           .from('team_selections')
-          .select('id, status')
+          .select('id, status, composition_version')
           .eq('fixture_id', fixtureId)
           .maybeSingle();
 
@@ -870,14 +1049,19 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         final created = await client
             .from('team_selections')
             .insert({'fixture_id': fixtureId})
-            .select('id, status')
+            .select('id, status, composition_version')
             .single();
 
         _selectionId = created['id'] as String;
         _status = created['status'].toString();
+        _compositionVersion =
+            int.tryParse(created['composition_version']?.toString() ?? '') ?? 0;
       } else {
         _selectionId = existing['id'] as String;
         _status = existing['status'].toString();
+        _compositionVersion =
+            int.tryParse(existing['composition_version']?.toString() ?? '') ??
+            0;
       }
 
       if (fixtureId == null || clubId == null) {
@@ -1008,6 +1192,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .order('created_at');
 
       _selected = List<Map<String, dynamic>>.from(selRows);
+      _authoritativeSelectedById = {
+        for (final row in _selected)
+          if (row['member_profile_id'] != null)
+            row['member_profile_id'].toString(): Map<String, dynamic>.from(row),
+      };
 
       debugPrint('MANAGE_TEAM _selected=$_selected');
 
@@ -1053,6 +1242,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
       _rinks = rinkList;
       _assignmentsByRink = byRink;
+      _compositionBaseline = _compositionSignature();
+      _hasStagedChanges = false;
 
       // sort pool by name
       int availabilityRank(Map<String, dynamic> r) {
@@ -1545,7 +1736,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .eq('member_profile_id', memberId)
           .maybeSingle();
 
-      final currentlySelected = existingAny?['is_selected'] == true;
+      final localSelected = _selected.cast<Map<String, dynamic>?>().firstWhere(
+        (row) => row?['member_profile_id']?.toString() == memberId,
+        orElse: () => null,
+      );
+      final currentlySelected = _usesPublishedCompositionStaging
+          ? localSelected != null
+          : existingAny?['is_selected'] == true;
 
       if (!currentlySelected) {
         final confirmedAvailable = await _confirmUnavailablePlayerSelection(
@@ -1554,14 +1751,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         if (!confirmedAvailable) return;
       }
 
-      await client.rpc(
-        'set_team_selection_member_active',
-        params: {
-          'p_team_selection_id': _selectionId,
-          'p_member_profile_id': memberId,
-          'p_is_selected': !currentlySelected,
-        },
-      );
+      if (!_usesPublishedCompositionStaging) {
+        await client.rpc(
+          'set_team_selection_member_active',
+          params: {
+            'p_team_selection_id': _selectionId,
+            'p_member_profile_id': memberId,
+            'p_is_selected': !currentlySelected,
+          },
+        );
+      }
 
       if (!mounted) return;
 
@@ -1593,16 +1792,23 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
               orElse: () => null,
             );
 
+            final authoritative = _authoritativeSelectedById[memberId];
             _selected.add({
+              ...?authoritative,
               'member_profile_id': memberId,
-              'role': 'player',
-              'acceptance': 'pending',
+              'role': authoritative?['role'] ?? 'player',
+              'acceptance': authoritative?['acceptance'] ?? 'pending',
+              'responded_at': authoritative?['responded_at'],
+              'acceptance_by': authoritative?['acceptance_by'],
               'is_selected': true,
-              'member_profiles': poolRow?['member_profiles'],
-              'accepted_by_profile': null,
+              'member_profiles':
+                  authoritative?['member_profiles'] ??
+                  poolRow?['member_profiles'],
+              'accepted_by_profile': authoritative?['accepted_by_profile'],
             });
           }
         }
+        _refreshCompositionDirty();
       });
 
       _keepTeamPoolOnScreen();
@@ -1626,7 +1832,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .eq('member_profile_id', memberId)
           .maybeSingle();
 
-      final oldRole = (existing?['role'] ?? '').toString().toLowerCase().trim();
+      final localRow = _selected.cast<Map<String, dynamic>?>().firstWhere(
+        (row) => row?['member_profile_id']?.toString() == memberId,
+        orElse: () => null,
+      );
+      dynamic oldRoleValue;
+      if (_usesPublishedCompositionStaging) {
+        oldRoleValue = localRow == null ? null : localRow['role'];
+      } else {
+        oldRoleValue = existing == null ? null : existing['role'];
+      }
+      final oldRole = (oldRoleValue ?? '').toString().toLowerCase().trim();
       final newRole = role.toLowerCase().trim();
 
       final assignmentLocation = _assignmentLocationLabelForMember(memberId);
@@ -1671,7 +1887,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       debugPrint('SETROLE oldRole=$oldRole newRole=$newRole');
       debugPrint('SETROLE selectionId=$_selectionId');
 
-      if (newRole == 'player' || newRole == 'reserve') {
+      if (_usesPublishedCompositionStaging) {
+        // The complete desired composition is persisted by Confirm Team Changes.
+      } else if (newRole == 'player' || newRole == 'reserve') {
         await Supabase.instance.client.rpc(
           'set_team_selection_member_role',
           params: {
@@ -1702,7 +1920,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         for (final row in _selected) {
           if (row['member_profile_id']?.toString() == memberId) {
             row['role'] = newRole;
-            if (oldRole == 'reserve' && newRole == 'player') {
+            if (!_usesPublishedCompositionStaging &&
+                oldRole == 'reserve' &&
+                newRole == 'player') {
               row['acceptance'] = 'pending';
               row['responded_at'] = null;
               row['acceptance_by'] = null;
@@ -1711,6 +1931,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             break;
           }
         }
+        _refreshCompositionDirty();
       });
     } catch (e, st) {
       debugPrint('SETROLE error: $e');
@@ -1762,6 +1983,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     if (memberId == null || memberId.isEmpty) return false;
 
     return _assignmentForSelectedMember(memberId) != null;
+  }
+
+  bool _isOperationalPositionedPlayer(Map<String, dynamic> row) {
+    return (row['role'] ?? '').toString().toLowerCase() == 'player' &&
+        _assignmentForSelectedMember(
+              row['member_profile_id']?.toString() ?? '',
+            ) !=
+            null;
   }
 
   String _selectedMemberPlacementLabel(Map<String, dynamic> selectedRow) {
@@ -1828,70 +2057,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     if (confirmed != true) return;
     await _removeSelected(memberId);
-  }
-
-  List<String> _unallocatedSelectedPlayerNames() {
-    final assignedIds = <String>{};
-
-    for (final byPosition in _assignmentsByRink.values) {
-      for (final assignment in byPosition.values) {
-        final memberId = assignment['member_profile_id']?.toString().trim();
-        if (memberId != null && memberId.isNotEmpty) {
-          assignedIds.add(memberId);
-        }
-      }
-    }
-
-    final names = <String>[];
-
-    for (final row in _selected) {
-      final memberId = row['member_profile_id']?.toString().trim();
-      if (memberId == null || memberId.isEmpty) continue;
-
-      final role = (row['role'] ?? '').toString().toLowerCase().trim();
-      if (role == 'reserve') continue;
-      if (assignedIds.contains(memberId)) continue;
-
-      final profile = row['member_profiles'] is Map<String, dynamic>
-          ? row['member_profiles'] as Map<String, dynamic>
-          : row['member_profiles'] is Map
-          ? Map<String, dynamic>.from(row['member_profiles'] as Map)
-          : null;
-
-      names.add(_fallbackDisplayName(profile));
-    }
-
-    names.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return names;
-  }
-
-  Future<void> _showUnallocatedSelectedPlayersDialog(
-    List<String> playerNames,
-  ) async {
-    final shownNames = playerNames.take(8).join('\n');
-    final extraCount = playerNames.length - playerNames.take(8).length;
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Team selection not complete'),
-        content: Text(
-          playerNames.length == 1
-              ? '${playerNames.first} has been selected but has not been assigned to a team position or marked as a reserve.\n\nPlease assign them to a position, make them a reserve, or remove them before publishing.'
-              : 'These selected players have not been assigned to a team position or marked as reserves:\n\n$shownNames${extraCount > 0 ? '\n...and $extraCount more' : ''}\n\nPlease assign them to positions, make them reserves, or remove them before publishing.',
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _isUnallocatedSelectedPlayersError(Object error) {
-    return error.toString().contains('UNALLOCATED_SELECTED_PLAYERS');
   }
 
   List<int>? _parseIncompleteTeamError(Object error) {
@@ -2027,24 +2192,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     if (!_canPublishTeam) return;
     if (_selectionId == null) return;
 
-    final unallocatedPlayers = _unallocatedSelectedPlayerNames();
-    if (unallocatedPlayers.isNotEmpty) {
-      await _showUnallocatedSelectedPlayersDialog(unallocatedPlayers);
-      return;
-    }
-
     try {
       try {
         await _publishTeamSelection(allowIncomplete: false);
       } catch (e) {
-        if (_isUnallocatedSelectedPlayersError(e)) {
-          if (!mounted) return;
-          await _showUnallocatedSelectedPlayersDialog(const [
-            'One or more selected players',
-          ]);
-          return;
-        }
-
         final incomplete = _parseIncompleteTeamError(e);
         if (incomplete == null) rethrow;
 
@@ -2132,14 +2283,16 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     try {
       final client = Supabase.instance.client;
-      await client.rpc(
-        'set_team_selection_member_active',
-        params: {
-          'p_team_selection_id': _selectionId,
-          'p_member_profile_id': memberProfileId,
-          'p_is_selected': false,
-        },
-      );
+      if (!_usesPublishedCompositionStaging) {
+        await client.rpc(
+          'set_team_selection_member_active',
+          params: {
+            'p_team_selection_id': _selectionId,
+            'p_member_profile_id': memberProfileId,
+            'p_is_selected': false,
+          },
+        );
+      }
 
       if (!mounted) return;
 
@@ -2157,6 +2310,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           );
         }
         _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
+        _refreshCompositionDirty();
       });
     } catch (e) {
       if (!mounted) return;
@@ -2247,11 +2401,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         case 'markers':
           return role == 'marker';
         case 'pending':
-          return acceptance == 'pending';
+          return acceptance == 'pending' &&
+              (!_usesPublishedCompositionStaging ||
+                  _isOperationalPositionedPlayer(s));
         case 'accepted':
-          return acceptance == 'accepted';
+          return acceptance == 'accepted' &&
+              (!_usesPublishedCompositionStaging ||
+                  _isOperationalPositionedPlayer(s));
         case 'declined':
-          return acceptance == 'declined';
+          return acceptance == 'declined' &&
+              (!_usesPublishedCompositionStaging ||
+                  _isOperationalPositionedPlayer(s));
         case 'not_allocated':
           return !_isSelectedMemberAllocated(s);
         default:
@@ -2272,7 +2432,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           final acceptance = (r['acceptance'] ?? 'pending')
               .toString()
               .toLowerCase();
-          return acceptance == 'pending';
+          return acceptance == 'pending' &&
+              (!_usesPublishedCompositionStaging ||
+                  _isOperationalPositionedPlayer(r));
         })
         .map((r) => r['member_profile_id']?.toString())
         .whereType<String>()
@@ -2565,6 +2727,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     final playersCount = _selected
         .where((s) => (s['role'] ?? 'player') == 'player')
         .length;
+    final positionedPlayersCount = _selected
+        .where(_isOperationalPositionedPlayer)
+        .length;
+    final selectedUnpositionedCount = playersCount - positionedPlayersCount;
     final opponentsCount = _selected
         .where((s) => (s['role'] ?? '') == 'opponent')
         .length;
@@ -2580,462 +2746,525 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         ? rinksRequired
         : 0;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(pageTitle),
-        actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
-        ],
-      ),
-      floatingActionButton: (_canAddPeople && !effectiveReadOnly)
-          ? FloatingActionButton.extended(
-              onPressed: _openAddPlayersPicker,
-              icon: const Icon(Icons.person_add),
-              label: const Text('Add players'),
-            )
-          : null,
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text('Error: $_error'))
-          : ListView(
-              controller: _pageScrollController,
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed:
-                              (_selectionId == null || !_canEditRinkSetup)
-                              ? null
-                              : () async {
-                                  await Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => RinksSetupScreen(
-                                        fixtureId: widget.fixture['id']
-                                            .toString(),
-                                        isHome:
-                                            widget.fixture['is_home'] == true,
-                                      ),
-                                    ),
-                                  );
-                                },
-                          icon: const Icon(Icons.grid_view),
-                          label: const Text('Teams Setup'),
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        // Team position assignment is now integrated below.
-                        if (!isPublished)
-                          ElevatedButton(
-                            onPressed: _canPublish ? _publish : null,
-                            child: const Text('Publish Team'),
-                          )
-                        else
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () async {
-                                    final msg = _buildPublishedTeamMessage();
-                                    await Clipboard.setData(
-                                      ClipboardData(text: msg),
-                                    );
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Team message copied'),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  icon: const Icon(Icons.copy),
-                                  label: const Text('Copy'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () {
-                                    final msg = _buildPublishedTeamMessage();
-                                    Share.share(msg);
-                                  },
-                                  icon: const Icon(Icons.share),
-                                  label: const Text('Share'),
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
+    return PopScope(
+      canPop: !_hasStagedChanges,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (!didPop && _hasStagedChanges) {
+          await _requestLeaveWithStagedChanges();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(pageTitle),
+          actions: [
+            if (_usesPublishedCompositionStaging && _hasStagedChanges)
+              FilledButton.icon(
+                onPressed: _confirmingTeamChanges ? null : _confirmTeamChanges,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade700,
+                  foregroundColor: Colors.white,
                 ),
-
-                const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isInternalFixture && _isPreselectFixture
-                              ? 'Players: $playersCount / $requiredPerSide'
-                              : (requiredPlayers > 0
-                                    ? 'Players: $playersCount / $requiredPlayers'
-                                    : 'Players: $playersCount'),
-                        ),
-                        if (_isInternalFixture && _isPreselectFixture) ...[
-                          const SizedBox(height: 4),
-                          Text('Opponents: $opponentsCount / $requiredPerSide'),
-                          const SizedBox(height: 4),
-                          Text('Markers: $markersCount / $requiredMarkers'),
-                        ] else ...[
-                          const SizedBox(height: 4),
-                          Text('Reserves: $reservesCount'),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                _buildIntegratedTeamAssignmentsSection(),
-
-                const SizedBox(height: 8),
-
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('All'),
-                      selected: _selectedFilter == 'all',
-                      onSelected: (_) =>
-                          setState(() => _selectedFilter = 'all'),
-                    ),
-                    ChoiceChip(
-                      label: const Text('Players'),
-                      selected: _selectedFilter == 'players',
-                      onSelected: (_) =>
-                          setState(() => _selectedFilter = 'players'),
-                    ),
-                    if (_isInternalFixture && _isPreselectFixture)
-                      ChoiceChip(
-                        label: const Text('Opponents'),
-                        selected: _selectedFilter == 'opponents',
-                        onSelected: (_) =>
-                            setState(() => _selectedFilter = 'opponents'),
-                      ),
-                    if (_isInternalFixture && _isPreselectFixture)
-                      ChoiceChip(
-                        label: const Text('Markers'),
-                        selected: _selectedFilter == 'markers',
-                        onSelected: (_) =>
-                            setState(() => _selectedFilter = 'markers'),
-                      ),
-                    if (!(_isInternalFixture && _isPreselectFixture))
-                      ChoiceChip(
-                        label: const Text('Reserves'),
-                        selected: _selectedFilter == 'reserves',
-                        onSelected: (_) =>
-                            setState(() => _selectedFilter = 'reserves'),
-                      ),
-                    ChoiceChip(
-                      label: const Text('Not Allocated'),
-                      selected: _selectedFilter == 'not_allocated',
-                      onSelected: (_) =>
-                          setState(() => _selectedFilter = 'not_allocated'),
-                    ),
-                    ChoiceChip(
-                      label: const Text('Pending'),
-                      selected: _selectedFilter == 'pending',
-                      onSelected: (_) =>
-                          setState(() => _selectedFilter = 'pending'),
-                    ),
-                    ChoiceChip(
-                      label: const Text('Accepted'),
-                      selected: _selectedFilter == 'accepted',
-                      onSelected: (_) =>
-                          setState(() => _selectedFilter = 'accepted'),
-                    ),
-                    ChoiceChip(
-                      label: const Text('Declined'),
-                      selected: _selectedFilter == 'declined',
-                      onSelected: (_) =>
-                          setState(() => _selectedFilter = 'declined'),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 8),
-
-                if (_canEditSelection)
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.notifications_active_outlined),
-                        label: const Text('Remind pending'),
-                        onPressed: () => _sendAcceptanceReminders(_selected),
-                      ),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.filter_alt_outlined),
-                        label: const Text('Remind filtered'),
-                        onPressed: () =>
-                            _sendAcceptanceReminders(_filteredSelected),
-                      ),
-                    ],
-                  ),
-
-                const SizedBox(height: 8),
-
-                if (_selected.isEmpty)
-                  const Text('No one selected yet.')
-                else
-                  ..._filteredSelected.map((s) {
-                    final memberId = s['member_profile_id'] as String;
-                    final mp = s['member_profiles'] as Map<String, dynamic>?;
-                    final name = _displayNameWithPreferredPosition(mp);
-                    final role = s['role']?.toString() ?? 'player';
-                    final acceptance = s['acceptance']?.toString() ?? 'pending';
-                    final phone = (mp?['phone'] as String?) ?? '';
-                    final isAllocated = _isSelectedMemberAllocated(s);
-                    final placementLabel = _selectedMemberPlacementLabel(s);
-
-                    final acceptedByProfile =
-                        s['accepted_by_profile'] as Map<String, dynamic>?;
-                    final acceptedByName =
-                        (acceptedByProfile?['display_name'] as String?)
-                            ?.trim() ??
-                        '';
-                    final playerOwnId = s['member_profile_id']?.toString();
-                    final acceptanceById = s['acceptance_by']?.toString();
-
-                    final acceptedOnBehalf =
-                        acceptance == 'accepted' &&
-                        acceptedByName.isNotEmpty &&
-                        (acceptanceById?.isNotEmpty ?? false) &&
-                        acceptanceById != playerOwnId;
-
-                    Color bgColor;
-                    if (acceptance == 'accepted') {
-                      bgColor = const Color(0xFFE8F5E9); // soft green
-                    } else if (acceptance == 'declined') {
-                      bgColor = const Color(0xFFFFEBEE); // soft red
-                    } else {
-                      bgColor = const Color(0xFFFFF8E1); // soft amber
-                    }
-
-                    return Card(
-                      color: bgColor,
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      child: ListTile(
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        onTap: _canModifySelection
-                            ? () async => _removeSelected(memberId)
-                            : null,
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (role == 'reserve') AppBadge(text: 'RESERVE'),
-                            if (role == 'opponent') AppBadge(text: 'OPPONENT'),
-                            if (role == 'marker') AppBadge(text: 'MARKER'),
-                          ],
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              placementLabel,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: isAllocated
-                                    ? Theme.of(context).colorScheme.onSurface
-                                    : Colors.red.shade700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              acceptance == 'accepted'
-                                  ? 'Accepted'
-                                  : acceptance == 'declined'
-                                  ? 'Declined'
-                                  : 'Awaiting response',
-                            ),
-                            if (acceptedOnBehalf)
-                              Text(
-                                'Accepted by $acceptedByName',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            if (phone.isNotEmpty)
-                              Text(
-                                phone,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                          ],
-                        ),
-                        trailing:
-                            !_canModifySelection && !_canForceAcceptSelection
-                            ? null
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (!isAllocated && _canModifySelection)
-                                    TextButton.icon(
-                                      onPressed: () =>
-                                          _returnUnallocatedMemberToPool(s),
-                                      icon: const Icon(Icons.undo, size: 18),
-                                      label: const Text('Return to pool'),
-                                    ),
-                                  PopupMenuButton<String>(
-                                    onSelected: (v) async {
-                                      if (v == 'player' ||
-                                          v == 'reserve' ||
-                                          v == 'opponent' ||
-                                          v == 'marker') {
-                                        if (_canModifySelection) {
-                                          await _setRole(memberId, v);
-                                        }
-                                      } else if (v == 'accept') {
-                                        if (_canForceAcceptSelection) {
-                                          await _acceptOnBehalf(memberId);
-                                        }
-                                      } else if (v == 'remind') {
-                                        await _sendAcceptanceReminders([s]);
-                                      } else if (v == 'return_to_pool') {
-                                        await _returnUnallocatedMemberToPool(s);
-                                      }
-                                    },
-                                    itemBuilder: (_) => [
-                                      if (_canEditSelection)
-                                        const PopupMenuItem(
-                                          value: 'player',
-                                          child: Text('Make player'),
-                                        ),
-                                      if (_canEditSelection &&
-                                          _isInternalFixture &&
-                                          _isPreselectFixture)
-                                        const PopupMenuItem(
-                                          value: 'opponent',
-                                          child: Text('Make opponent'),
-                                        ),
-                                      if (_canEditSelection &&
-                                          _isInternalFixture &&
-                                          _isPreselectFixture)
-                                        const PopupMenuItem(
-                                          value: 'marker',
-                                          child: Text('Make marker'),
-                                        ),
-                                      if (_canEditSelection &&
-                                          !(_isInternalFixture &&
-                                              _isPreselectFixture))
-                                        const PopupMenuItem(
-                                          value: 'reserve',
-                                          child: Text('Make reserve'),
-                                        ),
-                                      if (!isAllocated && _canModifySelection)
-                                        const PopupMenuItem(
-                                          value: 'return_to_pool',
-                                          child: Text('Return to pool'),
-                                        ),
-                                      if (_canForceAccept)
-                                        const PopupMenuItem(
-                                          value: 'accept',
-                                          child: Text('Accept'),
-                                        ),
-                                      if (_canEditSelection)
-                                        const PopupMenuItem(
-                                          value: 'remind',
-                                          child: Text('Send reminder'),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                      ),
-                    );
-                  }),
-                const SizedBox(height: 16),
-
-                if (_isPreselectFixture) ...[
-                  Text(
-                    'Additional players',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Use the Add players button to search the club list and add more players.',
-                  ),
-                ] else ...[
+                icon: _confirmingTeamChanges
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_circle),
+                label: const Text('Confirm Team Changes'),
+              ),
+            IconButton(
+              onPressed: _hasStagedChanges ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        floatingActionButton:
+            (_canAddPeople && !effectiveReadOnly && !_hasStagedChanges)
+            ? FloatingActionButton.extended(
+                onPressed: _openAddPlayersPicker,
+                icon: const Icon(Icons.person_add),
+                label: const Text('Add players'),
+              )
+            : null,
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text('Error: $_error'))
+            : ListView(
+                controller: _pageScrollController,
+                padding: const EdgeInsets.all(16),
+                children: [
                   Card(
-                    key: _teamPoolHeaderKey,
-                    margin: EdgeInsets.zero,
                     child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            _isTeamFixture
-                                ? 'Team pool'
-                                : (_usesRsvpPool
-                                      ? 'RSVP pool (Yes/Maybe)'
-                                      : 'Club members'),
-                            style: Theme.of(context).textTheme.titleMedium,
+                          ElevatedButton.icon(
+                            onPressed:
+                                (_selectionId == null || !_canEditRinkSetup)
+                                ? null
+                                : () async {
+                                    await Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => RinksSetupScreen(
+                                          fixtureId: widget.fixture['id']
+                                              .toString(),
+                                          isHome:
+                                              widget.fixture['is_home'] == true,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                            icon: const Icon(Icons.grid_view),
+                            label: const Text('Teams Setup'),
                           ),
+
                           const SizedBox(height: 8),
-                          TextField(
-                            controller: _searchCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Search members',
-                              prefixIcon: Icon(Icons.search),
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (v) => setState(() => _search = v),
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            height: 420,
-                            child: visiblePool.isEmpty
-                                ? Align(
-                                    alignment: Alignment.topLeft,
-                                    child: Text(
-                                      _search.trim().isEmpty
-                                          ? 'No eligible members found.'
-                                          : 'No members match your search.',
-                                    ),
-                                  )
-                                : ListView.builder(
-                                    primary: false,
-                                    itemCount: visiblePool.length,
-                                    itemBuilder: (context, index) =>
-                                        _poolRow(visiblePool[index]),
+
+                          // Team position assignment is now integrated below.
+                          if (!isPublished)
+                            ElevatedButton(
+                              onPressed: _canPublish ? _publish : null,
+                              child: const Text('Publish Team'),
+                            )
+                          else
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () async {
+                                      final msg = _buildPublishedTeamMessage();
+                                      await Clipboard.setData(
+                                        ClipboardData(text: msg),
+                                      );
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Team message copied',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    icon: const Icon(Icons.copy),
+                                    label: const Text('Copy'),
                                   ),
-                          ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () {
+                                      final msg = _buildPublishedTeamMessage();
+                                      Share.share(msg);
+                                    },
+                                    icon: const Icon(Icons.share),
+                                    label: const Text('Share'),
+                                  ),
+                                ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
                   ),
+
+                  const SizedBox(height: 16),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isInternalFixture && _isPreselectFixture
+                                ? 'Players: $playersCount / $requiredPerSide'
+                                : (requiredPlayers > 0
+                                      ? 'Players: $positionedPlayersCount / $requiredPlayers'
+                                      : 'Players: $positionedPlayersCount'),
+                          ),
+                          if (_usesPublishedCompositionStaging) ...[
+                            const SizedBox(height: 4),
+                            Text('Selected: $selectedUnpositionedCount'),
+                            if (_hasStagedChanges)
+                              const Text(
+                                'Unconfirmed changes are staged locally.',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                          ],
+                          if (_isInternalFixture && _isPreselectFixture) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Opponents: $opponentsCount / $requiredPerSide',
+                            ),
+                            const SizedBox(height: 4),
+                            Text('Markers: $markersCount / $requiredMarkers'),
+                          ] else ...[
+                            const SizedBox(height: 4),
+                            Text('Reserves: $reservesCount'),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  _buildIntegratedTeamAssignmentsSection(),
+
+                  const SizedBox(height: 8),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('All'),
+                        selected: _selectedFilter == 'all',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'all'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Players'),
+                        selected: _selectedFilter == 'players',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'players'),
+                      ),
+                      if (_isInternalFixture && _isPreselectFixture)
+                        ChoiceChip(
+                          label: const Text('Opponents'),
+                          selected: _selectedFilter == 'opponents',
+                          onSelected: (_) =>
+                              setState(() => _selectedFilter = 'opponents'),
+                        ),
+                      if (_isInternalFixture && _isPreselectFixture)
+                        ChoiceChip(
+                          label: const Text('Markers'),
+                          selected: _selectedFilter == 'markers',
+                          onSelected: (_) =>
+                              setState(() => _selectedFilter = 'markers'),
+                        ),
+                      if (!(_isInternalFixture && _isPreselectFixture))
+                        ChoiceChip(
+                          label: const Text('Reserves'),
+                          selected: _selectedFilter == 'reserves',
+                          onSelected: (_) =>
+                              setState(() => _selectedFilter = 'reserves'),
+                        ),
+                      ChoiceChip(
+                        label: const Text('Not Allocated'),
+                        selected: _selectedFilter == 'not_allocated',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'not_allocated'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Pending'),
+                        selected: _selectedFilter == 'pending',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'pending'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Accepted'),
+                        selected: _selectedFilter == 'accepted',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'accepted'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('Declined'),
+                        selected: _selectedFilter == 'declined',
+                        onSelected: (_) =>
+                            setState(() => _selectedFilter = 'declined'),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  if (_canEditSelection)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.notifications_active_outlined),
+                          label: const Text('Remind pending'),
+                          onPressed: () => _sendAcceptanceReminders(_selected),
+                        ),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.filter_alt_outlined),
+                          label: const Text('Remind filtered'),
+                          onPressed: () =>
+                              _sendAcceptanceReminders(_filteredSelected),
+                        ),
+                      ],
+                    ),
+
+                  const SizedBox(height: 8),
+
+                  if (_selected.isEmpty)
+                    const Text('No one selected yet.')
+                  else
+                    ..._filteredSelected.map((s) {
+                      final memberId = s['member_profile_id'] as String;
+                      final mp = s['member_profiles'] as Map<String, dynamic>?;
+                      final name = _displayNameWithPreferredPosition(mp);
+                      final role = s['role']?.toString() ?? 'player';
+                      final acceptance =
+                          s['acceptance']?.toString() ?? 'pending';
+                      final phone = (mp?['phone'] as String?) ?? '';
+                      final isAllocated = _isSelectedMemberAllocated(s);
+                      final isPositionedPlayer = _isOperationalPositionedPlayer(
+                        s,
+                      );
+                      final isSelectedUnpositioned =
+                          role == 'player' && !isPositionedPlayer;
+                      final placementLabel = _selectedMemberPlacementLabel(s);
+
+                      final acceptedByProfile =
+                          s['accepted_by_profile'] as Map<String, dynamic>?;
+                      final acceptedByName =
+                          (acceptedByProfile?['display_name'] as String?)
+                              ?.trim() ??
+                          '';
+                      final playerOwnId = s['member_profile_id']?.toString();
+                      final acceptanceById = s['acceptance_by']?.toString();
+
+                      final acceptedOnBehalf =
+                          acceptance == 'accepted' &&
+                          acceptedByName.isNotEmpty &&
+                          (acceptanceById?.isNotEmpty ?? false) &&
+                          acceptanceById != playerOwnId;
+
+                      Color bgColor;
+                      if (isSelectedUnpositioned || role == 'reserve') {
+                        bgColor = const Color(0xFFE3F2FD);
+                      } else if (acceptance == 'accepted') {
+                        bgColor = const Color(0xFFE8F5E9); // soft green
+                      } else if (acceptance == 'declined') {
+                        bgColor = const Color(0xFFFFEBEE); // soft red
+                      } else {
+                        bgColor = const Color(0xFFFFF8E1); // soft amber
+                      }
+
+                      return Card(
+                        color: bgColor,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          onTap: _canModifySelection
+                              ? () async => _removeSelected(memberId)
+                              : null,
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (role == 'reserve') AppBadge(text: 'RESERVE'),
+                              if (isPositionedPlayer) AppBadge(text: 'PLAYER'),
+                              if (isSelectedUnpositioned)
+                                AppBadge(text: 'SELECTED'),
+                              if (role == 'opponent')
+                                AppBadge(text: 'OPPONENT'),
+                              if (role == 'marker') AppBadge(text: 'MARKER'),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                placementLabel,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: isAllocated
+                                      ? Theme.of(context).colorScheme.onSurface
+                                      : Colors.red.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                isSelectedUnpositioned
+                                    ? 'Selected — not awaiting acceptance'
+                                    : role == 'reserve'
+                                    ? 'Reserve — not awaiting player acceptance'
+                                    : acceptance == 'accepted'
+                                    ? 'Accepted'
+                                    : acceptance == 'declined'
+                                    ? 'Declined'
+                                    : 'Awaiting response',
+                              ),
+                              if (acceptedOnBehalf)
+                                Text(
+                                  'Accepted by $acceptedByName',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              if (phone.isNotEmpty)
+                                Text(
+                                  phone,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                            ],
+                          ),
+                          trailing:
+                              !_canModifySelection && !_canForceAcceptSelection
+                              ? null
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (!isAllocated && _canModifySelection)
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            _returnUnallocatedMemberToPool(s),
+                                        icon: const Icon(Icons.undo, size: 18),
+                                        label: const Text('Return to pool'),
+                                      ),
+                                    PopupMenuButton<String>(
+                                      onSelected: (v) async {
+                                        if (v == 'player' ||
+                                            v == 'reserve' ||
+                                            v == 'opponent' ||
+                                            v == 'marker') {
+                                          if (_canModifySelection) {
+                                            await _setRole(memberId, v);
+                                          }
+                                        } else if (v == 'accept') {
+                                          if (_canForceAcceptSelection) {
+                                            await _acceptOnBehalf(memberId);
+                                          }
+                                        } else if (v == 'remind') {
+                                          await _sendAcceptanceReminders([s]);
+                                        } else if (v == 'return_to_pool') {
+                                          await _returnUnallocatedMemberToPool(
+                                            s,
+                                          );
+                                        }
+                                      },
+                                      itemBuilder: (_) => [
+                                        if (_canEditSelection)
+                                          const PopupMenuItem(
+                                            value: 'player',
+                                            child: Text('Make player'),
+                                          ),
+                                        if (_canEditSelection &&
+                                            _isInternalFixture &&
+                                            _isPreselectFixture)
+                                          const PopupMenuItem(
+                                            value: 'opponent',
+                                            child: Text('Make opponent'),
+                                          ),
+                                        if (_canEditSelection &&
+                                            _isInternalFixture &&
+                                            _isPreselectFixture)
+                                          const PopupMenuItem(
+                                            value: 'marker',
+                                            child: Text('Make marker'),
+                                          ),
+                                        if (_canEditSelection &&
+                                            !(_isInternalFixture &&
+                                                _isPreselectFixture))
+                                          const PopupMenuItem(
+                                            value: 'reserve',
+                                            child: Text('Make reserve'),
+                                          ),
+                                        if (!isAllocated && _canModifySelection)
+                                          const PopupMenuItem(
+                                            value: 'return_to_pool',
+                                            child: Text('Return to pool'),
+                                          ),
+                                        if (_canForceAccept &&
+                                            (!_usesPublishedCompositionStaging ||
+                                                isPositionedPlayer))
+                                          const PopupMenuItem(
+                                            value: 'accept',
+                                            child: Text('Accept'),
+                                          ),
+                                        if (_canEditSelection &&
+                                            (!_usesPublishedCompositionStaging ||
+                                                isPositionedPlayer))
+                                          const PopupMenuItem(
+                                            value: 'remind',
+                                            child: Text('Send reminder'),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      );
+                    }),
+                  const SizedBox(height: 16),
+
+                  if (_isPreselectFixture) ...[
+                    Text(
+                      'Additional players',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Use the Add players button to search the club list and add more players.',
+                    ),
+                  ] else ...[
+                    Card(
+                      key: _teamPoolHeaderKey,
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              _isTeamFixture
+                                  ? 'Team pool'
+                                  : (_usesRsvpPool
+                                        ? 'RSVP pool (Yes/Maybe)'
+                                        : 'Club members'),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _searchCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Search members',
+                                prefixIcon: Icon(Icons.search),
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (v) => setState(() => _search = v),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              height: 420,
+                              child: visiblePool.isEmpty
+                                  ? Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Text(
+                                        _search.trim().isEmpty
+                                            ? 'No eligible members found.'
+                                            : 'No members match your search.',
+                                      ),
+                                    )
+                                  : ListView.builder(
+                                      primary: false,
+                                      itemCount: visiblePool.length,
+                                      itemBuilder: (context, index) =>
+                                          _poolRow(visiblePool[index]),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
+              ),
+      ),
     );
   }
 }

@@ -38,12 +38,15 @@ begin
   join public.member_profiles mp on mp.id = tsm.member_profile_id
   left join public.venues v on v.id = f.venue_id
   left join public.venues ov on ov.id = f.opponent_venue_id
-  left join public.fixture_rink_assignments fra
+  join public.fixture_rink_assignments fra
     on fra.fixture_id = f.id and fra.member_profile_id = tsm.member_profile_id
-  left join public.fixture_rinks fr on fr.id = fra.fixture_rink_id
+  join public.fixture_rinks fr
+    on fr.id = fra.fixture_rink_id
+   and fr.fixture_id = f.id
   where tsm.id = p_team_selection_member_id
     and tsm.role = 'player'::public.selection_member_role
-    and tsm.is_selected = true;
+    and tsm.is_selected = true
+    and fra.position between 1 and fr.players_per_rink;
 
   if not found
      or v_row.selection_status <> 'published'

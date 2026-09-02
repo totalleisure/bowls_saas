@@ -13,6 +13,9 @@ declare
   v_fixture_id uuid;
   v_club_id uuid;
   v_selection_status text;
+  v_selection_mode text;
+  v_team_id uuid;
+  v_requires_rsvp boolean;
   v_member public.team_selection_members%rowtype;
   v_queued boolean := false;
 begin
@@ -21,10 +24,14 @@ begin
   if v_actor is null then raise exception 'Member profile not found.'; end if;
 
   perform pg_advisory_xact_lock(hashtextextended(p_team_selection_id::text, 0));
-  select ts.fixture_id, f.club_id, ts.status::text
-  into v_fixture_id, v_club_id, v_selection_status
+  select ts.fixture_id, f.club_id, ts.status::text,
+         lower(btrim(coalesce(ct.selection_mode, ''))),
+         f.team_id, coalesce(f.requires_rsvp, false)
+  into v_fixture_id, v_club_id, v_selection_status,
+       v_selection_mode, v_team_id, v_requires_rsvp
   from public.team_selections ts
   join public.fixtures f on f.id = ts.fixture_id
+  left join public.competition_types ct on ct.id = f.competition_type_id
   where ts.id = p_team_selection_id
   for update of ts;
   if not found then raise exception 'Team selection not found.'; end if;
@@ -42,6 +49,16 @@ begin
   select * into v_member from public.team_selection_members
   where team_selection_id = p_team_selection_id
     and member_profile_id = p_member_profile_id for update;
+
+  if v_selection_status = 'published'
+     and v_selection_mode <> 'preselect'
+     and (v_team_id is not null or v_requires_rsvp)
+     and (
+       (p_is_selected and (not found or not coalesce(v_member.is_selected, false)))
+       or (not p_is_selected and found and coalesce(v_member.is_selected, false))
+     ) then
+    raise exception 'Published Team/RSVP composition changes must be confirmed together.';
+  end if;
 
   if p_is_selected then
     if found and v_member.is_selected then

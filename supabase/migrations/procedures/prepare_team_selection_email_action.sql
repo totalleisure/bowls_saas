@@ -37,7 +37,17 @@ begin
            and fra.member_profile_id = tsm.member_profile_id
            and fra.position = 201
        ) then 'marker_assignment'
-      when tsm.role::text = 'player' then 'team_selection'
+      when tsm.role::text = 'player'
+       and exists (
+         select 1
+         from public.fixture_rink_assignments fra
+         join public.fixture_rinks fr
+           on fr.id = fra.fixture_rink_id
+          and fr.fixture_id = f.id
+         where fra.fixture_id = f.id
+           and fra.member_profile_id = tsm.member_profile_id
+           and fra.position between 1 and fr.players_per_rink
+       ) then 'team_selection'
       else null
     end
   into
@@ -58,7 +68,17 @@ begin
     and coalesce(tsm.is_selected, false) = true
     and (
       (new.event_type in ('fixture_selected', 'team_published_player', 'reserve_promoted')
-       and tsm.role::text = 'player')
+       and tsm.role::text = 'player'
+       and exists (
+         select 1
+         from public.fixture_rink_assignments fra
+         join public.fixture_rinks fr
+           on fr.id = fra.fixture_rink_id
+          and fr.fixture_id = f.id
+         where fra.fixture_id = f.id
+           and fra.member_profile_id = tsm.member_profile_id
+           and fra.position between 1 and fr.players_per_rink
+       ))
       or
       (new.event_type = 'fixture_selected'
        and tsm.role::text = 'marker'
@@ -99,7 +119,6 @@ begin
     extensions.digest(upper(v_code), 'sha256'),
     'hex'
   );
-
   insert into public.email_action_requests (
     club_id,
     member_profile_id,
@@ -111,6 +130,7 @@ begin
     source_email_queue_id,
     allowed_actions,
     response_code_hash,
+    response_protocol_version,
     expires_at
   )
   values (
@@ -124,6 +144,7 @@ begin
     new.id,
     array['ACCEPT','DECLINE'],
     v_code_hash,
+    2,
     v_expires_at
   )
   returning id into v_request_id;
@@ -133,7 +154,7 @@ begin
        jsonb_build_object(
          'action_block',
          jsonb_build_object(
-           'version', 1,
+           'version', 2,
            'request_id', v_request_id,
            'action_type', v_action_type,
            'heading', v_heading,

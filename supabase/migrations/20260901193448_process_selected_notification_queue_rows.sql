@@ -83,11 +83,7 @@ begin
       end;
 
       v_fixture_date_text := case
-        when v_start_at is not null then
-          to_char(
-            v_start_at at time zone 'Europe/London',
-            'DD Mon YYYY HH24:MI'
-          )
+        when v_start_at is not null then to_char(v_start_at, 'DD Mon YYYY HH24:MI')
         else ''
       end;
 
@@ -175,6 +171,24 @@ begin
                end
             || '.';
         end if;
+      elsif r.event_type = 'reserve_promoted' then
+        v_source := 'Team Selection Changed';
+        v_title := v_source;
+
+        v_body := 'You have been promoted from reserve to player for ' || v_fixture_label;
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || ' on ' || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' or v_venue_name <> '' then
+          v_body := v_body
+            || case when v_home_away <> '' then '. ' || v_home_away else '' end
+            || case when v_venue_name <> '' then ' at ' || v_venue_name else '' end;
+        end if;
+
+        v_body := v_body || '. Please check the fixture details.';
+
       elsif r.event_type = 'guest_membership_request' then
         v_source := 'New Registration';
         v_title := v_source;
@@ -219,59 +233,15 @@ begin
           || '.'
           || chr(10) || chr(10)
           || 'You can now access the members areas of the app.';
-      elsif r.event_type in (
-        'team_published_player',
-        'fixture_selected',
-        'reserve_promoted'
-      ) then
-        v_source := case r.event_type
-          when 'team_published_player' then 'Team Published'
-          when 'reserve_promoted' then 'Team Selection Changed'
-          else 'Fixture Selection'
-        end;
+      elsif r.event_type = 'fixture_selected' then
+        v_source := 'Fixture Selection';
         v_title := v_source;
 
-        v_team_no := null;
-        v_selected_position := null;
-        v_players_per_rink := null;
-        v_home_rink_label := null;
-
-        select
-          fr.fixture_rink_no::text,
-          fra.position,
-          fr.players_per_rink,
-          coalesce(fr.home_rink_label, '')
-        into
-          v_team_no,
-          v_selected_position,
-          v_players_per_rink,
-          v_home_rink_label
-        from public.fixture_rinks fr
-        join public.fixture_rink_assignments fra
-          on fra.fixture_rink_id = fr.id
-        where fr.fixture_id = r.fixture_id
-          and fra.member_profile_id = r.target_member_profile_id
-        order by
-          case when fra.position between 1 and 4 then 0 else 1 end,
-          fr.fixture_rink_no,
-          fra.position
-        limit 1;
-
-        v_team_no := coalesce(v_team_no, r.payload->>'team_no', '');
+        v_team_no := coalesce(r.payload->>'team_no', '');
         v_team_no_int := nullif(v_team_no, '')::int;
-        v_home_rink_label := coalesce(
-          v_home_rink_label,
-          r.payload->>'home_rink_label',
-          ''
-        );
-        v_selected_position := coalesce(
-          v_selected_position,
-          nullif(r.payload->>'position', '')::int
-        );
-        v_players_per_rink := coalesce(
-          v_players_per_rink,
-          nullif(r.payload->>'players_per_rink', '')::int
-        );
+        v_home_rink_label := coalesce(r.payload->>'home_rink_label', '');
+
+        v_selected_position := nullif(r.payload->>'position', '')::int;
         v_selected_role := coalesce(r.payload->>'role', '');
 
         v_selected_role_text :=
@@ -286,7 +256,7 @@ begin
               'Lead'
 
             when v_selected_position = 2
-                 and v_players_per_rink = 2 then
+                 and coalesce(r.payload->>'players_per_rink', '') = '2' then
               'Skip'
 
             when v_selected_position = 2 then
@@ -305,16 +275,8 @@ begin
               'Selected'
           end;
 
-        select f.start_at
-        into v_start_at
-        from public.fixtures f
-        where f.id = r.fixture_id;
-
-        v_start_at := coalesce(
-          v_start_at,
-          nullif(r.payload->>'start_at', '')::timestamptz,
-          nullif(r.payload->>'fixture_date', '')::timestamptz
-        );
+        v_start_at :=
+          nullif(r.payload->>'start_at', '')::timestamptz;
 
         v_fixture_date_text :=
           case
@@ -490,12 +452,7 @@ begin
         ) x;
 
         v_body :=
-          case
-            when r.event_type = 'reserve_promoted' then
-              'You have been promoted from reserve to '
-            else
-              'You have been selected as '
-          end
+          'You have been selected as '
           || coalesce(v_selected_role_text, 'Selected')
           || ' for '
           || coalesce(
@@ -826,6 +783,29 @@ begin
             v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
         end if;
 
+      elsif r.event_type = 'team_published_player' then
+        v_source := 'Team Published';
+        v_title := v_source;
+
+        v_body :=
+          'You have been selected for '
+          || v_fixture_label
+          || '.';
+
+        if v_fixture_date_text <> '' then
+          v_body := v_body || chr(10) || chr(10) || 'When: ' || v_fixture_date_text;
+        end if;
+
+        if v_home_away <> '' then
+          v_body := v_body || chr(10) || 'Home/Away: ' || v_home_away;
+        end if;
+
+        if v_venue_name <> '' then
+          v_body := v_body || chr(10) || 'Venue: ' || v_venue_name;
+        end if;
+
+        v_body := v_body || chr(10) || chr(10) || 'Please check your team sheet.';
+
       elsif r.event_type = 'team_published_reserve' then
         v_source := 'Selected as Reserve';
         v_title := v_source;
@@ -1150,3 +1130,56 @@ begin
   return v_count;
 end;
 $function$;
+
+create or replace function public.process_selected_notification_queue_rows(
+  p_queue_ids uuid[]
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $function$
+declare
+  v_requested_count integer;
+  v_pending_count integer;
+begin
+  select count(distinct queue_id)
+  into v_requested_count
+  from unnest(coalesce(p_queue_ids, array[]::uuid[])) queue_id;
+
+  if v_requested_count = 0 then
+    raise exception 'At least one notification queue ID is required.';
+  end if;
+
+  select count(*)
+  into v_pending_count
+  from public.notification_queue nq
+  where nq.id = any(p_queue_ids)
+    and nq.status = 'pending';
+
+  if v_pending_count <> v_requested_count then
+    raise exception 'Every requested notification queue row must exist and be pending.';
+  end if;
+
+  perform set_config(
+    'app.notification_queue_ids',
+    array_to_string(
+      array(
+        select distinct queue_id::text
+        from unnest(p_queue_ids) queue_id
+        order by queue_id::text
+      ),
+      ','
+    ),
+    true
+  );
+
+  return public.process_notification_queue(v_requested_count);
+end;
+$function$;
+
+revoke all on function public.process_selected_notification_queue_rows(uuid[])
+from public, anon, authenticated;
+
+grant execute on function public.process_selected_notification_queue_rows(uuid[])
+to service_role;

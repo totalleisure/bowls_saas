@@ -1,0 +1,341 @@
+CREATE OR REPLACE FUNCTION public.apply_email_action_response(p_response_code text, p_command text, p_sender_email text, p_response_token text, p_graph_message_id text, p_received_at timestamp with time zone DEFAULT now())
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+declare
+  v_request public.email_action_requests%rowtype;
+  v_command text := upper(btrim(coalesce(p_command, '')));
+  v_sender text := lower(btrim(coalesce(p_sender_email, '')));
+  v_code_hash text;
+  v_token_hash text;
+  v_acceptance public.acceptance_status;
+  v_target_valid boolean := false;
+  v_result_detail text;
+begin
+  if nullif(btrim(coalesce(p_graph_message_id, '')), '') is null then
+    return jsonb_build_object('ok', false, 'status', 'invalid_message_id');
+  end if;
+
+  if exists (
+    select 1
+    from public.email_action_response_log
+    where graph_message_id = p_graph_message_id
+  ) then
+    return jsonb_build_object('ok', true, 'status', 'duplicate');
+  end if;
+
+  if nullif(btrim(coalesce(p_response_code, '')), '') is null then
+    insert into public.email_action_response_log(
+      graph_message_id, sender_email, command, result_status,
+      result_detail, received_at
+    ) values (
+      p_graph_message_id, v_sender, v_command, 'invalid_code',
+      'Response code was empty', p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', 'invalid_code');
+  end if;
+
+  v_code_hash := encode(
+    extensions.digest(upper(btrim(p_response_code)), 'sha256'),
+    'hex'
+  );
+
+  select *
+  into v_request
+  from public.email_action_requests
+  where response_code_hash = v_code_hash
+  for update;
+
+  if not found then
+    insert into public.email_action_response_log(
+      graph_message_id, sender_email, command, result_status,
+      result_detail, received_at
+    ) values (
+      p_graph_message_id, v_sender, v_command, 'invalid_code',
+      'No action request matched the supplied response code', p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', 'invalid_code');
+  end if;
+
+  if v_request.status in ('cancelled', 'expired') then
+    insert into public.email_action_response_log(
+      request_id, graph_message_id, sender_email, command,
+      result_status, result_detail, received_at
+    ) values (
+      v_request.id, p_graph_message_id, v_sender, v_command,
+      v_request.status, 'The action request is no longer active', p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', v_request.status);
+  end if;
+
+  if v_request.response_protocol_version >= 2
+     and v_request.status = 'responded' then
+    insert into public.email_action_response_log(
+      request_id, graph_message_id, sender_email, command,
+      result_status, result_detail, received_at
+    ) values (
+      v_request.id, p_graph_message_id, v_sender, v_command,
+      'already_responded', 'The single-use action request has already been completed',
+      p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', 'already_responded');
+  end if;
+
+  if v_request.expires_at is not null and now() >= v_request.expires_at then
+    update public.email_action_requests
+       set status = 'expired', updated_at = now()
+     where id = v_request.id;
+
+    insert into public.email_action_response_log(
+      request_id, graph_message_id, sender_email, command,
+      result_status, result_detail, received_at
+    ) values (
+      v_request.id, p_graph_message_id, v_sender, v_command,
+      'expired', 'The response arrived after the fixture response deadline',
+      p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', 'expired');
+  end if;
+
+  if v_request.response_protocol_version >= 2 then
+    if v_request.response_token_hash is null then
+      insert into public.email_action_response_log(
+        request_id, graph_message_id, sender_email, command,
+        result_status, result_detail, received_at
+      ) values (
+        v_request.id, p_graph_message_id, v_sender, v_command,
+        'token_not_issued', 'The response token has not been issued for delivery',
+        p_received_at
+      );
+
+      return jsonb_build_object('ok', false, 'status', 'token_not_issued');
+    end if;
+
+    if nullif(btrim(coalesce(p_response_token, '')), '') is null then
+      insert into public.email_action_response_log(
+        request_id, graph_message_id, sender_email, command,
+        result_status, result_detail, received_at
+      ) values (
+        v_request.id, p_graph_message_id, v_sender, v_command,
+        'invalid_token', 'The signed response token was missing',
+        p_received_at
+      );
+
+      return jsonb_build_object('ok', false, 'status', 'invalid_token');
+    end if;
+
+    v_token_hash := encode(
+      extensions.digest(upper(btrim(p_response_token)), 'sha256'),
+      'hex'
+    );
+
+    if v_token_hash <> v_request.response_token_hash then
+      insert into public.email_action_response_log(
+        request_id, graph_message_id, sender_email, command,
+        result_status, result_detail, received_at
+      ) values (
+        v_request.id, p_graph_message_id, v_sender, v_command,
+        'invalid_token', 'The signed response token did not match the action request',
+        p_received_at
+      );
+
+      return jsonb_build_object('ok', false, 'status', 'invalid_token');
+    end if;
+  elsif v_sender = ''
+     or v_sender <> lower(btrim(v_request.recipient_email)) then
+    insert into public.email_action_response_log(
+      request_id, graph_message_id, sender_email, command,
+      result_status, result_detail, received_at
+    ) values (
+      v_request.id, p_graph_message_id, v_sender, v_command,
+      'sender_mismatch',
+      'Legacy response sender did not match the selected member email address',
+      p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', 'sender_mismatch');
+  end if;
+
+  if not (v_command = any(v_request.allowed_actions)) then
+    insert into public.email_action_response_log(
+      request_id, graph_message_id, sender_email, command,
+      result_status, result_detail, received_at
+    ) values (
+      v_request.id, p_graph_message_id, v_sender, v_command,
+      'invalid_command', 'Command is not allowed for this action request',
+      p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', 'invalid_command');
+  end if;
+
+  if v_request.action_type = 'team_selection' then
+    select exists (
+      select 1
+      from public.team_selection_members tsm
+      join public.team_selections ts
+        on ts.id = tsm.team_selection_id
+      join public.fixtures f
+        on f.id = ts.fixture_id
+      where tsm.id = v_request.target_record_id
+        and tsm.member_profile_id = v_request.member_profile_id
+        and tsm.role::text = 'player'
+        and coalesce(tsm.is_selected, false) = true
+        and ts.status = 'published'
+        and f.cancelled_at is null
+        and f.id = v_request.fixture_id
+        and exists (
+          select 1
+          from public.fixture_rink_assignments fra
+          join public.fixture_rinks fr
+            on fr.id = fra.fixture_rink_id
+           and fr.fixture_id = f.id
+          where fra.fixture_id = f.id
+            and fra.member_profile_id = tsm.member_profile_id
+            and fra.position between 1 and fr.players_per_rink
+        )
+    ) into v_target_valid;
+
+    v_result_detail := 'Team selection acceptance was updated';
+
+  elsif v_request.action_type = 'marker_assignment' then
+    select exists (
+      select 1
+      from public.team_selection_members tsm
+      join public.team_selections ts
+        on ts.id = tsm.team_selection_id
+      join public.fixtures f
+        on f.id = ts.fixture_id
+      where tsm.id = v_request.target_record_id
+        and tsm.member_profile_id = v_request.member_profile_id
+        and tsm.role::text = 'marker'
+        and coalesce(tsm.is_selected, false) = true
+        and ts.status = 'published'
+        and f.cancelled_at is null
+        and f.id = v_request.fixture_id
+        and exists (
+          select 1
+          from public.fixture_rink_assignments fra
+          where fra.fixture_id = f.id
+            and fra.member_profile_id = tsm.member_profile_id
+            and fra.position = 201
+        )
+    ) into v_target_valid;
+
+    v_result_detail := 'Marker assignment acceptance was updated';
+
+  else
+    insert into public.email_action_response_log(
+      request_id, graph_message_id, sender_email, command,
+      result_status, result_detail, received_at
+    ) values (
+      v_request.id, p_graph_message_id, v_sender, v_command,
+      'unsupported_action_type', 'No response handler is installed for this action type',
+      p_received_at
+    );
+
+    return jsonb_build_object('ok', false, 'status', 'unsupported_action_type');
+  end if;
+
+  if not v_target_valid then
+    update public.email_action_requests
+       set status = 'cancelled', updated_at = now()
+     where id = v_request.id;
+
+    insert into public.email_action_response_log(
+      request_id, graph_message_id, sender_email, command,
+      result_status, result_detail, received_at
+    ) values (
+      v_request.id, p_graph_message_id, v_sender, v_command,
+      'selection_no_longer_active',
+      case
+        when v_request.action_type = 'marker_assignment'
+          then 'The member is no longer the active named marker for this published fixture'
+        else 'The player is no longer actively selected for this published fixture'
+      end,
+      p_received_at
+    );
+
+    return jsonb_build_object(
+      'ok', false,
+      'status', 'selection_no_longer_active'
+    );
+  end if;
+
+  v_acceptance := case v_command
+    when 'ACCEPT' then 'accepted'::public.acceptance_status
+    when 'DECLINE' then 'declined'::public.acceptance_status
+  end;
+
+  update public.team_selection_members
+     set acceptance = v_acceptance,
+         responded_at = p_received_at,
+         acceptance_by = v_request.member_profile_id
+   where id = v_request.target_record_id;
+
+  update public.email_action_requests
+     set status = 'responded',
+         last_action = v_command,
+         last_responded_at = p_received_at,
+         last_sender_email = v_sender,
+         last_graph_message_id = p_graph_message_id,
+         updated_at = now()
+   where id = v_request.id;
+
+  insert into public.email_action_response_log(
+    request_id, graph_message_id, sender_email, command,
+    result_status, result_detail, received_at
+  ) values (
+    v_request.id, p_graph_message_id, v_sender, v_command,
+    'processed', v_result_detail, p_received_at
+  );
+
+  return jsonb_build_object(
+    'ok', true,
+    'status', 'processed',
+    'action_type', v_request.action_type,
+    'action', v_command,
+    'fixture_id', v_request.fixture_id,
+    'team_selection_member_id', v_request.target_record_id
+  );
+end;
+$function$;
+
+revoke all
+on function public.apply_email_action_response(text, text, text, text, text, timestamptz)
+from public, anon, authenticated;
+
+grant execute
+on function public.apply_email_action_response(text, text, text, text, text, timestamptz)
+to service_role;
+
+CREATE OR REPLACE FUNCTION public.apply_email_action_response(p_response_code text, p_command text, p_sender_email text, p_graph_message_id text, p_received_at timestamp with time zone DEFAULT now())
+ RETURNS jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+  select public.apply_email_action_response(
+    p_response_code,
+    p_command,
+    p_sender_email,
+    null::text,
+    p_graph_message_id,
+    p_received_at
+  );
+$function$;
+
+revoke all
+on function public.apply_email_action_response(text, text, text, text, timestamptz)
+from public, anon, authenticated;
+
+grant execute
+on function public.apply_email_action_response(text, text, text, text, timestamptz)
+to service_role;

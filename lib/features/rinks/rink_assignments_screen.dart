@@ -55,6 +55,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
 
   bool _isPreselectFixture = false;
   bool _isInternalFixture = false;
+  bool _publishedOrdinaryReadOnly = false;
 
   List<Map<String, dynamic>> _rinks = [];
   List<Map<String, dynamic>> _pool = [];
@@ -71,6 +72,8 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           is_home,
           section,
           club_id,
+          team_id,
+          requires_rsvp,
           venue_id,
           opponent_venue_id,
           captain_member_profile_id,
@@ -729,6 +732,16 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       final isPreselect = selectionMode == 'preselect';
       final isInternal = competitionType?['is_internal'] == true;
 
+      final selectionRow = await Supabase.instance.client
+          .from('team_selections')
+          .select('status')
+          .eq('id', widget.teamSelectionId)
+          .single();
+      final publishedOrdinaryReadOnly =
+          selectionRow['status']?.toString() == 'published' &&
+          !isPreselect &&
+          (header['team_id'] != null || header['requires_rsvp'] == true);
+
       debugPrint('RINK currentMemberProfileId=$_currentMemberProfileId');
 
       final client = Supabase.instance.client;
@@ -819,6 +832,10 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
         _assignedMemberIds = assigned;
         _isPreselectFixture = isPreselect;
         _isInternalFixture = isInternal;
+        _publishedOrdinaryReadOnly = publishedOrdinaryReadOnly;
+        if (publishedOrdinaryReadOnly) {
+          _canAssignRinks = false;
+        }
         _loading = false;
       });
     } catch (e) {
@@ -1510,7 +1527,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.readOnly
+          widget.readOnly || _publishedOrdinaryReadOnly
               ? 'View Teams & Positions'
               : 'Assign Teams & Positions',
         ),
@@ -1519,6 +1536,12 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           onPressed: () => Navigator.pop(context, _changed),
         ),
         actions: [
+          if (_publishedOrdinaryReadOnly)
+            TextButton.icon(
+              onPressed: () => Navigator.pop(context, _changed),
+              icon: const Icon(Icons.groups),
+              label: const Text('Back to Manage Team'),
+            ),
           IconButton(onPressed: _loadAll, icon: const Icon(Icons.refresh)),
         ],
       ),
@@ -1529,6 +1552,17 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (_publishedOrdinaryReadOnly) ...[
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text(
+                        'Published Team and RSVP composition changes must be staged and confirmed in Manage Team. Assignment editing is read-only here.',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 _buildTeamSheetActions(),
                 const SizedBox(height: 16),
                 if (_rinks.isEmpty)

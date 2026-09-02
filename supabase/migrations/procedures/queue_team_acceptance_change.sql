@@ -12,6 +12,7 @@ declare
   v_home_away text;
   v_venue_name text;
   v_opponent_name text;
+  v_selection_mode text;
 begin
   if tg_op <> 'UPDATE' then
     return new;
@@ -44,6 +45,27 @@ begin
   where f.id = v_team_selection.fixture_id;
 
   if v_fixture is null then
+    return new;
+  end if;
+
+  select lower(btrim(coalesce(ct.selection_mode, '')))
+  into v_selection_mode
+  from public.competition_types ct
+  where ct.id = v_fixture.competition_type_id;
+
+  if new.role = 'player'::public.selection_member_role
+     and coalesce(v_selection_mode, '') <> 'preselect'
+     and (v_fixture.team_id is not null or coalesce(v_fixture.requires_rsvp, false))
+     and not exists (
+       select 1
+       from public.fixture_rink_assignments fra
+       join public.fixture_rinks fr
+         on fr.id = fra.fixture_rink_id
+        and fr.fixture_id = v_fixture.id
+       where fra.fixture_id = v_fixture.id
+         and fra.member_profile_id = new.member_profile_id
+         and fra.position between 1 and fr.players_per_rink
+     ) then
     return new;
   end if;
 

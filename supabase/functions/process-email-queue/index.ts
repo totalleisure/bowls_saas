@@ -14,6 +14,7 @@ type EmailActionBlock = {
   heading?: string;
   instructions?: string;
   response_code?: string;
+  response_token?: string;
   expires_at?: string | null;
   actions?: EmailAction[];
 };
@@ -45,6 +46,26 @@ function formatExpiry(value: string | null | undefined): string {
   });
 }
 
+function generateResponseToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return `RSP-${
+    Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+      .toUpperCase()
+  }`;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 function buildEmailActionBlock(
   block: EmailActionBlock | null | undefined,
   replyAddress: string,
@@ -54,21 +75,25 @@ function buildEmailActionBlock(
   }
 
   const code = String(block.response_code).trim().toUpperCase();
+  const token = String(block.response_token ?? "").trim().toUpperCase();
   const actions = block.actions.filter((action) =>
     Boolean(action?.command?.trim() && action?.label?.trim())
   );
 
   if (!code || actions.length === 0) return "";
 
+  const responseCredential = token ? `${code} ${token}` : code;
+
   const buttons = actions.map((action) => {
     const command = String(action.command).trim().toUpperCase();
     const label = String(action.label).trim();
     const isNegative = action.style === "negative";
     const colour = isNegative ? "#b3261e" : "#18794e";
-    const subject = `Bowls response: ${command} ${code}`;
-    const body = `${command} ${code}`;
-    const href =
-      `mailto:${replyAddress}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const subject = `Bowls response: ${command} ${responseCredential}`;
+    const body = `${command} ${responseCredential}`;
+    const href = `mailto:${replyAddress}?subject=${
+      encodeURIComponent(subject)
+    }&body=${encodeURIComponent(body)}`;
 
     return `
       <a href="${escapeHtml(href)}"
@@ -99,12 +124,18 @@ function buildEmailActionBlock(
       <div style="font-size:13px;color:#555555;margin-top:8px;">
         If the buttons do not open your email application, reply to this email
         with one of the commands shown below, followed by the response code:
-        <strong>${actions.map((a) => escapeHtml(String(a.command).toUpperCase())).join(" or ")}</strong>
-        <strong>${escapeHtml(code)}</strong>.
+        <strong>${
+    actions.map((a) => escapeHtml(String(a.command).toUpperCase())).join(" or ")
+  }</strong>
+        <strong>${escapeHtml(responseCredential)}</strong>.
       </div>
-      ${expiry ? `<div style="font-size:13px;color:#555555;margin-top:6px;">
+      ${
+    expiry
+      ? `<div style="font-size:13px;color:#555555;margin-top:6px;">
         Please respond before ${escapeHtml(expiry)}.
-      </div>` : ""}
+      </div>`
+      : ""
+  }
     </div>`;
 }
 
@@ -116,11 +147,10 @@ serve(async (req) => {
   let requestedEmailQueueId: string | null = null;
   try {
     const requestBody = await req.json();
-    requestedEmailQueueId =
-      typeof requestBody?.email_queue_id === "string" &&
+    requestedEmailQueueId = typeof requestBody?.email_queue_id === "string" &&
         requestBody.email_queue_id.trim()
-        ? requestBody.email_queue_id.trim()
-        : null;
+      ? requestBody.email_queue_id.trim()
+      : null;
   } catch {
     // An empty body retains the normal batch-processing behaviour.
   }
@@ -168,12 +198,40 @@ serve(async (req) => {
           })
           .eq("id", email.id);
 
-        const actionBlock = email.payload?.action_block as
+        let actionBlock = email.payload?.action_block as
           | EmailActionBlock
           | undefined;
 
         if (actionBlock && !replyAddress) {
           throw new Error("MS_MAILBOX is required for actionable email");
+        }
+
+        if ((actionBlock?.version ?? 1) >= 2) {
+          if (!actionBlock?.request_id) {
+            throw new Error("Version-2 action block has no Action Request ID");
+          }
+
+          const responseToken = generateResponseToken();
+          const responseTokenHash = await sha256Hex(responseToken);
+          const { data: tokenIssued, error: tokenError } = await supabase.rpc(
+            "issue_email_action_response_token",
+            {
+              p_request_id: actionBlock.request_id,
+              p_email_queue_id: email.id,
+              p_response_token_hash: responseTokenHash,
+            },
+          );
+
+          if (tokenError || tokenIssued !== true) {
+            throw new Error(
+              tokenError?.message ??
+                "Unable to issue a single-use response token",
+            );
+          }
+
+          // The plaintext token exists only in this function invocation and
+          // the rendered outbound message. It is never written to the queue.
+          actionBlock = { ...actionBlock, response_token: responseToken };
         }
 
         const bodyHtml = escapeHtml(String(email.body ?? ""))

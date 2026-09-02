@@ -37,6 +37,7 @@ class _TeamSectionState extends State<TeamSection> {
   String? _myProfileId;
 
   List<Map<String, dynamic>> _players = [];
+  List<Map<String, dynamic>> _selectedUnpositioned = [];
   List<Map<String, dynamic>> _opponents = [];
   List<Map<String, dynamic>> _markers = [];
   List<Map<String, dynamic>> _reserves = [];
@@ -97,6 +98,7 @@ class _TeamSectionState extends State<TeamSection> {
           _selectionId = null;
           _status = 'draft';
           _players = [];
+          _selectedUnpositioned = [];
           _opponents = [];
           _markers = [];
           _reserves = [];
@@ -119,8 +121,55 @@ class _TeamSectionState extends State<TeamSection> {
           .order('created_at');
 
       final all = List<Map<String, dynamic>>.from(rows);
+      final competitionType =
+          widget.fixture['competition_type'] as Map<String, dynamic>?;
+      final isPreselect =
+          (competitionType?['selection_mode'] ?? '')
+              .toString()
+              .toLowerCase()
+              .trim() ==
+          'preselect';
 
-      final players = all.where((r) => r['role'] == 'player').toList();
+      final assignmentRows = await client
+          .from('fixture_rink_assignments')
+          .select(
+            'member_profile_id, position, fixture_rinks!inner(players_per_rink)',
+          )
+          .eq('fixture_id', widget.fixture['id'].toString());
+      final positionedIds = <String>{};
+      for (final assignment in assignmentRows as List) {
+        final position = int.tryParse(assignment['position']?.toString() ?? '');
+        final rink = assignment['fixture_rinks'] as Map<String, dynamic>?;
+        final playersPerRink = int.tryParse(
+          rink?['players_per_rink']?.toString() ?? '',
+        );
+        final memberId = assignment['member_profile_id']?.toString();
+        if (memberId != null &&
+            position != null &&
+            playersPerRink != null &&
+            position >= 1 &&
+            position <= playersPerRink) {
+          positionedIds.add(memberId);
+        }
+      }
+
+      final players = all
+          .where(
+            (r) =>
+                r['role'] == 'player' &&
+                (isPreselect ||
+                    positionedIds.contains(r['member_profile_id']?.toString())),
+          )
+          .toList();
+      final selectedUnpositioned = all
+          .where(
+            (r) =>
+                !isPreselect &&
+                r['role'] == 'player' &&
+                !positionedIds.contains(r['member_profile_id']?.toString()),
+          )
+          .map((r) => {...r, '_awaiting_acceptance': false})
+          .toList();
       final opponents = all.where((r) => r['role'] == 'opponent').toList();
       final markers = all.where((r) => r['role'] == 'marker').toList();
       final reserves = all.where((r) => r['role'] == 'reserve').toList();
@@ -129,6 +178,7 @@ class _TeamSectionState extends State<TeamSection> {
 
       setState(() {
         _players = players;
+        _selectedUnpositioned = selectedUnpositioned;
         _opponents = opponents;
         _markers = markers;
         _reserves = reserves;
@@ -169,13 +219,25 @@ class _TeamSectionState extends State<TeamSection> {
 
   bool _amISelected() {
     if (_myProfileId == null) return false;
-    final all = [..._players, ..._opponents, ..._markers, ..._reserves];
+    final all = [
+      ..._players,
+      ..._selectedUnpositioned,
+      ..._opponents,
+      ..._markers,
+      ..._reserves,
+    ];
     return all.any((r) => r['member_profile_id'] == _myProfileId);
   }
 
   String? _myAcceptance() {
     if (_myProfileId == null) return null;
-    final all = [..._players, ..._opponents, ..._markers, ..._reserves];
+    final all = [
+      ..._players,
+      ..._selectedUnpositioned,
+      ..._opponents,
+      ..._markers,
+      ..._reserves,
+    ];
     final me = all
         .where((r) => r['member_profile_id'] == _myProfileId)
         .toList();
@@ -221,9 +283,12 @@ class _TeamSectionState extends State<TeamSection> {
     final mp = r['member_profiles'] as Map<String, dynamic>?;
     final name = (mp?['display_name'] as String?) ?? '(no name)';
     final acceptance = (r['acceptance']?.toString() ?? 'pending');
+    final awaitingAcceptance = r['_awaiting_acceptance'] != false;
 
     Color bgColor;
-    if (acceptance == 'accepted') {
+    if (!awaitingAcceptance) {
+      bgColor = const Color(0xFFE3F2FD);
+    } else if (acceptance == 'accepted') {
       bgColor = const Color(0xFFE8F5E9);
     } else if (acceptance == 'declined') {
       bgColor = const Color(0xFFFFEBEE);
@@ -238,7 +303,11 @@ class _TeamSectionState extends State<TeamSection> {
         dense: true,
         visualDensity: VisualDensity.compact,
         title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(acceptance),
+        subtitle: Text(
+          awaitingAcceptance
+              ? acceptance
+              : 'Selected — not awaiting acceptance',
+        ),
       ),
     );
   }
@@ -376,36 +445,39 @@ class _TeamSectionState extends State<TeamSection> {
               _memberGroup(
                 title: 'Players (${_players.length})',
                 expanded: _playersExpanded,
-                onToggle: () => setState(
-                  () => _playersExpanded = !_playersExpanded,
-                ),
+                onToggle: () =>
+                    setState(() => _playersExpanded = !_playersExpanded),
                 members: _players,
               ),
+              if (!isPreselectFixture && _selectedUnpositioned.isNotEmpty)
+                _memberGroup(
+                  title: 'Selected (${_selectedUnpositioned.length})',
+                  expanded: true,
+                  onToggle: () {},
+                  members: _selectedUnpositioned,
+                ),
               if (isPreselectFixture)
                 _memberGroup(
                   title: 'Opponents (${_opponents.length})',
                   expanded: _opponentsExpanded,
-                  onToggle: () => setState(
-                    () => _opponentsExpanded = !_opponentsExpanded,
-                  ),
+                  onToggle: () =>
+                      setState(() => _opponentsExpanded = !_opponentsExpanded),
                   members: _opponents,
                 ),
               if (isPreselectFixture)
                 _memberGroup(
                   title: 'Markers (${_markers.length})',
                   expanded: _markersExpanded,
-                  onToggle: () => setState(
-                    () => _markersExpanded = !_markersExpanded,
-                  ),
+                  onToggle: () =>
+                      setState(() => _markersExpanded = !_markersExpanded),
                   members: _markers,
                 ),
               if (!isPreselectFixture)
                 _memberGroup(
                   title: 'Reserves (${_reserves.length}/3)',
                   expanded: _reservesExpanded,
-                  onToggle: () => setState(
-                    () => _reservesExpanded = !_reservesExpanded,
-                  ),
+                  onToggle: () =>
+                      setState(() => _reservesExpanded = !_reservesExpanded),
                   members: _reserves,
                 ),
             ],
