@@ -3,158 +3,137 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'team_sheet_pdf.dart';
 
 class TeamSheetBuildResult {
-  TeamSheetBuildResult({required this.data, required this.header});
+  TeamSheetBuildResult({
+    required this.data,
+    required this.header,
+    required this.teamSelectionId,
+    required this.selectionStatus,
+    required this.compositionVersion,
+    required this.canManage,
+  });
 
   final TeamSheetData data;
   final Map<String, dynamic> header;
+  final String teamSelectionId;
+  final String selectionStatus;
+  final int compositionVersion;
+  final bool canManage;
 }
 
-class TeamSheetBuilderService {
+abstract interface class TeamSheetDataSource {
+  Future<TeamSheetBuildResult> buildForFixture(String fixtureId);
+}
+
+class TeamSheetBuilderService implements TeamSheetDataSource {
   TeamSheetBuilderService(this._client);
 
   final SupabaseClient _client;
 
+  @override
   Future<TeamSheetBuildResult> buildForFixture(String fixtureId) async {
-    final header = await _loadFixtureHeader(fixtureId);
-    final rinks = await _loadFixtureRinks(fixtureId);
-    final assignmentsByRink = await _loadAssignmentsByRink(fixtureId);
-
-    Map<String, dynamic>? asMap(dynamic v) {
-      if (v is Map<String, dynamic>) return v;
-      if (v is Map) return Map<String, dynamic>.from(v);
-      return null;
+    final raw = await _client.rpc(
+      'get_authorized_team_sheet_data',
+      params: {'p_fixture_id': fixtureId},
+    );
+    if (raw is! Map) {
+      throw const FormatException('Invalid authorised team-sheet response.');
     }
+    return buildFromAuthorizedPayload(Map<String, dynamic>.from(raw));
+  }
 
-    String venueNameOnly(Map<String, dynamic>? venueRow) {
-      if (venueRow == null) return '';
-      return venueRow['name']?.toString().trim() ?? '';
-    }
+  static TeamSheetBuildResult buildFromAuthorizedPayload(
+    Map<String, dynamic> payload,
+  ) {
+    Map<String, dynamic> mapValue(dynamic value) =>
+        value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
+    List<Map<String, dynamic>> listValue(dynamic value) => value is List
+        ? value
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList()
+        : <Map<String, dynamic>>[];
+    int intValue(dynamic value, [int fallback = 0]) => value is int
+        ? value
+        : int.tryParse(value?.toString() ?? '') ?? fallback;
 
-    int? parseColor(dynamic v) {
-      if (v == null) return null;
-      if (v is int) return v;
-
-      final s = v.toString().trim();
-      if (s.isEmpty) return null;
-
-      if (s.startsWith('#')) {
-        final hex = s.substring(1);
+    int? parseColor(dynamic value) {
+      if (value == null) return null;
+      if (value is int) return value;
+      final text = value.toString().trim();
+      if (text.isEmpty) return null;
+      if (text.startsWith('#')) {
+        final hex = text.substring(1);
         if (hex.length == 6) return int.tryParse('FF$hex', radix: 16);
         if (hex.length == 8) return int.tryParse(hex, radix: 16);
       }
-
-      if (s.startsWith('0x') || s.startsWith('0X')) {
-        return int.tryParse(s.substring(2), radix: 16);
+      if (text.toLowerCase().startsWith('0x')) {
+        return int.tryParse(text.substring(2), radix: 16);
       }
-
-      return int.tryParse(s);
+      return int.tryParse(text);
     }
 
-    String displayNameFromProfile(Map<String, dynamic>? p) {
-      if (p == null) return '';
-      final display = p['display_name']?.toString().trim() ?? '';
+    String profileName(Map<String, dynamic> profile) {
+      final display = profile['display_name']?.toString().trim() ?? '';
       if (display.isNotEmpty) return display;
-
-      final first = p['first_name']?.toString().trim() ?? '';
-      final last = p['last_name']?.toString().trim() ?? '';
+      final first = profile['first_name']?.toString().trim() ?? '';
+      final last = profile['last_name']?.toString().trim() ?? '';
       return '$first $last'.trim();
     }
 
-    String emailFromProfile(Map<String, dynamic>? p) {
-      return p?['email_address']?.toString().trim() ?? '';
+    final access = mapValue(payload['access']);
+    final fixture = mapValue(payload['fixture']);
+    final selection = mapValue(payload['team_selection']);
+    final competitionType = mapValue(fixture['competition_type']);
+    final captain = mapValue(fixture['captain']);
+    final viceCaptain = mapValue(fixture['vice_captain']);
+    final rinks = listValue(payload['rinks']);
+    final assignments = listValue(payload['assignments']);
+    final selectionMembers = listValue(payload['selection_members']);
+
+    final assignmentsByRink = <String, Map<int, Map<String, dynamic>>>{};
+    for (final assignment in assignments) {
+      final rinkId = assignment['fixture_rink_id']?.toString();
+      final position = int.tryParse(assignment['position']?.toString() ?? '');
+      if (rinkId == null || position == null) continue;
+      assignmentsByRink.putIfAbsent(rinkId, () => {})[position] = assignment;
     }
 
-    String phoneFromProfile(Map<String, dynamic>? p) {
-      return p?['phone']?.toString().trim() ?? '';
-    }
-
-    final clubName = header['clubs']?['name']?.toString().trim() ?? 'Club';
-    final isHome = header['is_home'] == true;
-
-    final venueRow = asMap(header['venue']);
-    final opponentVenueRow = asMap(header['opponent_venue']);
-
-    final opponentName = isHome
-        ? venueNameOnly(opponentVenueRow)
-        : venueNameOnly(venueRow);
-
-    final startAt =
-        DateTime.tryParse(header['start_at']?.toString() ?? '') ??
-        DateTime.now();
-
-    final section = header['section']?.toString() ?? '';
-
-    final captain = asMap(header['captain']);
-    final vice = asMap(header['vice_captain']);
-
-    final competitionType = asMap(header['competition_type']);
-    final colourScheme = asMap(competitionType?['colour_scheme']);
-
-    final fixtureTypeName = (() {
-      final s = competitionType?['name']?.toString().trim() ?? '';
-      return s.isEmpty ? null : s;
-    })();
-
-    final isInternal = competitionType?['is_internal'] as bool?;
-    final selectionMode = competitionType?['selection_mode']?.toString().trim();
-
-    final fixtureTypeBgColor = parseColor(colourScheme?['background_hex']);
-    final fixtureTypeFgColor = parseColor(colourScheme?['foreground_hex']);
-
-    bool isPreselectInternalFixture() {
-      final mode = (selectionMode ?? '').toLowerCase().trim();
-      return mode == 'preselect' && isInternal == true;
-    }
-
-    final sheetRinks = <TeamSheetRink>[];
+    final selectionMode = competitionType['selection_mode']?.toString();
+    final isInternal = competitionType['is_internal'] as bool?;
+    final isPreselect =
+        selectionMode?.toLowerCase() == 'preselect' && isInternal == true;
     var playersPerRink = 4;
+    final sheetRinks = <TeamSheetRink>[];
 
-    for (final rr in rinks) {
-      final rinkId = rr['id']?.toString() ?? '';
-      final rinkNo = (rr['fixture_rink_no'] as int?) ?? 0;
-      final label = rr['home_rink_label']?.toString();
-      final ppr = (rr['players_per_rink'] as int?) ?? 4;
-      playersPerRink = ppr;
-
-      final byPos = assignmentsByRink[rinkId] ?? <int, Map<String, dynamic>>{};
-
+    for (final rink in rinks) {
+      final rinkId = rink['id']?.toString() ?? '';
+      final rinkPlayers = intValue(rink['players_per_rink'], 4);
+      playersPerRink = rinkPlayers;
+      final byPosition = assignmentsByRink[rinkId] ?? const {};
       final players = <String>[];
       final opponents = <String>[];
       String? marker;
 
-      if (isPreselectInternalFixture()) {
-        for (var lineNo = 1; lineNo <= ppr; lineNo++) {
-          final playerAsn = byPos[lineNo];
-          final opponentAsn = byPos[100 + lineNo];
-
-          players.add(
-            playerAsn?['member_profiles']?['display_name']?.toString() ?? '',
-          );
-
+      for (var position = 1; position <= rinkPlayers; position++) {
+        final name =
+            byPosition[position]?['display_name']?.toString().trim() ?? '';
+        if (isPreselect || name.isNotEmpty) players.add(name);
+        if (isPreselect) {
           opponents.add(
-            opponentAsn?['member_profiles']?['display_name']?.toString() ?? '',
+            byPosition[100 + position]?['display_name']?.toString().trim() ??
+                '',
           );
         }
-
-        final markerAsn = byPos[201];
-        final markerName =
-            markerAsn?['member_profiles']?['display_name']?.toString() ?? '';
-        marker = markerName.trim().isEmpty ? null : markerName.trim();
-      } else {
-        final positions = byPos.keys.toList()..sort();
-
-        for (final pos in positions) {
-          if (pos >= 100) continue;
-          final a = byPos[pos]!;
-          final name = a['member_profiles']?['display_name']?.toString() ?? '';
-          if (name.isNotEmpty) players.add(name);
-        }
+      }
+      if (isPreselect) {
+        final name = byPosition[201]?['display_name']?.toString().trim() ?? '';
+        marker = name.isEmpty ? null : name;
       }
 
       sheetRinks.add(
         TeamSheetRink(
-          rinkNumber: rinkNo,
-          homeRinkLabel: label,
+          rinkNumber: intValue(rink['fixture_rink_no']),
+          homeRinkLabel: rink['home_rink_label']?.toString(),
           players: players,
           opponents: opponents,
           marker: marker,
@@ -162,129 +141,69 @@ class TeamSheetBuilderService {
       );
     }
 
+    final reserves = selectionMembers
+        .where(
+          (row) =>
+              row['is_selected'] == true &&
+              row['role']?.toString().toLowerCase() == 'reserve',
+        )
+        .map((row) => row['display_name']?.toString().trim() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toList();
+
+    final rawDress = fixture['dress_code'];
+    final dressValues = rawDress is List
+        ? rawDress.map((value) => value.toString().trim())
+        : rawDress == null
+        ? const <String>[]
+        : <String>[rawDress.toString().trim()];
+    final dress = dressValues
+        .where((value) => value.isNotEmpty)
+        .map((value) {
+          return value[0].toUpperCase() + value.substring(1);
+        })
+        .join(' / ');
+    final compositionVersion = intValue(selection['composition_version']);
+
     final data = TeamSheetData(
-      clubName: clubName,
-      opponentName: opponentName.trim(),
-      startAt: startAt,
-      isHome: isHome,
-      section: section,
+      clubName: fixture['club_name']?.toString().trim() ?? 'Club',
+      opponentName: fixture['opponent_name']?.toString().trim() ?? '',
+      startAt:
+          DateTime.tryParse(fixture['start_at']?.toString() ?? '') ??
+          DateTime.now(),
+      isHome: fixture['is_home'] == true,
+      venueName: fixture['venue_name']?.toString().trim() ?? '',
+      section: fixture['section']?.toString() ?? '',
       rinksRequired: sheetRinks.length,
       playersPerRink: playersPerRink,
-      dress: 'Greys/Whites or Blacks',
-      mealInfo: null,
-      notes: null,
-      captainName: displayNameFromProfile(captain),
-      captainEmail: emailFromProfile(captain),
-      captainPhone: phoneFromProfile(captain),
-      viceName: displayNameFromProfile(vice),
-      viceEmail: emailFromProfile(vice),
-      vicePhone: phoneFromProfile(vice),
+      dress: dress.isEmpty ? 'Open dress' : dress,
+      notes: fixture['notes']?.toString(),
+      captainName: profileName(captain),
+      captainEmail: captain['email_address']?.toString().trim() ?? '',
+      captainPhone: captain['phone']?.toString().trim() ?? '',
+      viceName: profileName(viceCaptain),
+      viceEmail: viceCaptain['email_address']?.toString().trim() ?? '',
+      vicePhone: viceCaptain['phone']?.toString().trim() ?? '',
       rinks: sheetRinks,
-      reserves: const [],
+      reserves: reserves,
       primaryColor: 0xFF0B3D91,
       secondaryColor: 0xFFFFD200,
       logoBytes: null,
-      fixtureTypeName: fixtureTypeName,
-      fixtureTypeBgColor: fixtureTypeBgColor,
-      fixtureTypeFgColor: fixtureTypeFgColor,
+      fixtureTypeName: competitionType['name']?.toString().trim(),
+      fixtureTypeBgColor: parseColor(competitionType['background_hex']),
+      fixtureTypeFgColor: parseColor(competitionType['foreground_hex']),
       isInternal: isInternal,
       selectionMode: selectionMode,
+      compositionVersion: compositionVersion,
     );
 
-    return TeamSheetBuildResult(data: data, header: header);
-  }
-
-  Future<Map<String, dynamic>> _loadFixtureHeader(String fixtureId) async {
-    final row = await _client
-        .from('fixtures')
-        .select('''
-          id,
-          club_id,
-          start_at,
-          is_home,
-          section,
-          captain_member_profile_id,
-          vice_captain_member_profile_id,
-          clubs(name),
-          venue:venues!fixtures_venue_id_fkey(name),
-          opponent_venue:venues!fixtures_opponent_venue_id_fkey(name),
-          captain:member_profiles!fixtures_captain_member_profile_id_fkey(
-            display_name,
-            first_name,
-            last_name,
-            email_address,
-            phone
-          ),
-          vice_captain:member_profiles!fixtures_vice_captain_member_profile_id_fkey(
-            display_name,
-            first_name,
-            last_name,
-            email_address,
-            phone
-          ),
-          competition_type:competition_types!fixtures_competition_type_id_fkey(
-            id,
-            name,
-            is_internal,
-            selection_mode,
-            colour_scheme:fixture_colour_schemes(
-              id,
-              name,
-              background_hex,
-              foreground_hex
-            )
-          )
-        ''')
-        .eq('id', fixtureId)
-        .single();
-
-    return Map<String, dynamic>.from(row);
-  }
-
-  Future<List<Map<String, dynamic>>> _loadFixtureRinks(String fixtureId) async {
-    final rows = await _client
-        .from('fixture_rinks')
-        .select('id, fixture_rink_no, home_rink_label, players_per_rink')
-        .eq('fixture_id', fixtureId)
-        .order('fixture_rink_no');
-
-    return List<Map<String, dynamic>>.from(rows);
-  }
-
-  Future<Map<String, Map<int, Map<String, dynamic>>>> _loadAssignmentsByRink(
-    String fixtureId,
-  ) async {
-    final rows = await _client
-        .from('fixture_rink_assignments')
-        .select('''
-          id,
-          fixture_rink_id,
-          member_profile_id,
-          position,
-          member_profiles(
-            id,
-            display_name,
-            first_name,
-            last_name,
-            email_address,
-            phone
-          )
-        ''')
-        .eq('fixture_id', fixtureId);
-
-    final result = <String, Map<int, Map<String, dynamic>>>{};
-
-    for (final raw in rows) {
-      final row = Map<String, dynamic>.from(raw);
-      final rinkId = row['fixture_rink_id']?.toString();
-      final pos = row['position'] as int?;
-
-      if (rinkId == null || pos == null) continue;
-
-      result.putIfAbsent(rinkId, () => <int, Map<String, dynamic>>{});
-      result[rinkId]![pos] = row;
-    }
-
-    return result;
+    return TeamSheetBuildResult(
+      data: data,
+      header: fixture,
+      teamSelectionId: selection['id']?.toString() ?? '',
+      selectionStatus: selection['status']?.toString() ?? 'draft',
+      compositionVersion: compositionVersion,
+      canManage: access['can_manage'] == true,
+    );
   }
 }

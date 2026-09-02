@@ -150,6 +150,7 @@ class TeamSheetService {
       opponentName: opponentName,
       startAt: startAt,
       isHome: isHome,
+      venueName: '',
       section: section,
       rinksRequired: rinksOut.length,
       playersPerRink: playersPerRink,

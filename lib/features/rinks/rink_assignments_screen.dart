@@ -510,6 +510,7 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
       opponentName: safeOpponentName,
       startAt: startAt,
       isHome: isHome,
+      venueName: venueNameOnly(venueRow),
       section: section,
       rinksRequired: rinks.length,
       playersPerRink: playersPerRink,

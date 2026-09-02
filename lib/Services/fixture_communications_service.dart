@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:bowls_saas/core/utils/date_format.dart';
+import 'package:bowls_saas/services/team_sheet_builder_service.dart';
 import 'package:bowls_saas/services/team_sheet_pdf.dart';
-import 'package:bowls_saas/services/team_sheet_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FixtureCommunicationsRepairResult {
@@ -20,37 +20,6 @@ class FixtureCommunicationsService {
 
   final SupabaseClient client;
 
-  Map<String, dynamic>? _map(dynamic value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) return Map<String, dynamic>.from(value);
-    return null;
-  }
-
-  String _nestedName(dynamic value) {
-    final row = _map(value);
-    return row?['name']?.toString().trim() ?? '';
-  }
-
-  String _clubName(Map<String, dynamic> fixture) {
-    final direct = fixture['club_name']?.toString().trim() ?? '';
-    if (direct.isNotEmpty) return direct;
-
-    final nested = _nestedName(fixture['clubs']);
-    return nested.isEmpty ? 'Club' : nested;
-  }
-
-  String _opponentName(Map<String, dynamic> fixture) {
-    final direct = fixture['opponent_name']?.toString().trim() ?? '';
-    if (direct.isNotEmpty) return direct;
-
-    final isHome = fixture['is_home'] == true;
-    final venue = _nestedName(fixture['venue']);
-    final opponentVenue = _nestedName(fixture['opponent_venue']);
-
-    final resolved = isHome ? opponentVenue : venue;
-    return resolved.isEmpty ? 'Opponent' : resolved;
-  }
-
   Future<Map<String, dynamic>> buildTeamSheetAttachment({
     required Map<String, dynamic> fixture,
     required String teamSelectionId,
@@ -60,29 +29,13 @@ class FixtureCommunicationsService {
       throw Exception('Fixture id not found');
     }
 
-    final startText = fixture['start_at']?.toString();
-    final startAt = startText == null ? null : DateTime.tryParse(startText);
-    if (startAt == null) {
-      throw Exception('Fixture start date/time not found');
+    final build = await TeamSheetBuilderService(
+      client,
+    ).buildForFixture(fixtureId);
+    if (build.teamSelectionId != teamSelectionId) {
+      throw Exception('Team selection does not match this fixture');
     }
-
-    final clubName = _clubName(fixture);
-    final opponentName = _opponentName(fixture);
-
-    final service = TeamSheetService(client);
-    final data = await service.loadTeamSheetData(
-      fixtureId: fixtureId,
-      teamSelectionId: teamSelectionId,
-      clubName: clubName,
-      opponentName: opponentName,
-      startAt: startAt,
-      isHome: fixture['is_home'] == true,
-      section: (fixture['section'] ?? '').toString(),
-      primaryColor: 0xFF0B3D91,
-      secondaryColor: 0xFFFFD200,
-      dress: (fixture['dress'] ?? 'Greys/Whites or Blacks').toString(),
-      notes: fixture['notes']?.toString(),
-    );
+    final data = build.data;
 
     final pdfBytes = await buildTeamSheetPdf(data);
     final d = toClubTime(data.startAt);

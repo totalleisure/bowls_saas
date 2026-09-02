@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'manage_team_screen.dart';
+import 'team_sheet_screen.dart';
 
 class TeamSection extends StatefulWidget {
   final Map<String, dynamic> fixture;
@@ -424,6 +425,20 @@ class _TeamSectionState extends State<TeamSection> {
                           }
                         },
                       ),
+                      if (hasSelection)
+                        IconButton(
+                          tooltip: 'Open Team Sheet',
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => TeamSheetScreen(
+                                  fixtureId: widget.fixture['id'].toString(),
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.picture_as_pdf),
+                        ),
                       TextButton(
                         onPressed: _openManageTeam,
                         child: Text(

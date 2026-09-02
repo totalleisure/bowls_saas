@@ -25,6 +25,7 @@ class TeamSheetData {
   final String opponentName;
   final DateTime startAt;
   final bool isHome;
+  final String venueName;
   final String section;
   final int rinksRequired;
   final int playersPerRink;
@@ -55,12 +56,14 @@ class TeamSheetData {
 
   final bool? isInternal;
   final String? selectionMode;
+  final int compositionVersion;
 
   TeamSheetData({
     required this.clubName,
     required this.opponentName,
     required this.startAt,
     required this.isHome,
+    required this.venueName,
     required this.section,
     required this.rinksRequired,
     required this.playersPerRink,
@@ -85,6 +88,7 @@ class TeamSheetData {
     this.fixtureTypeFgColor,
     this.isInternal,
     this.selectionMode,
+    this.compositionVersion = 0,
   });
 }
 
@@ -641,6 +645,8 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
 
                       pw.Text(
                         [
+                          if (data.venueName.trim().isNotEmpty)
+                            'Venue: ${data.venueName}',
                           if (data.dress.trim().isNotEmpty)
                             'Dress: ${data.dress}',
                           if ((data.mealInfo ?? '').trim().isNotEmpty)
@@ -669,6 +675,19 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
             pw.SizedBox(height: 6),
             _fixtureTypeBand(data, secondaryWash, primary),
           ],
+
+          pw.SizedBox(height: 6),
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Team sheet - revision ${data.compositionVersion}',
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: primary,
+              ),
+            ),
+          ),
 
           pw.SizedBox(height: 12),
           _captainContactsBox(data, primary),

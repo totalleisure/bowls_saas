@@ -13,7 +13,8 @@ import '../../Core/widgets/app_badge.dart';
 
 import 'package:bowls_saas/services/team_sheet_pdf.dart';
 import 'package:bowls_saas/services/team_sheet_share.dart';
-import 'package:bowls_saas/services/team_sheet_service.dart';
+import 'package:bowls_saas/services/team_sheet_builder_service.dart';
+import 'package:bowls_saas/features/team/team_sheet_screen.dart';
 
 import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
@@ -1648,32 +1649,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     try {
       if (_selectionId == null) throw Exception('Team selection not ready');
 
-      final client = Supabase.instance.client;
-      final svc = TeamSheetService(client);
-
       final fixtureId = widget.fixture['id'] as String;
-
-      // Pull these from widget.fixture if they exist there, or wherever you store them
-      final clubName = (widget.fixture['club_name'] ?? 'Club').toString();
-      final opponentName = (widget.fixture['opponent_name'] ?? 'Opponent')
-          .toString();
-      final startAt = DateTime.parse(widget.fixture['start_at'].toString());
-      final isHome = widget.fixture['is_home'] == true;
-      final section = (widget.fixture['section'] ?? '').toString();
-
-      final data = await svc.loadTeamSheetData(
-        fixtureId: fixtureId,
-        teamSelectionId: _selectionId!,
-        clubName: clubName,
-        opponentName: opponentName,
-        startAt: startAt,
-        isHome: isHome,
-        section: section,
-        primaryColor: 0xFF0B3D91,
-        secondaryColor: 0xFFFFD200,
-        dress: 'Greys/Whites or Blacks',
-        notes: null,
-      );
+      final build = await TeamSheetBuilderService(
+        Supabase.instance.client,
+      ).buildForFixture(fixtureId);
+      final data = build.data;
 
       final pdfBytes = await buildTeamSheetPdf(data);
 
@@ -2117,28 +2097,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       throw Exception('Fixture id not found');
     }
 
-    final svc = TeamSheetService(_client);
-
-    final clubName = (widget.fixture['club_name'] ?? 'Club').toString();
-    final opponentName = (widget.fixture['opponent_name'] ?? 'Opponent')
-        .toString();
-    final startAt = DateTime.parse(widget.fixture['start_at'].toString());
-    final isHome = widget.fixture['is_home'] == true;
-    final section = (widget.fixture['section'] ?? '').toString();
-
-    final data = await svc.loadTeamSheetData(
-      fixtureId: fixtureId,
-      teamSelectionId: _selectionId!,
-      clubName: clubName,
-      opponentName: opponentName,
-      startAt: startAt,
-      isHome: isHome,
-      section: section,
-      primaryColor: 0xFF0B3D91,
-      secondaryColor: 0xFFFFD200,
-      dress: 'Greys/Whites or Blacks',
-      notes: null,
-    );
+    final build = await TeamSheetBuilderService(
+      _client,
+    ).buildForFixture(fixtureId);
+    if (build.teamSelectionId != _selectionId) {
+      throw Exception('Team selection does not match this fixture');
+    }
+    final data = build.data;
 
     final pdfBytes = await buildTeamSheetPdf(data);
 
@@ -2757,6 +2722,21 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         appBar: AppBar(
           title: Text(pageTitle),
           actions: [
+            if (_selectionId != null)
+              IconButton(
+                tooltip: 'Open Team Sheet',
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => TeamSheetScreen(
+                        fixtureId: widget.fixture['id'].toString(),
+                        hasUnconfirmedChanges: _hasStagedChanges,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.picture_as_pdf),
+              ),
             if (_usesPublishedCompositionStaging && _hasStagedChanges)
               FilledButton.icon(
                 onPressed: _confirmingTeamChanges ? null : _confirmTeamChanges,
