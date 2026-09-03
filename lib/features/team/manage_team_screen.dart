@@ -16,6 +16,8 @@ import 'package:bowls_saas/services/team_sheet_share.dart';
 import 'package:bowls_saas/services/team_sheet_builder_service.dart';
 import 'package:bowls_saas/services/fixture_communications_service.dart';
 import 'package:bowls_saas/features/team/team_sheet_screen.dart';
+import 'package:bowls_saas/features/team/team_composition_staging.dart';
+import 'package:bowls_saas/features/team/selected_member_interaction_card.dart';
 
 import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
@@ -580,20 +582,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       return;
     }
 
-    final members = _selected
-        .where((row) {
-          final role = (row['role'] ?? '').toString().toLowerCase();
-          return row['is_selected'] == true &&
-              (role == 'player' || role == 'reserve');
-        })
-        .map(
-          (row) => {
-            'member_profile_id': row['member_profile_id']?.toString(),
-            'role': (row['role'] ?? '').toString().toLowerCase(),
-            'is_selected': true,
-          },
-        )
-        .toList();
+    final members = buildConfirmedTeamMembers(_selected);
 
     setState(() => _confirmingTeamChanges = true);
     try {
@@ -1912,30 +1901,25 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             .eq('member_profile_id', memberId);
       }
 
-      if (newRole == 'reserve' && hasTeamPosition) {
-        for (final byPosition in _assignmentsByRink.values) {
-          byPosition.removeWhere(
-            (_, row) => row['member_profile_id']?.toString() == memberId,
-          );
-        }
-        _assignmentsByRink.removeWhere((_, byPosition) => byPosition.isEmpty);
-      }
-
       if (!mounted) return;
       setState(() {
-        for (final row in _selected) {
-          if (row['member_profile_id']?.toString() == memberId) {
-            row['role'] = newRole;
-            if (!_usesPublishedCompositionStaging &&
-                oldRole == 'reserve' &&
-                newRole == 'player') {
-              row['acceptance'] = 'pending';
-              row['responded_at'] = null;
-              row['acceptance_by'] = null;
-              row['accepted_by_profile'] = null;
-            }
-            break;
-          }
+        stageSelectedMemberRoleChange(
+          selected: _selected,
+          assignmentsByRink: _assignmentsByRink,
+          memberProfileId: memberId,
+          newRole: newRole,
+        );
+        if (!_usesPublishedCompositionStaging &&
+            oldRole == 'reserve' &&
+            newRole == 'player') {
+          final row = _selected.firstWhere(
+            (candidate) =>
+                candidate['member_profile_id']?.toString() == memberId,
+          );
+          row['acceptance'] = 'pending';
+          row['responded_at'] = null;
+          row['acceptance_by'] = null;
+          row['accepted_by_profile'] = null;
         }
         _refreshCompositionDirty();
       });
@@ -3004,154 +2988,143 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                         bgColor = const Color(0xFFFFF8E1); // soft amber
                       }
 
-                      return Card(
+                      return SelectedMemberInteractionCard(
                         color: bgColor,
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        child: ListTile(
-                          dense: true,
-                          visualDensity: VisualDensity.compact,
-                          onTap: _canModifySelection
-                              ? () async => _removeSelected(memberId)
-                              : null,
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                        title: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              if (role == 'reserve') AppBadge(text: 'RESERVE'),
-                              if (isPositionedPlayer) AppBadge(text: 'PLAYER'),
-                              if (isSelectedUnpositioned)
-                                AppBadge(text: 'SELECTED'),
-                              if (role == 'opponent')
-                                AppBadge(text: 'OPPONENT'),
-                              if (role == 'marker') AppBadge(text: 'MARKER'),
-                            ],
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                placementLabel,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: isAllocated
-                                      ? Theme.of(context).colorScheme.onSurface
-                                      : Colors.red.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                isSelectedUnpositioned
-                                    ? 'Selected — not awaiting acceptance'
-                                    : role == 'reserve'
-                                    ? 'Reserve — not awaiting player acceptance'
-                                    : acceptance == 'accepted'
-                                    ? 'Accepted'
-                                    : acceptance == 'declined'
-                                    ? 'Declined'
-                                    : 'Awaiting response',
-                              ),
-                              if (acceptedOnBehalf)
-                                Text(
-                                  'Accepted by $acceptedByName',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              if (phone.isNotEmpty)
-                                Text(
-                                  phone,
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                            ],
-                          ),
-                          trailing:
-                              !_canModifySelection && !_canForceAcceptSelection
-                              ? null
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (!isAllocated && _canModifySelection)
-                                      TextButton.icon(
-                                        onPressed: () =>
-                                            _returnUnallocatedMemberToPool(s),
-                                        icon: const Icon(Icons.undo, size: 18),
-                                        label: const Text('Return to pool'),
-                                      ),
-                                    PopupMenuButton<String>(
-                                      onSelected: (v) async {
-                                        if (v == 'player' ||
-                                            v == 'reserve' ||
-                                            v == 'opponent' ||
-                                            v == 'marker') {
-                                          if (_canModifySelection) {
-                                            await _setRole(memberId, v);
-                                          }
-                                        } else if (v == 'accept') {
-                                          if (_canForceAcceptSelection) {
-                                            await _acceptOnBehalf(memberId);
-                                          }
-                                        } else if (v == 'remind') {
-                                          await _sendAcceptanceReminders([s]);
-                                        } else if (v == 'return_to_pool') {
-                                          await _returnUnallocatedMemberToPool(
-                                            s,
-                                          );
-                                        }
-                                      },
-                                      itemBuilder: (_) => [
-                                        if (_canEditSelection)
-                                          const PopupMenuItem(
-                                            value: 'player',
-                                            child: Text('Make player'),
-                                          ),
-                                        if (_canEditSelection &&
-                                            _isInternalFixture &&
-                                            _isPreselectFixture)
-                                          const PopupMenuItem(
-                                            value: 'opponent',
-                                            child: Text('Make opponent'),
-                                          ),
-                                        if (_canEditSelection &&
-                                            _isInternalFixture &&
-                                            _isPreselectFixture)
-                                          const PopupMenuItem(
-                                            value: 'marker',
-                                            child: Text('Make marker'),
-                                          ),
-                                        if (_canEditSelection &&
-                                            !(_isInternalFixture &&
-                                                _isPreselectFixture))
-                                          const PopupMenuItem(
-                                            value: 'reserve',
-                                            child: Text('Make reserve'),
-                                          ),
-                                        if (!isAllocated && _canModifySelection)
-                                          const PopupMenuItem(
-                                            value: 'return_to_pool',
-                                            child: Text('Return to pool'),
-                                          ),
-                                        if (_canForceAccept &&
-                                            (!_usesPublishedCompositionStaging ||
-                                                isPositionedPlayer))
-                                          const PopupMenuItem(
-                                            value: 'accept',
-                                            child: Text('Accept'),
-                                          ),
-                                        if (_canEditSelection &&
-                                            (!_usesPublishedCompositionStaging ||
-                                                isPositionedPlayer))
-                                          const PopupMenuItem(
-                                            value: 'remind',
-                                            child: Text('Send reminder'),
-                                          ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
+                            ),
+                            if (role == 'reserve') AppBadge(text: 'RESERVE'),
+                            if (isPositionedPlayer) AppBadge(text: 'PLAYER'),
+                            if (isSelectedUnpositioned)
+                              AppBadge(text: 'SELECTED'),
+                            if (role == 'opponent') AppBadge(text: 'OPPONENT'),
+                            if (role == 'marker') AppBadge(text: 'MARKER'),
+                          ],
                         ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              placementLabel,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: isAllocated
+                                    ? Theme.of(context).colorScheme.onSurface
+                                    : Colors.red.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isSelectedUnpositioned
+                                  ? 'Selected — not awaiting acceptance'
+                                  : role == 'reserve'
+                                  ? 'Reserve — not awaiting player acceptance'
+                                  : acceptance == 'accepted'
+                                  ? 'Accepted'
+                                  : acceptance == 'declined'
+                                  ? 'Declined'
+                                  : 'Awaiting response',
+                            ),
+                            if (acceptedOnBehalf)
+                              Text(
+                                'Accepted by $acceptedByName',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            if (phone.isNotEmpty)
+                              Text(
+                                phone,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                          ],
+                        ),
+                        trailing:
+                            !_canModifySelection && !_canForceAcceptSelection
+                            ? null
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!isAllocated && _canModifySelection)
+                                    TextButton.icon(
+                                      onPressed: () =>
+                                          _returnUnallocatedMemberToPool(s),
+                                      icon: const Icon(Icons.undo, size: 18),
+                                      label: const Text('Return to pool'),
+                                    ),
+                                  PopupMenuButton<String>(
+                                    onSelected: (v) async {
+                                      if (v == 'player' ||
+                                          v == 'reserve' ||
+                                          v == 'opponent' ||
+                                          v == 'marker') {
+                                        if (_canModifySelection) {
+                                          await _setRole(memberId, v);
+                                        }
+                                      } else if (v == 'accept') {
+                                        if (_canForceAcceptSelection) {
+                                          await _acceptOnBehalf(memberId);
+                                        }
+                                      } else if (v == 'remind') {
+                                        await _sendAcceptanceReminders([s]);
+                                      } else if (v == 'return_to_pool') {
+                                        await _returnUnallocatedMemberToPool(s);
+                                      }
+                                    },
+                                    itemBuilder: (_) => [
+                                      if (_canEditSelection)
+                                        const PopupMenuItem(
+                                          value: 'player',
+                                          child: Text('Make player'),
+                                        ),
+                                      if (_canEditSelection &&
+                                          _isInternalFixture &&
+                                          _isPreselectFixture)
+                                        const PopupMenuItem(
+                                          value: 'opponent',
+                                          child: Text('Make opponent'),
+                                        ),
+                                      if (_canEditSelection &&
+                                          _isInternalFixture &&
+                                          _isPreselectFixture)
+                                        const PopupMenuItem(
+                                          value: 'marker',
+                                          child: Text('Make marker'),
+                                        ),
+                                      if (_canEditSelection &&
+                                          !(_isInternalFixture &&
+                                              _isPreselectFixture))
+                                        const PopupMenuItem(
+                                          value: 'reserve',
+                                          child: Text('Make reserve'),
+                                        ),
+                                      if (!isAllocated && _canModifySelection)
+                                        const PopupMenuItem(
+                                          value: 'return_to_pool',
+                                          child: Text('Return to pool'),
+                                        ),
+                                      if (_canForceAccept &&
+                                          (!_usesPublishedCompositionStaging ||
+                                              isPositionedPlayer))
+                                        const PopupMenuItem(
+                                          value: 'accept',
+                                          child: Text('Accept'),
+                                        ),
+                                      if (_canEditSelection &&
+                                          (!_usesPublishedCompositionStaging ||
+                                              isPositionedPlayer))
+                                        const PopupMenuItem(
+                                          value: 'remind',
+                                          child: Text('Send reminder'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                       );
                     }),
                   const SizedBox(height: 16),

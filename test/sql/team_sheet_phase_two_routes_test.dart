@@ -5,6 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 String source(String path) => File(path).readAsStringSync();
 
 void main() {
+  test('confirmed composition persists selected reserves', () {
+    final sql = source(
+      'supabase/migrations/20260831202430_confirm_published_team_changes.sql',
+    );
+
+    expect(sql, contains("lower(btrim(m.role))::public.selection_member_role"));
+    expect(sql, contains('is_selected = true'));
+    expect(sql, contains("'reserve'::public.selection_member_role"));
+  });
+
   test(
     'Team, RSVP and confirmed changes rebuild the authoritative attachment',
     () {
