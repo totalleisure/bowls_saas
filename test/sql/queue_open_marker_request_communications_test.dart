@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 const canonicalPath =
     'supabase/migrations/procedures/queue_open_marker_request_communications.sql';
 const migrationPath =
-    'supabase/migrations/20260904015007_exclude_fixture_participants_from_marker_requests.sql';
+    'supabase/migrations/20260904021810_exclude_fixture_participants_from_marker_requests.sql';
 
 String source(String path) =>
     File(path).readAsStringSync().replaceAll('\r\n', '\n');

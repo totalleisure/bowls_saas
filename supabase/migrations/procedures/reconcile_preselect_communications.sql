@@ -159,21 +159,35 @@ begin
       or fra.position between 101 and (100 + fr.players_per_rink)
       or fra.position = 201
     )
-    and not exists (
-      select 1
-      from public.notification_queue nq
-      where nq.fixture_id = p_fixture_id
-        and nq.team_selection_id = v_team_selection_id
-        and nq.event_type = 'fixture_selected'
-        and nq.target_member_profile_id = fra.member_profile_id
-        and (
-          nullif(nq.payload ->> 'position', '') is null
-          or nq.payload ->> 'position' = fra.position::text
+    and (
+      fra.member_profile_id = any(
+        coalesce(
+          string_to_array(
+            nullif(
+              current_setting('app.preselect_reselected_member_ids', true),
+              ''
+            ),
+            ','
+          )::uuid[],
+          array[]::uuid[]
         )
-        and (
-          nullif(nq.payload ->> 'team_no', '') is null
-          or nq.payload ->> 'team_no' = fr.fixture_rink_no::text
-        )
+      )
+      or not exists (
+        select 1
+        from public.notification_queue nq
+        where nq.fixture_id = p_fixture_id
+          and nq.team_selection_id = v_team_selection_id
+          and nq.event_type = 'fixture_selected'
+          and nq.target_member_profile_id = fra.member_profile_id
+          and (
+            nullif(nq.payload ->> 'position', '') is null
+            or nq.payload ->> 'position' = fra.position::text
+          )
+          and (
+            nullif(nq.payload ->> 'team_no', '') is null
+            or nq.payload ->> 'team_no' = fr.fixture_rink_no::text
+          )
+      )
     );
 
   get diagnostics v_fixture_selected_queued = row_count;

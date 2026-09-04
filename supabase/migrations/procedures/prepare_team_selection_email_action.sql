@@ -48,6 +48,18 @@ begin
            and fra.member_profile_id = tsm.member_profile_id
            and fra.position between 1 and fr.players_per_rink
        ) then 'team_selection'
+      when new.event_type = 'fixture_selected'
+       and tsm.role::text = 'opponent'
+       and exists (
+         select 1
+         from public.fixture_rink_assignments fra
+         join public.fixture_rinks fr
+           on fr.id = fra.fixture_rink_id
+          and fr.fixture_id = f.id
+         where fra.fixture_id = f.id
+           and fra.member_profile_id = tsm.member_profile_id
+           and fra.position between 101 and (100 + fr.players_per_rink)
+       ) then 'team_selection'
       else null
     end
   into
@@ -88,6 +100,19 @@ begin
          where fra.fixture_id = f.id
            and fra.member_profile_id = tsm.member_profile_id
            and fra.position = 201
+       ))
+      or
+      (new.event_type = 'fixture_selected'
+       and tsm.role::text = 'opponent'
+       and exists (
+         select 1
+         from public.fixture_rink_assignments fra
+         join public.fixture_rinks fr
+           on fr.id = fra.fixture_rink_id
+          and fr.fixture_id = f.id
+         where fra.fixture_id = f.id
+           and fra.member_profile_id = tsm.member_profile_id
+           and fra.position between 101 and (100 + fr.players_per_rink)
        ))
     )
     and f.cancelled_at is null
@@ -183,7 +208,7 @@ end;
 $function$;
 
 comment on function public.prepare_team_selection_email_action() is
-  'Adds modular Accept/Decline action blocks to active published-player, promoted-player and named-marker selection emails.';
+  'Adds modular Accept/Decline action blocks to active published-player, promoted-player, member-opponent and named-marker selection emails.';
 
 grant execute
 on function public.prepare_team_selection_email_action()
