@@ -42,6 +42,7 @@ Future<ClubAccess> loadClubAccess({
       .select('id, club_id, member_profile_id, role')
       .eq('member_profile_id', myProfileId)
       .eq('club_id', clubId)
+      .eq('is_active', true)
       .maybeSingle();
 
   final role = (membership?['role'] ?? '').toString().trim().toLowerCase();
