@@ -25,6 +25,9 @@ begin
   if not (
     public.can_manage_team_selection(p_fixture_id)
     or exists (
+      select 1 from public.app_superusers su where su.user_id = auth.uid()
+    )
+    or exists (
       select 1
       from public.fixtures f
       where f.id = p_fixture_id
@@ -288,4 +291,12 @@ begin
 
   return v_count;
 end;
-$function$
+$function$;
+
+revoke all on function
+  public.queue_team_publication_communications(uuid, uuid, boolean)
+from public, anon;
+
+grant execute on function
+  public.queue_team_publication_communications(uuid, uuid, boolean)
+to authenticated;

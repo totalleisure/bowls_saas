@@ -63,7 +63,7 @@ class FixtureReadinessService {
 
   Future<FixtureReadinessResult> check(String fixtureId) async {
     final result = await client.rpc(
-      'communications_fixture_status',
+      'communications_fixture_status_v2',
       params: {'p_fixture_id': fixtureId},
     );
 

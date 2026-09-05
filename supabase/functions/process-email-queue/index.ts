@@ -193,6 +193,36 @@ serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+  const authorization = req.headers.get("Authorization") ?? "";
+  const bearer = authorization.startsWith("Bearer ")
+    ? authorization.substring(7).trim()
+    : "";
+  const isServiceRoleCall = bearer === serviceRoleKey;
+
+  if (!isServiceRoleCall) {
+    if (!requestedEmailQueueId || !bearer) {
+      return json(403, {
+        error: "Superuser calls must identify one email queue row.",
+      });
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser(
+      bearer,
+    );
+    if (userError || !userData.user) {
+      return json(401, { error: "Invalid user session." });
+    }
+
+    const { data: superuser } = await supabase
+      .from("app_superusers")
+      .select("user_id")
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+    if (!superuser) {
+      return json(403, { error: "Superuser access required." });
+    }
+  }
+
   try {
     let emailQuery = supabase
       .from("email_queue")

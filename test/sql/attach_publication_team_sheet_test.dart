@@ -71,7 +71,6 @@ void main() {
       'supabase/migrations/procedures/attach_publication_team_sheet.sql',
       'supabase/migrations/procedures/validate_required_team_sheet_email_attachment.sql',
       'supabase/migrations/procedures/queue_post_publication_player_change.sql',
-      'supabase/migrations/procedures/reconcile_preselect_communications.sql',
     ];
 
     for (final path in canonicalPaths) {

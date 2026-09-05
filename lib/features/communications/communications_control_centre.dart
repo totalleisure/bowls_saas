@@ -98,12 +98,12 @@ class _CommunicationsControlCentreScreenState
 
       if (status == 'published') {
         final summaryResult = await client.rpc(
-          'communications_health_check',
+          'communications_health_check_v2',
           params: {'p_fixture_id': fixtureId},
         );
 
         final detailResult = await client.rpc(
-          'communications_health_detail',
+          'communications_health_detail_v2',
           params: {'p_fixture_id': fixtureId},
         );
 
@@ -148,8 +148,9 @@ class _CommunicationsControlCentreScreenState
       return;
     }
 
-    if (!await _isSuperuser()) {
-      if (!mounted) return;
+    final isSuperuser = await _isSuperuser();
+    if (!mounted) return;
+    if (!isSuperuser) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Superuser access required.')),
       );
@@ -161,9 +162,11 @@ class _CommunicationsControlCentreScreenState
       builder: (context) => AlertDialog(
         title: const Text('Repair communications?'),
         content: Text(
-          'This will rebuild publication notifications and email queue rows for:\n\n'
+          'This will add any missing publication communications and refresh '
+          'eligible unsent Team Sheet attachments for:\n\n'
           '${_selectedFixtureLabel ?? 'the selected fixture'}\n\n'
-          'It will not change the team selection itself.',
+          'It will not delete communication history, process a queue, send an '
+          'email, or change the team selection itself.',
         ),
         actions: [
           TextButton(
@@ -183,70 +186,34 @@ class _CommunicationsControlCentreScreenState
     setState(() => _busyRepair = true);
 
     try {
-      final fixtureId = _selectedFixtureId!;
-      final selectionMode = (_readiness?.diagnostics['selection_mode'] ?? '')
-          .toString()
-          .trim()
-          .toLowerCase();
+      final selectedRow = _selectedFixtureRow;
+      final fixture = selectedRow == null ? null : _fixtureMap(selectedRow);
+      final teamSelectionId = _teamSelectionId(selectedRow);
 
-      if (selectionMode == 'preselect') {
-        final result = await Supabase.instance.client.rpc(
-          'repair_preselect_communications',
-          params: {'p_fixture_id': fixtureId},
-        );
-
-        if (!mounted) return;
-
-        final data = result is Map
-            ? Map<String, dynamic>.from(result)
-            : <String, dynamic>{};
-
-        final inserted =
-            int.tryParse(data['notifications_inserted']?.toString() ?? '') ?? 0;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              inserted > 0
-                  ? 'Pre-Select communications repaired: '
-                        '$inserted notification(s) added.'
-                  : 'Pre-Select communications checked. '
-                        'No new notifications were required.',
-            ),
-          ),
-        );
-      } else {
-        final selectedRow = _selectedFixtureRow;
-        final fixture = selectedRow == null ? null : _fixtureMap(selectedRow);
-        final teamSelectionId = _teamSelectionId(selectedRow);
-
-        if (fixture == null || teamSelectionId == null) {
-          throw Exception(
-            'The selected fixture is missing publication details.',
-          );
-        }
-
-        final service = FixtureCommunicationsService(Supabase.instance.client);
-
-        final result = await service.repairPublicationCommunications(
-          fixture: fixture,
-          teamSelectionId: teamSelectionId,
-        );
-
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Communications rebuilt; revision '
-              '${result.attachmentResult.compositionVersion} attached to '
-              '${result.attachmentResult.notificationRowsUpdated} pending '
-              'notification(s) and '
-              '${result.attachmentResult.emailRowsUpdated} unsent email(s).',
-            ),
-          ),
-        );
+      if (fixture == null || teamSelectionId == null) {
+        throw Exception('The selected fixture is missing publication details.');
       }
+
+      final service = FixtureCommunicationsService(Supabase.instance.client);
+
+      final result = await service.repairPublicationCommunications(
+        fixture: fixture,
+        teamSelectionId: teamSelectionId,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Communications reconciled; revision '
+            '${result.attachmentResult.compositionVersion} attached to '
+            '${result.attachmentResult.notificationRowsUpdated} pending '
+            'notification(s) and '
+            '${result.attachmentResult.emailRowsUpdated} unsent email(s).',
+          ),
+        ),
+      );
 
       await _refreshSelectedFixture();
     } catch (e) {
@@ -460,11 +427,13 @@ class _CommunicationsControlCentreScreenState
   }
 
   Future<void> _continuePreparation() async {
+    final fixtureId = _selectedFixtureId;
+    if (fixtureId == null) return;
     setState(() => _busyContinuePreparation = true);
     try {
       await Supabase.instance.client.rpc(
-        'process_notification_queue',
-        params: {'p_limit': 200},
+        'process_fixture_notification_queue',
+        params: {'p_fixture_id': fixtureId},
       );
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -482,12 +451,11 @@ class _CommunicationsControlCentreScreenState
   }
 
   Future<void> _sendPendingEmails() async {
+    final fixtureId = _selectedFixtureId;
+    if (fixtureId == null) return;
     setState(() => _busySendEmails = true);
     try {
-      await Supabase.instance.client.functions.invoke(
-        'process-email-queue',
-        body: {'limit': 200},
-      );
+      await _sendFixturePendingEmails(fixtureId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pending emails processed.')),
@@ -511,24 +479,11 @@ class _CommunicationsControlCentreScreenState
 
     setState(() => _busyRetryFailedEmails = true);
     try {
-      await Supabase.instance.client
-          .from('email_queue')
-          .update({
-            'status': 'pending',
-            'attempts': 0,
-            'last_error': null,
-            'processing_started_at': null,
-            'locked_at': null,
-            'locked_by': null,
-          })
-          .eq('fixture_id', fixtureId)
-          .eq('team_selection_id', selectionId)
-          .eq('status', 'failed');
-
-      await Supabase.instance.client.functions.invoke(
-        'process-email-queue',
-        body: {'limit': 200},
+      await Supabase.instance.client.rpc(
+        'retry_fixture_failed_emails',
+        params: {'p_fixture_id': fixtureId},
       );
+      await _sendFixturePendingEmails(fixtureId);
 
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -543,6 +498,30 @@ class _CommunicationsControlCentreScreenState
     } finally {
       if (mounted) setState(() => _busyRetryFailedEmails = false);
     }
+  }
+
+  Future<int> _sendFixturePendingEmails(String fixtureId) async {
+    final rows = await Supabase.instance.client
+        .from('email_queue')
+        .select('id')
+        .eq('fixture_id', fixtureId)
+        .eq('status', 'pending')
+        .order('created_at');
+
+    var sent = 0;
+    for (final raw in List<Map<String, dynamic>>.from(rows)) {
+      final id = raw['id']?.toString();
+      if (id == null || id.isEmpty) continue;
+      final response = await Supabase.instance.client.functions.invoke(
+        'process-email-queue',
+        body: {'email_queue_id': id},
+      );
+      final data = response.data;
+      if (data is Map) {
+        sent += int.tryParse(data['processed']?.toString() ?? '') ?? 0;
+      }
+    }
+    return sent;
   }
 
   String _fixtureLabel(Map<String, dynamic> row) {
