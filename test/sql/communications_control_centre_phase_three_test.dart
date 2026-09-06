@@ -80,6 +80,47 @@ void main() {
     expect(dart, isNot(contains("'repair_preselect_communications'")));
   });
 
+  test('Flutter clients use only secured diagnostic RPCs', () {
+    final dartSources = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.dart'))
+        .map((file) => file.readAsStringSync())
+        .join('\n');
+
+    expect(dartSources, contains("'communications_fixture_status_v2'"));
+    expect(dartSources, contains("'communications_fixture_manager_status'"));
+    expect(dartSources, contains("'communications_health_check_v2'"));
+    expect(dartSources, contains("'communications_health_detail_v2'"));
+    expect(dartSources, isNot(contains("'communications_fixture_status'")));
+    expect(dartSources, isNot(contains("'communications_health_check'")));
+    expect(dartSources, isNot(contains("'communications_health_detail'")));
+    expect(
+      dartSources,
+      isNot(contains('communications_fixture_status_legacy')),
+    );
+  });
+
+  test('legacy status RPC is service-role-only', () {
+    final sql = source(
+      'supabase/migrations/20260906203354_restrict_legacy_communications_fixture_status.sql',
+    );
+    expect(
+      sql,
+      contains(
+        'revoke all on function public.communications_fixture_status_legacy(uuid)',
+      ),
+    );
+    expect(sql, contains('from public, anon, authenticated'));
+    expect(
+      sql,
+      contains(
+        'grant execute on function public.communications_fixture_status_legacy(uuid)',
+      ),
+    );
+    expect(sql, contains('to service_role'));
+  });
+
   test('health detail derives recipients from authoritative composition', () {
     final sql = source(
       'supabase/migrations/procedures/communications_health_detail_v2.sql',

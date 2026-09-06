@@ -2026,12 +2026,20 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Future<void> _loadFixtureReadiness() async {
     if (!mounted) return;
 
+    if (_isEventStyleFixture || !_canViewFixtureMaintenanceStatus) {
+      setState(() {
+        _readiness = null;
+        _loadingReadiness = false;
+      });
+      return;
+    }
+
     setState(() => _loadingReadiness = true);
 
     try {
       final result = await FixtureReadinessService(
         _client,
-      ).check(widget.fixtureId);
+      ).checkForFixtureManager(widget.fixtureId);
 
       if (!mounted) return;
       setState(() {

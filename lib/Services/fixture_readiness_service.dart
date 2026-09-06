@@ -62,8 +62,21 @@ class FixtureReadinessService {
   final SupabaseClient client;
 
   Future<FixtureReadinessResult> check(String fixtureId) async {
+    return _checkWithRpc('communications_fixture_status_v2', fixtureId);
+  }
+
+  Future<FixtureReadinessResult> checkForFixtureManager(
+    String fixtureId,
+  ) async {
+    return _checkWithRpc('communications_fixture_manager_status', fixtureId);
+  }
+
+  Future<FixtureReadinessResult> _checkWithRpc(
+    String rpcName,
+    String fixtureId,
+  ) async {
     final result = await client.rpc(
-      'communications_fixture_status_v2',
+      rpcName,
       params: {'p_fixture_id': fixtureId},
     );
 
