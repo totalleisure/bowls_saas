@@ -1,5 +1,23 @@
 # Bowls SaaS — Production Readiness
 
+## Minimum-version release order
+
+Minimum builds are configured independently for iOS, Android and Windows in
+`app_version_policy`. Never raise a platform's `minimum_build` merely because a
+package has been built.
+
+Use this order for every platform:
+
+1. Upload the new build to the approved tester distribution route.
+2. Confirm that testers can actually install or update to that build.
+3. Configure and verify that platform's `update_url` and `update_message`.
+4. Raise `latest_build`, then raise `minimum_build` only when the release is
+   intended to become mandatory.
+
+Only `https` and `itms-apps` update destinations are supported. Android APK and
+Windows installer links must use controlled HTTPS download locations. Test the
+Update Required screen on the target platform before enforcing the new minimum.
+
 ## Purpose
 
 This document defines the strategy and engineering standards required to move Bowls SaaS from active development into a stable production-grade system.
