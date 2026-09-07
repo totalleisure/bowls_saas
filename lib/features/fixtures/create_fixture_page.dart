@@ -4108,50 +4108,73 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                 playerNo++
               ) ...[
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(width: 80, child: Text('Player $playerNo')),
                     Expanded(
-                      child: OutlinedButton(
-                        onPressed: () async {
-                          await pickFixtureSlotMember(
-                            context: context,
-                            clubId: widget.clubId,
-                            title: 'Select Player $playerNo',
-                            bucket: 'player',
-                            key: _slotKey(teamNo, playerNo),
-                            selections: _playerSelections,
-                            fixtureId: null,
-                            useFixtureSection: true,
-                            initialSectionFilter:
-                                _memberPickerSectionFilterForCurrentFixture(),
-                            showError: _showSaveErrorDialog,
-                            memberAlreadySelectedElsewhere:
-                                _memberAlreadySelectedElsewhere,
-                          );
-
-                          if (mounted) setState(() {});
-                        },
-                        child: Text(
-                          _selectedMemberLabel(
-                            _playerSelections[_slotKey(teamNo, playerNo)],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Player $playerNo',
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
-                        ),
+                          const SizedBox(height: 3),
+                          OutlinedButton(
+                            onPressed: () async {
+                              await pickFixtureSlotMember(
+                                context: context,
+                                clubId: widget.clubId,
+                                title: 'Select Player $playerNo',
+                                bucket: 'player',
+                                key: _slotKey(teamNo, playerNo),
+                                selections: _playerSelections,
+                                fixtureId: null,
+                                useFixtureSection: true,
+                                initialSectionFilter:
+                                    _memberPickerSectionFilterForCurrentFixture(),
+                                showError: _showSaveErrorDialog,
+                                memberAlreadySelectedElsewhere:
+                                    _memberAlreadySelectedElsewhere,
+                              );
+
+                              if (mounted) setState(() {});
+                            },
+                            child: Text(
+                              _selectedMemberLabel(
+                                _playerSelections[_slotKey(teamNo, playerNo)],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    SizedBox(width: 90, child: Text('Opponent $playerNo')),
+                    const SizedBox(width: 6),
                     Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => _chooseOpponentForSlot(
-                          teamNo: teamNo,
-                          playerNo: playerNo,
-                        ),
-                        child: Text(
-                          _selectedOpponentLabel(_slotKey(teamNo, playerNo)),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Opponent $playerNo',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 3),
+                          OutlinedButton(
+                            onPressed: () => _chooseOpponentForSlot(
+                              teamNo: teamNo,
+                              playerNo: playerNo,
+                            ),
+                            child: Text(
+                              _selectedOpponentLabel(
+                                _slotKey(teamNo, playerNo),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
