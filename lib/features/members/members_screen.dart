@@ -94,15 +94,19 @@ class _MembersScreenState extends State<MembersScreen> {
   }
 
   String _roleLabel(String role) {
-    switch (role) {
+    switch (role.toLowerCase()) {
       case 'admin':
         return 'Admin';
       case 'selector':
         return 'Selector';
       case 'captain':
         return 'Captain';
-      default:
+      case 'guest':
+        return 'Guest';
+      case 'member':
         return 'Member';
+      default:
+        return role.isEmpty ? 'Unknown' : role;
     }
   }
 
@@ -567,7 +571,7 @@ class _MembersScreenState extends State<MembersScreen> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '${_filteredRows.length} member${_filteredRows.length == 1 ? '' : 's'}',
+                      '${_filteredRows.length} ${_filteredRows.length == 1 ? 'person' : 'people'}',
                       style: Theme.of(
                         context,
                       ).textTheme.bodySmall?.copyWith(color: Colors.grey[700]),
