@@ -1164,6 +1164,27 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         debugPrint('MANAGE_TEAM branch: club_memberships');
       }
 
+      final eligibleParticipationRows = await client.rpc(
+        'get_club_member_picker_list',
+        params: {
+          'p_club_id': clubId,
+          'p_fixture_id': fixtureId,
+          'p_use_fixture_section': true,
+        },
+      );
+      final eligibleParticipationIds = (eligibleParticipationRows as List)
+          .map((row) => (row as Map<String, dynamic>)['member_profile_id'])
+          .whereType<String>()
+          .toSet();
+
+      candidates = candidates
+          .where(
+            (candidate) => eligibleParticipationIds.contains(
+              candidate['member_profile_id']?.toString(),
+            ),
+          )
+          .toList();
+
       // 2) Load RSVP overlay (optional)
       final Map<String, String> rsvpByProfileId = {};
 
@@ -1603,18 +1624,14 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         throw Exception('Team fixture has no team assigned.');
       }
 
-      final payload = selectedIds
-          .map(
-            (id) => {
-              'team_id': teamId,
-              'member_profile_id': id,
-              'is_active': true,
-            },
-          )
-          .toList();
-
       inserted = List<Map<String, dynamic>>.from(
-        await _client.from('team_members').insert(payload).select(),
+        await _client.rpc(
+          'add_team_members_to_pool',
+          params: {
+            'p_team_id': teamId,
+            'p_member_profile_ids': selectedIds.toList(),
+          },
+        ),
       );
     } else if (_isPreselectFixture) {
       if (_selectionId == null || _selectionId!.isEmpty) {

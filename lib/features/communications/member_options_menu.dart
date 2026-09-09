@@ -10,6 +10,7 @@ Future<void> showMemberOptionsMenu({
   required String clubId,
   required String clubName,
   required Future<void> Function() openMembershipDetails,
+  bool allowVolunteerLists = true,
 }) async {
   final action = await showModalBottomSheet<MemberOptionsAction>(
     context: context,
@@ -38,16 +39,17 @@ Future<void> showMemberOptionsMenu({
                 sheetContext,
               ).pop(MemberOptionsAction.accountSecurity),
             ),
-            ListTile(
-              leading: const Icon(Icons.groups_outlined),
-              title: const Text('Volunteer Lists'),
-              subtitle: const Text(
-                'Join or leave club mailing and volunteer lists',
+            if (allowVolunteerLists)
+              ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: const Text('Volunteer Lists'),
+                subtitle: const Text(
+                  'Join or leave club mailing and volunteer lists',
+                ),
+                onTap: () => Navigator.of(
+                  sheetContext,
+                ).pop(MemberOptionsAction.volunteerLists),
               ),
-              onTap: () => Navigator.of(
-                sheetContext,
-              ).pop(MemberOptionsAction.volunteerLists),
-            ),
           ],
         ),
       );

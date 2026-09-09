@@ -667,6 +667,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       context: context,
       clubId: widget.clubId,
       clubName: widget.clubName,
+      allowVolunteerLists: !_isGuest,
       openMembershipDetails: () async {
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -914,10 +915,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             .select('name, primary_color_hex, secondary_color_hex')
             .eq('id', widget.clubId)
             .single(),
-        client
-            .from('venues')
-            .select('id, name')
-            .eq('club_id', widget.clubId),
+        client.from('venues').select('id, name').eq('club_id', widget.clubId),
         client
             .from('green_areas')
             .select('id, name')
