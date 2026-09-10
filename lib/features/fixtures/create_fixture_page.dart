@@ -15,6 +15,7 @@ import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
 import 'fixture_details_page.dart';
 import 'repeat_fixture_planner_page.dart';
+import '../clubs/club_access.dart';
 
 enum FixtureLocationType { home, away }
 
@@ -75,6 +76,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   bool _isFixtureCreator = false;
   bool _isFixtureCaptain = false;
   bool _isFixtureViceCaptain = false;
+  bool _canWrite = false;
 
   bool _loadingPermissions = true;
 
@@ -205,8 +207,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     });
 
     try {
-      await _loadVenues();
       await _loadUserPermissions();
+      if (!_canWrite) return;
+
+      await _loadVenues();
       await _loadFixtureTypes();
       await _loadTeams();
 
@@ -312,54 +316,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   Future<void> _loadUserPermissions() async {
-    final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
+    final access = await loadClubAccess(clubId: widget.clubId, client: _client);
 
-    if (user == null) {
-      throw Exception('No logged-in user');
-    }
-
-    final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
-
-    // 1) Global superuser
-    final superuserRow = await supabase
-        .from('app_superusers')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-    _isSuperuser = superuserRow != null;
-
-    // 2) Club membership for this club, using member_profile_id
-    final membership = await supabase
-        .from('club_memberships')
-        .select('id, club_id, member_profile_id, role')
-        .eq('member_profile_id', myProfileId)
-        .eq('club_id', widget.clubId)
-        .maybeSingle();
-
-    debugPrint('AUTH user.id       = ${user.id}');
-    debugPrint('PROFILE myProfileId = $myProfileId');
-    debugPrint('MEMBERSHIP row      = $membership');
-
-    if (membership != null) {
-      _currentMemberId = myProfileId;
-
-      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
-
-      debugPrint('MEMBERSHIP role raw = ${membership['role']}');
-      debugPrint('MEMBERSHIP role norm= $role');
-
-      _isClubAdmin = role == 'admin';
-      _isSelector = role == 'selector';
-
-      _isFixtureCreator = _isSuperuser || _isClubAdmin || _isSelector;
-    } else {
-      _currentMemberId = myProfileId;
-      _isClubAdmin = false;
-      _isSelector = false;
-      _isFixtureCreator = _isSuperuser;
-    }
+    _currentMemberId = access.currentMemberId;
+    _isSuperuser = access.isSuperuser;
+    _isClubAdmin = access.isClubAdmin;
+    _isSelector = access.isSelector;
+    _isFixtureCreator = access.canWrite && access.canCreateFixtures;
+    _canWrite = access.canWrite;
 
     debugPrint(
       'Dashboard perms: super=$_isSuperuser '
@@ -3719,6 +3683,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   Future<void> _save() async {
+    if (!_canWrite) return;
+
     if (_loading) {
       debugPrint('SAVE: ignored because already loading');
       return;
@@ -4709,6 +4675,21 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_loading && !_canWrite) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Fixture booking')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'This membership is view-only. Fixture booking is not available.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     final startLabel = _startAtLocal == null
         ? 'Start Date & Time'
         : formatClubDateTime(_startAtLocal!);

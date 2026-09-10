@@ -47,20 +47,23 @@ begin
     v_is_superuser
     or exists (
       select 1
-      from public.fixtures f
-      where f.id = p_fixture_id
-        and (
-          f.captain_member_profile_id = v_actor_member_profile_id
-          or f.vice_captain_member_profile_id = v_actor_member_profile_id
-        )
-    )
-    or exists (
-      select 1
       from public.club_memberships cm
       where cm.club_id = v_club_id
         and cm.member_profile_id = v_actor_member_profile_id
         and cm.is_active = true
-        and lower(cm.role::text) in ('admin', 'selector')
+        and lower(cm.role::text) <> 'guest'
+        and (
+          lower(cm.role::text) in ('admin', 'selector')
+          or exists (
+            select 1
+            from public.fixtures f
+            where f.id = p_fixture_id
+              and v_actor_member_profile_id in (
+                f.captain_member_profile_id,
+                f.vice_captain_member_profile_id
+              )
+          )
+        )
     );
 
   if not v_has_permission then
@@ -100,6 +103,7 @@ begin
     on cm.club_id = v_club_id
    and cm.member_profile_id = mlm.member_profile_id
    and cm.is_active = true
+   and lower(cm.role::text) <> 'guest'
   where mlm.mailing_list_id = v_marker_mailing_list_id
     and mlm.is_active = true
     and not exists (
@@ -190,6 +194,7 @@ begin
     on cm.club_id = f.club_id
    and cm.member_profile_id = mlm.member_profile_id
    and cm.is_active = true
+   and lower(cm.role::text) <> 'guest'
 
   where fr.fixture_id = p_fixture_id
     and mr.status = 'open'

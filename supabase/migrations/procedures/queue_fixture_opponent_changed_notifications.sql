@@ -58,6 +58,10 @@ begin
     raise exception 'Fixture % was not found', p_fixture_id;
   end if;
 
+  if not public.can_manage_fixture(p_fixture_id) then
+    raise exception 'You do not have permission to queue opponent-change notifications.';
+  end if;
+
   /*
    * Venue names before and after the change.
    */

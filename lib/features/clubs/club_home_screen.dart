@@ -15,6 +15,7 @@ import '../../core/utils/date_format.dart';
 import '../competitions/screens/competition_type_list_screen.dart';
 import '../admin/queue_admin_screen.dart';
 import '../communications/communications_control_centre.dart';
+import 'club_access.dart';
 
 class ClubHomeScreen extends StatefulWidget {
   final String clubId;
@@ -33,33 +34,31 @@ class ClubHomeScreen extends StatefulWidget {
 class _ClubHomeScreenState extends State<ClubHomeScreen> {
   bool _loadingPermissions = true;
   bool _isSuperuser = false;
+  bool _canWrite = false;
 
   Future<void> _loadPermissions() async {
     final client = Supabase.instance.client;
-    final user = client.auth.currentUser;
+    try {
+      final access = await loadClubAccess(
+        clubId: widget.clubId,
+        client: client,
+      );
 
-    if (user == null) {
-      if (mounted) {
-        setState(() {
-          _isSuperuser = false;
-          _loadingPermissions = false;
-        });
-      }
-      return;
+      if (!mounted) return;
+
+      setState(() {
+        _isSuperuser = access.isSuperuser;
+        _canWrite = access.canWrite;
+        _loadingPermissions = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isSuperuser = false;
+        _canWrite = false;
+        _loadingPermissions = false;
+      });
     }
-
-    final row = await client
-        .from('app_superusers')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-    if (!mounted) return;
-
-    setState(() {
-      _isSuperuser = row != null;
-      _loadingPermissions = false;
-    });
   }
 
   @override
@@ -70,6 +69,28 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadingPermissions) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.clubName)),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_canWrite) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.clubName)),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'This membership is view-only. Processing controls are not available.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text(widget.clubName)),
       body: ListView(

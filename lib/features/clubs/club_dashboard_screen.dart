@@ -21,6 +21,7 @@ import '../../core/utils/date_format.dart';
 import '../../models/dashboard_fixture_filter.dart';
 import '../../services/device_location_service.dart';
 import '../../services/venue_actions_service.dart';
+import 'club_access.dart';
 
 class ClubDashboardScreen extends StatefulWidget {
   final String clubId;
@@ -45,6 +46,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
   bool _hasClubMembership = false;
   bool _isGuest = false;
+  bool _canWrite = false;
 
   String? _currentMemberId;
   String? _mySexAtBirth;
@@ -261,7 +263,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   bool get _canRsvpFromDashboard {
-    return _hasClubMembership && !_isGuest;
+    return _hasClubMembership && _canWrite;
   }
 
   bool _isEligibleForFixtureSection(Map<String, dynamic> fixture) {
@@ -667,7 +669,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       context: context,
       clubId: widget.clubId,
       clubName: widget.clubName,
-      allowVolunteerLists: !_isGuest,
+      allowVolunteerLists: _canWrite,
       openMembershipDetails: () async {
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -793,65 +795,29 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       throw Exception('No logged-in user');
     }
 
-    final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
-
-    // 1) Global superuser
-    final permissionRows = await Future.wait<dynamic>([
-      supabase
-          .from('app_superusers')
-          .select('user_id')
-          .eq('user_id', user.id)
-          .maybeSingle(),
-      supabase
-          .from('club_memberships')
-          .select('id, club_id, member_profile_id, role')
-          .eq('member_profile_id', myProfileId)
-          .eq('club_id', widget.clubId)
-          .maybeSingle(),
-      supabase
-          .from('member_profiles')
-          .select('sex_at_birth')
-          .eq('id', myProfileId)
-          .maybeSingle(),
-    ]);
-
-    final superuserRow = permissionRows[0];
-
-    _isSuperuser = superuserRow != null;
-
-    // 2) Club membership for this club, using member_profile_id
-    final membership = permissionRows[1] as Map<String, dynamic>?;
-    final profile = permissionRows[2] as Map<String, dynamic>?;
+    final access = await loadClubAccess(
+      clubId: widget.clubId,
+      client: supabase,
+    );
+    final myProfileId = access.currentMemberId;
+    final profile = await supabase
+        .from('member_profiles')
+        .select('sex_at_birth')
+        .eq('id', myProfileId)
+        .maybeSingle();
 
     _mySexAtBirth = profile?['sex_at_birth']?.toString().trim().toLowerCase();
 
     debugPrint('AUTH user.id       = ${user.id}');
     debugPrint('PROFILE myProfileId = $myProfileId');
-    debugPrint('MEMBERSHIP row      = $membership');
-
-    if (membership != null) {
-      _hasClubMembership = true;
-      _currentMemberId = myProfileId;
-
-      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
-
-      _isGuest = role == 'guest';
-
-      debugPrint('MEMBERSHIP role raw = ${membership['role']}');
-      debugPrint('MEMBERSHIP role norm= $role');
-
-      _isClubAdmin = role == 'admin';
-      _isSelector = role == 'selector';
-
-      _isFixtureCreator = _isSuperuser || _isClubAdmin || _isSelector;
-    } else {
-      _currentMemberId = myProfileId;
-      _isClubAdmin = false;
-      _isSelector = false;
-      _isFixtureCreator = _isSuperuser;
-      _hasClubMembership = false;
-      _isGuest = false;
-    }
+    _currentMemberId = myProfileId;
+    _isSuperuser = access.isSuperuser;
+    _isClubAdmin = access.isClubAdmin;
+    _isSelector = access.isSelector;
+    _isFixtureCreator = access.canWrite && access.canCreateFixtures;
+    _hasClubMembership = access.hasActiveMembership;
+    _isGuest = access.membershipRole == 'guest';
+    _canWrite = access.canWrite;
 
     debugPrint(
       'Dashboard perms: super=$_isSuperuser '
@@ -1357,6 +1323,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   Future<void> _setTeamAvailability(String fixtureId, String status) async {
+    if (!_canRsvpFromDashboard) return;
+
     try {
       final client = Supabase.instance.client;
       final myId = (await client.rpc('my_member_profile_id')).toString();
@@ -1941,7 +1909,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
 
     final canAccessAdmin =
-        _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
+        _canWrite &&
+        (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator);
 
     //    debugPrint('Dashboard build filter: $_filter');
     //    debugPrint('Dashboard build filter isDefault: ${_filter.isDefault}');
@@ -1991,25 +1960,26 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             icon: const Icon(Icons.info_outline),
             onPressed: _showNextFixturePopup,
           ),
-          IconButton(
-            tooltip: 'My fixture bookings',
-            icon: const Icon(Icons.event_available),
-            onPressed: () async {
-              final changed = await Navigator.of(context).push<bool>(
-                MaterialPageRoute(
-                  builder: (_) => FixturesScreen(
-                    clubId: widget.clubId,
-                    clubName: widget.clubName,
-                    memberBookingsOnly: true,
+          if (_canWrite)
+            IconButton(
+              tooltip: 'My fixture bookings',
+              icon: const Icon(Icons.event_available),
+              onPressed: () async {
+                final changed = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => FixturesScreen(
+                      clubId: widget.clubId,
+                      clubName: widget.clubName,
+                      memberBookingsOnly: true,
+                    ),
                   ),
-                ),
-              );
+                );
 
-              if (changed == true) {
-                await _load();
-              }
-            },
-          ),
+                if (changed == true) {
+                  await _load();
+                }
+              },
+            ),
 
           IconButton(
             icon: const Icon(Icons.groups),

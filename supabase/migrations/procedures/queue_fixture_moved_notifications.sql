@@ -11,6 +11,10 @@ as $function$
 declare
   v_count int := 0;
 begin
+  if not public.can_manage_fixture(p_fixture_id) then
+    raise exception 'You do not have permission to queue fixture-move notifications.';
+  end if;
+
   insert into public.notification_queue (
     target_member_profile_id,
     event_type,
@@ -68,9 +72,15 @@ begin
 end;
 $function$;
 
+revoke all on function public.queue_fixture_moved_notifications(
+  uuid,
+  timestamptz,
+  timestamptz
+)
+from public, anon;
 grant execute on function public.queue_fixture_moved_notifications(
   uuid,
   timestamptz,
   timestamptz
 )
-to authenticated;
+to authenticated, service_role;

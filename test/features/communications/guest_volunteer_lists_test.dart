@@ -11,7 +11,8 @@ void main() {
       'lib/features/communications/member_options_menu.dart',
     ).readAsStringSync();
 
-    expect(dashboard, contains('allowVolunteerLists: !_isGuest'));
+    expect(dashboard, contains('allowVolunteerLists: _canWrite'));
+    expect(dashboard, contains('_canWrite = access.canWrite'));
     expect(menu, contains('if (allowVolunteerLists)'));
   });
 

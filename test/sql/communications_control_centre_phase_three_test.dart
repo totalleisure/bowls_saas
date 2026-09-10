@@ -157,6 +157,12 @@ void main() {
                 ) +
                 source(
                   'supabase/migrations/20260905141607_preserve_valid_historical_team_sheet_revisions.sql',
+                ) +
+                source(
+                  'supabase/migrations/20260909234733_harden_guest_marker_and_mailing_list_participation.sql',
+                ) +
+                source(
+                  'supabase/migrations/20260910022400_revoke_historical_guest_fixture_authority.sql',
                 ))
             .replaceAll('\r\n', '\n');
     const canonical = <String>[

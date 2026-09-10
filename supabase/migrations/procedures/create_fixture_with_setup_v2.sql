@@ -227,10 +227,11 @@ begin
         where cm.club_id = p_club_id
           and cm.member_profile_id = leader.member_profile_id
           and cm.is_active = true
+          and lower(cm.role::text) <> 'guest'
       )
   ) then
     raise exception
-      'The captain/organiser and vice/deputy must be active club members.';
+      'The captain/organiser and vice/deputy must be active non-Guest club members.';
   end if;
 
   if p_team_id is not null
@@ -432,10 +433,11 @@ begin
           and cm.member_profile_id =
             (a.item->>'member_profile_id')::uuid
           and cm.is_active = true
+          and lower(cm.role::text) <> 'guest'
       )
   ) then
     raise exception
-      'One or more rink assignments are not active members of this club.';
+      'One or more rink assignments are not active non-Guest members of this club.';
   end if;
 
   if exists (
@@ -452,10 +454,11 @@ begin
           and cm.member_profile_id =
             (m.item->>'member_profile_id')::uuid
           and cm.is_active = true
+          and lower(cm.role::text) <> 'guest'
       )
   ) then
     raise exception
-      'One or more selected people are not active members of this club.';
+      'One or more selected people are not active non-Guest members of this club.';
   end if;
 
   if v_is_ordinary_member_booking then

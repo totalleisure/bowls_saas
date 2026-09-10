@@ -22,21 +22,7 @@ begin
     raise exception 'Not signed in.';
   end if;
 
-  if not (
-    public.can_manage_team_selection(p_fixture_id)
-    or exists (
-      select 1 from public.app_superusers su where su.user_id = auth.uid()
-    )
-    or exists (
-      select 1
-      from public.fixtures f
-      where f.id = p_fixture_id
-        and (
-          f.captain_member_profile_id = v_current_member
-          or f.vice_captain_member_profile_id = v_current_member
-        )
-    )
-  ) then
+  if not public.can_manage_team_selection(p_fixture_id) then
     raise exception 'You do not have permission to queue team communications.';
   end if;
 

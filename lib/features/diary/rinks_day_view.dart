@@ -6,6 +6,7 @@ import '../../core/utils/date_format.dart';
 
 import '../fixtures/create_fixture_page.dart';
 import '../fixtures/fixture_details_page.dart';
+import '../clubs/club_access.dart';
 
 /// Primary operational Rinks Day view.
 ///
@@ -62,14 +63,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   bool _hasClubMembership = false;
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
-  bool _isGuest = false;
+  bool _isReadOnly = true;
+  bool _canWrite = false;
 
   bool get _canBookFixtureFromRinks {
-    if (_isSuperuser) return true;
-    if (!_hasClubMembership) return false;
-    if (_isGuest) return false;
-
-    return true;
+    return _canWrite && (_isSuperuser || _hasClubMembership);
   }
 
   bool get _canBookMaintenanceFromRinks {
@@ -281,51 +279,25 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
     _hasClubMembership = false;
     _isSuperuser = false;
     _isClubAdmin = false;
-    _isGuest = false;
+    _isReadOnly = true;
+    _canWrite = false;
 
     final user = _client.auth.currentUser;
     if (user == null) return;
 
     try {
-      final profileIdResult = await _client.rpc('my_member_profile_id');
-      final profileId = profileIdResult?.toString();
+      final access = await loadClubAccess(
+        clubId: widget.clubId,
+        client: _client,
+      );
 
-      if (profileId == null || profileId.isEmpty || profileId == 'null') {
-        return;
-      }
-
-      _myProfileId = profileId;
-
-      try {
-        final superuserRow = await _client
-            .from('app_superusers')
-            .select('user_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-        _isSuperuser = superuserRow != null;
-      } catch (_) {
-        _isSuperuser = false;
-      }
-
-      final membership = await _client
-          .from('club_memberships')
-          .select('id, role')
-          .eq('member_profile_id', profileId)
-          .eq('club_id', widget.clubId)
-          .maybeSingle();
-
-      if (membership == null) return;
-
-      _hasClubMembership = true;
-
-      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
-
-      _membershipRole = role;
-      _isClubAdmin =
-          role == 'admin' || role == 'club_admin' || role == 'club admin';
-
-      _isGuest = role == 'guest';
+      _myProfileId = access.currentMemberId;
+      _membershipRole = access.membershipRole;
+      _hasClubMembership = access.hasActiveMembership;
+      _isSuperuser = access.isSuperuser;
+      _isClubAdmin = access.isClubAdmin;
+      _isReadOnly = access.isReadOnly;
+      _canWrite = access.canWrite;
     } catch (e) {
       debugPrint('Could not load rinks permissions: $e');
     }
@@ -1257,6 +1229,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   }
 
   void _bookFixtureFromSlot(RinkEmptySlot slot) {
+    if (!_canBookFixtureFromRinks) return;
+
     final green = _selectedGreen;
 
     if (green == null) {
@@ -1316,6 +1290,8 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   }
 
   Future<void> _bookMaintenanceFromSlot(RinkEmptySlot slot) async {
+    if (!_canBookMaintenanceFromRinks || !_canWrite) return;
+
     final green = _selectedGreen;
 
     if (green == null) {
@@ -1965,7 +1941,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            _isGuest
+                            _isReadOnly
                                 ? 'Guests can view rink availability, but cannot make bookings.'
                                 : 'You do not currently have permission to book from this view.',
                             style: const TextStyle(

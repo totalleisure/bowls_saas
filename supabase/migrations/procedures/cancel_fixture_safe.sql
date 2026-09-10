@@ -67,7 +67,7 @@ begin
     where su.user_id = auth.uid()
   ) into v_is_super;
 
-  if not (v_is_admin or v_is_super or v_is_captain_or_vice) then
+  if not public.can_manage_fixture(p_fixture_id) then
     raise exception 'You do not have permission to cancel this fixture.';
   end if;
 

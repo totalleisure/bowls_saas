@@ -92,6 +92,7 @@ begin
       and mlm.is_active = true
     join public.club_memberships cm on cm.club_id = f.club_id
       and cm.member_profile_id = mlm.member_profile_id and cm.is_active = true
+      and lower(cm.role::text) <> 'guest'
     where v_selection_mode = 'preselect'
       and fr.fixture_id = p_fixture_id and mr.status = 'open'
       and not exists (

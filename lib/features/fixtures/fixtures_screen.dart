@@ -13,6 +13,7 @@ import '../../data/repositories/fixtures_repository.dart';
 import 'create_fixture_page.dart';
 import 'fixture_details_page.dart';
 import 'fixture_display.dart';
+import '../clubs/club_access.dart';
 
 class FixturesScreen extends StatefulWidget {
   final String clubId;
@@ -48,6 +49,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
   bool _isSelector = false;
   bool _isFixtureCreator = false;
   bool _loadingPermissions = true;
+  bool _canWrite = false;
 
   bool get _canSeeAllMemberFixtures =>
       _isSuperuser || _isClubAdmin || _isSelector;
@@ -64,54 +66,14 @@ class _FixturesScreenState extends State<FixturesScreen> {
   }
 
   Future<void> _loadUserPermissions() async {
-    final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
+    final access = await loadClubAccess(clubId: widget.clubId, client: _client);
 
-    if (user == null) {
-      throw Exception('No logged-in user');
-    }
-
-    final myProfileId = (await supabase.rpc('my_member_profile_id')).toString();
-
-    // 1) Global superuser
-    final superuserRow = await supabase
-        .from('app_superusers')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-    _isSuperuser = superuserRow != null;
-
-    // 2) Club membership for this club, using member_profile_id
-    final membership = await supabase
-        .from('club_memberships')
-        .select('id, club_id, member_profile_id, role')
-        .eq('member_profile_id', myProfileId)
-        .eq('club_id', widget.clubId)
-        .maybeSingle();
-
-    debugPrint('AUTH user.id       = ${user.id}');
-    debugPrint('PROFILE myProfileId = $myProfileId');
-    debugPrint('MEMBERSHIP row      = $membership');
-
-    if (membership != null) {
-      _currentMemberId = myProfileId;
-
-      final role = (membership['role'] ?? '').toString().trim().toLowerCase();
-
-      debugPrint('MEMBERSHIP role raw = ${membership['role']}');
-      debugPrint('MEMBERSHIP role norm= $role');
-
-      _isClubAdmin = role == 'admin';
-      _isSelector = role == 'selector';
-
-      _isFixtureCreator = _isSuperuser || _isClubAdmin || _isSelector;
-    } else {
-      _currentMemberId = myProfileId;
-      _isClubAdmin = false;
-      _isSelector = false;
-      _isFixtureCreator = _isSuperuser;
-    }
+    _currentMemberId = access.currentMemberId;
+    _isSuperuser = access.isSuperuser;
+    _isClubAdmin = access.isClubAdmin;
+    _isSelector = access.isSelector;
+    _isFixtureCreator = access.canWrite && access.canCreateFixtures;
+    _canWrite = access.canWrite;
 
     debugPrint(
       'Dashboard perms: super=$_isSuperuser '
@@ -211,6 +173,8 @@ class _FixturesScreenState extends State<FixturesScreen> {
   }
 
   void _createFixture() async {
+    if (!_canWrite) return;
+
     final created = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -253,10 +217,12 @@ class _FixturesScreenState extends State<FixturesScreen> {
         ],
       ),
 
-      floatingActionButton: FloatingActionButton(
-        onPressed: _createFixture,
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: _canWrite
+          ? FloatingActionButton(
+              onPressed: _createFixture,
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -267,7 +233,11 @@ class _FixturesScreenState extends State<FixturesScreen> {
 
   Widget _buildGroupedFixtureList() {
     if (_fixtures.isEmpty) {
-      return const Center(child: Text('No fixtures yet. Tap + to create one.'));
+      return Center(
+        child: Text(
+          _canWrite ? 'No fixtures yet. Tap + to create one.' : 'No fixtures.',
+        ),
+      );
     }
 
     final Map<String, List<Map<String, dynamic>>> groups = {};

@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 const canonicalPath =
     'supabase/migrations/procedures/queue_open_marker_request_communications.sql';
 const migrationPath =
-    'supabase/migrations/20260904021810_exclude_fixture_participants_from_marker_requests.sql';
+    'supabase/migrations/20260909234733_harden_guest_marker_and_mailing_list_participation.sql';
 
 String source(String path) =>
     File(path).readAsStringSync().replaceAll('\r\n', '\n');
@@ -93,8 +93,11 @@ void main() {
     );
   });
 
-  test('migration and canonical function definitions are identical', () {
-    expect(source(migrationPath), source(canonicalPath));
+  test('Stage 3 migration starts with the canonical function definition', () {
+    final migration = source(migrationPath);
+    final canonical = source(canonicalPath).trimRight();
+
+    expect(migration, startsWith('$canonical\n\n'));
   });
 
   group('marker recipient behaviour', () {

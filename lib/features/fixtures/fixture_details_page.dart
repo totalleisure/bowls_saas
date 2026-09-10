@@ -55,9 +55,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _isClubAdmin = false;
   bool _isSelector = false;
   bool _isFixtureCreator = false;
+  bool _canWrite = false;
 
   bool _hasClubMembership = false;
-  bool _isGuest = false;
   String? _mySexAtBirth;
 
   bool _loadingPermissions = true;
@@ -163,12 +163,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       _selectedCompetitionType?['uses_rinks'] == false;
 
   bool get _canManageEventAttendance =>
+      _canWrite &&
       _isEventStyleFixture &&
       (_canEditAdminFixtureDetails ||
           _isFixtureCaptain ||
           _isFixtureViceCaptain);
 
   bool get _canEditEventInformation =>
+      _canWrite &&
       _isEventStyleFixture &&
       (_isSuperuser ||
           _isClubAdmin ||
@@ -178,13 +180,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           _isFixtureViceCaptain);
 
   bool get _canViewFixtureMaintenanceStatus {
-    return _isSuperuser ||
-        _isClubAdmin ||
-        _isSelector ||
-        _isFixtureCaptain ||
-        _isFixtureViceCaptain ||
-        _canManageTeam ||
-        _canEditFixtureOperationalDetails;
+    return _canWrite &&
+        (_isSuperuser ||
+            _isClubAdmin ||
+            _isSelector ||
+            _isFixtureCaptain ||
+            _isFixtureViceCaptain ||
+            _canManageTeam ||
+            _canEditFixtureOperationalDetails);
   }
 
   String get _fixtureMessageSenderName {
@@ -239,19 +242,22 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _canEditAdminFixtureDetails =>
-      _isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator;
+      _canWrite &&
+      (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator);
 
   bool get _canEditFixtureOperationalDetails {
     final isCancelled = _fixture?['cancelled_at'] != null;
 
-    return !isCancelled &&
+    return _canWrite &&
+        !isCancelled &&
         (_canEditAdminFixtureDetails ||
             _isFixtureCaptain ||
             _isFixtureViceCaptain);
   }
 
   bool get _canMaintainMemberPreselectFixture {
-    return _usesSimpleBookingWorkflow &&
+    return _canWrite &&
+        _usesSimpleBookingWorkflow &&
         (_canUseFullAdminTools || _canManageTeam || _isFixtureCaptain);
   }
 
@@ -290,9 +296,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     if (isCancelled) return false;
 
-    return _canEditAdminFixtureDetails ||
-        _canEditFixtureOperationalDetails ||
-        _canMaintainMemberPreselectFixture;
+    return _canWrite &&
+        (_canEditAdminFixtureDetails ||
+            _canEditFixtureOperationalDetails ||
+            _canMaintainMemberPreselectFixture);
   }
 
   bool get _isFixtureCaptain {
@@ -313,7 +320,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _canUseFullAdminTools {
-    return _isSuper || _isAdmin;
+    return _canWrite && (_isSuper || _isAdmin);
   }
 
   bool _canSelectBookedRink(Map<String, dynamic> rink) {
@@ -419,15 +426,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _canRsvpToFixture {
-    return _hasClubMembership && !_isGuest;
+    return _canWrite && _hasClubMembership;
   }
 
   bool get _canEditFixtureLabel {
-    return _isSuperuser ||
-        _isClubAdmin ||
-        _isSelector ||
-        _isFixtureCaptain ||
-        _isFixtureViceCaptain;
+    return _canWrite &&
+        (_isSuperuser ||
+            _isClubAdmin ||
+            _isSelector ||
+            _isFixtureCaptain ||
+            _isFixtureViceCaptain);
   }
 
   String _normaliseDressCode(dynamic value) {
@@ -521,7 +529,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canCancelFixture {
     final isCancelled = _fixture?['cancelled_at'] != null;
 
-    return !isCancelled &&
+    return _canWrite &&
+        !isCancelled &&
         (_canEditAdminFixtureDetails ||
             _isFixtureCaptain ||
             _isFixtureViceCaptain);
@@ -531,7 +540,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final isCancelled = _fixture?['cancelled_at'] != null;
     final replacementId = _fixture?['rescheduled_to_fixture_id']?.toString();
 
-    return isCancelled &&
+    return _canWrite &&
+        isCancelled &&
         (replacementId == null || replacementId.isEmpty) &&
         (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper);
   }
@@ -539,7 +549,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canCancelAndRescheduleFixture {
     final isCancelled = _fixture?['cancelled_at'] != null;
 
-    return !isCancelled &&
+    return _canWrite &&
+        !isCancelled &&
         (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper);
   }
 
@@ -662,6 +673,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     Map<String, dynamic> booked,
     String newRinkLabel,
   ) async {
+    if (!_canSelectBookedRink(booked)) return;
+
     final oldLabel =
         (booked['rink_label'] ?? booked['label'] ?? booked['name'] ?? '')
             .toString();
@@ -714,6 +727,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     Map<String, dynamic> a,
     Map<String, dynamic> b,
   ) async {
+    if (!_canSwapBookedRinks(a, b)) return;
+
     final aId = a['fixture_rink_id']?.toString();
     final bId = b['fixture_rink_id']?.toString();
 
@@ -1549,7 +1564,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _savePreselectState() async {
-    if (_savingPreselect || !_preselectDirty) return;
+    if (!_canWrite || _savingPreselect || !_preselectDirty) return;
 
     final payload = _buildPreselectSavePayload();
 
@@ -1979,8 +1994,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       final role = (membership['role'] ?? '').toString().trim().toLowerCase();
 
-      _isGuest = role == 'guest';
-
       debugPrint('MEMBERSHIP role raw = ${membership['role']}');
       debugPrint('MEMBERSHIP role norm= $role');
 
@@ -1995,7 +2008,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           ?.toString();
     } else {
       _hasClubMembership = false;
-      _isGuest = false;
       _currentMemberId = myProfileId;
       _isClubAdmin = false;
       _isSelector = false;
@@ -2408,6 +2420,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     void resetPermissions() {
       _isAdmin = false;
       _isSuper = false;
+      _canWrite = false;
       _canEditFixture = false;
       _canDeleteFixture = false;
       _canAssignCaptaincy = false;
@@ -2442,14 +2455,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       final canAdminManage = access.canAdminManageFixtures;
 
-      final canEditFixture = canAdminManage;
-      final canDeleteFixture = canAdminManage;
+      final canEditFixture = access.canWrite && canAdminManage;
+      final canDeleteFixture = access.canWrite && canAdminManage;
 
       final isCancelled = _fixture?['cancelled_at'] != null;
 
-      final canAssignCaptaincy = !isCancelled && canAdminManage;
+      final canAssignCaptaincy =
+          access.canWrite && !isCancelled && canAdminManage;
 
-      final canManageTeam = canAdminManage || isFixtureCaptain || isFixtureVice;
+      final canManageTeam =
+          access.canWrite &&
+          (canAdminManage || isFixtureCaptain || isFixtureVice);
 
       final myTeamSelection = _myTeamSelection != null;
       final canViewTeam = canManageTeam || myTeamSelection;
@@ -2465,6 +2481,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         // If you have this field in fixture_details_page.dart, keep this line.
         // If it errors, remove this one line.
         _isSelector = access.isSelector;
+        _canWrite = access.canWrite;
 
         _canEditFixture = canEditFixture;
         _canDeleteFixture = canDeleteFixture;
@@ -2658,6 +2675,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _setRsvp(String status, String label) async {
+    if (!_canRsvpToFixture) return;
+
     final previous = _myRsvp;
 
     // Update UI immediately
@@ -3419,6 +3438,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _respondToTeamSelection(String acceptance) async {
+    if (!_canWrite) return;
+
     final previous = _myTeamSelectionStatus;
 
     setState(() => _myTeamSelectionStatus = acceptance);
@@ -5775,7 +5796,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final viceName = (fixture['vice']?['display_name'] as String?) ?? '';
 
     final myTeamSelection = _myTeamSelection;
-    final canRespondToTeamSelection = myTeamSelection != null;
+    final canRespondToTeamSelection = _canWrite && myTeamSelection != null;
     final canManageTeam = _canManageTeam;
     final canViewTeam = _canViewTeam;
 

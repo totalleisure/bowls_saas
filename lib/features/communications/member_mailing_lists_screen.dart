@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../clubs/club_access.dart';
+
 class MemberMailingListsScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
@@ -21,6 +23,7 @@ class _MemberMailingListsScreenState extends State<MemberMailingListsScreen> {
   String? _savingListId;
   String? _error;
   List<Map<String, dynamic>> _lists = [];
+  bool _canWrite = false;
 
   @override
   void initState() {
@@ -37,6 +40,19 @@ class _MemberMailingListsScreenState extends State<MemberMailingListsScreen> {
     }
 
     try {
+      final access = await loadClubAccess(clubId: widget.clubId);
+      _canWrite = access.canWrite;
+
+      if (!_canWrite) {
+        if (!mounted) return;
+        setState(() {
+          _lists = [];
+          _loading = false;
+          _savingListId = null;
+        });
+        return;
+      }
+
       final result = await Supabase.instance.client.rpc(
         'my_self_subscribable_mailing_lists',
         params: {'p_club_id': widget.clubId},
@@ -61,6 +77,8 @@ class _MemberMailingListsScreenState extends State<MemberMailingListsScreen> {
   }
 
   Future<void> _setMembership(Map<String, dynamic> list, bool join) async {
+    if (!_canWrite) return;
+
     final listId = list['mailing_list_id']?.toString() ?? '';
     if (listId.isEmpty || _savingListId != null) return;
 
@@ -120,6 +138,16 @@ class _MemberMailingListsScreenState extends State<MemberMailingListsScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : !_canWrite
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'This membership is view-only. Volunteer list changes are not available.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(

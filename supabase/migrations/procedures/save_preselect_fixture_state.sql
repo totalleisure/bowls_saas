@@ -79,6 +79,7 @@ begin
       where cm.club_id = v_club_id
         and cm.member_profile_id = v_actor_member_profile_id
         and cm.is_active = true
+        and lower(cm.role::text) <> 'guest'
         and (
           lower(cm.role::text) in ('admin', 'selector')
           or v_actor_member_profile_id = v_captain_member_profile_id
@@ -291,10 +292,11 @@ begin
         where cm.club_id = v_club_id
           and cm.member_profile_id = d.member_profile_id
           and cm.is_active = true
+          and lower(cm.role::text) <> 'guest'
       )
   ) then
     raise exception
-      'One or more selected people are not active members of this club.';
+      'One or more selected people are not active non-Guest members of this club.';
   end if;
 
   -- ==========================================================

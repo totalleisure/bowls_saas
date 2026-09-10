@@ -38,11 +38,27 @@ begin
   for update of ts;
   if not found then raise exception 'Team selection not found.'; end if;
   if not (
-    public.can_manage_team_selection(v_fixture_id)
-    or exists (
-      select 1 from public.fixtures f
-      where f.id = v_fixture_id
-        and v_actor in (f.captain_member_profile_id, f.vice_captain_member_profile_id)
+    public.is_app_superuser()
+    or (
+      exists (
+        select 1
+        from public.club_memberships cm
+        where cm.club_id = v_club_id
+          and cm.member_profile_id = v_actor
+          and cm.is_active = true
+          and lower(cm.role::text) <> 'guest'
+      )
+      and (
+        public.can_manage_team_selection(v_fixture_id)
+        or exists (
+          select 1 from public.fixtures f
+          where f.id = v_fixture_id
+            and v_actor in (
+              f.captain_member_profile_id,
+              f.vice_captain_member_profile_id
+            )
+        )
+      )
     )
   ) then
     raise exception 'You do not have permission to manage this fixture.';
@@ -52,6 +68,18 @@ begin
   where team_selection_id = p_team_selection_id
     and member_profile_id = p_member_profile_id for update;
   if not v_member.is_selected then raise exception 'Member is not actively selected.'; end if;
+
+  if not exists (
+    select 1
+    from public.club_memberships cm
+    where cm.club_id = v_club_id
+      and cm.member_profile_id = p_member_profile_id
+      and cm.is_active = true
+      and lower(cm.role::text) <> 'guest'
+  ) then
+    raise exception 'Target member is not an active non-Guest member of this club';
+  end if;
+
   if v_member.role::text = v_new_role then
     return jsonb_build_object('action', 'no_change', 'queued', false);
   end if;
@@ -60,16 +88,6 @@ begin
      and v_selection_mode <> 'preselect'
      and (v_team_id is not null or v_requires_rsvp) then
     raise exception 'Published Team/RSVP composition changes must be confirmed together.';
-  end if;
-
-  if not exists (
-    select 1
-    from public.club_memberships cm
-    where cm.club_id = v_club_id
-      and cm.member_profile_id = p_member_profile_id
-      and cm.is_active = true
-  ) then
-    raise exception 'Target member is not an active member of this club';
   end if;
 
   if v_member.role = 'reserve' and v_new_role = 'player' then

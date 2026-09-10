@@ -78,11 +78,27 @@ begin
   end if;
 
   if not (
-    public.can_manage_team_selection(v_fixture_id)
-    or exists (
-      select 1 from public.fixtures f
-      where f.id = v_fixture_id
-        and v_actor in (f.captain_member_profile_id, f.vice_captain_member_profile_id)
+    public.is_app_superuser()
+    or (
+      exists (
+        select 1
+        from public.club_memberships cm
+        where cm.club_id = v_club_id
+          and cm.member_profile_id = v_actor
+          and cm.is_active = true
+          and lower(cm.role::text) <> 'guest'
+      )
+      and (
+        public.can_manage_team_selection(v_fixture_id)
+        or exists (
+          select 1 from public.fixtures f
+          where f.id = v_fixture_id
+            and v_actor in (
+              f.captain_member_profile_id,
+              f.vice_captain_member_profile_id
+            )
+        )
+      )
     )
   ) then
     raise exception 'You do not have permission to manage this fixture.';
@@ -118,9 +134,10 @@ begin
       where cm.club_id = v_club_id
         and cm.member_profile_id = m.member_profile_id
         and cm.is_active = true
+        and lower(cm.role::text) <> 'guest'
     )
   ) then
-    raise exception 'Target member is not an active member of this club';
+    raise exception 'Target member is not an active non-Guest member of this club';
   end if;
 
   if exists (

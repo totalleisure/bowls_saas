@@ -5,13 +5,22 @@ class ClubAccess {
   final bool isSuperuser;
   final bool isClubAdmin;
   final bool isSelector;
+  final String membershipRole;
+  final bool hasActiveMembership;
 
   const ClubAccess({
     required this.currentMemberId,
     required this.isSuperuser,
     required this.isClubAdmin,
     required this.isSelector,
+    required this.membershipRole,
+    required this.hasActiveMembership,
   });
+
+  bool get isReadOnly => !canWrite;
+
+  bool get canWrite =>
+      isSuperuser || (hasActiveMembership && membershipRole != 'guest');
 
   bool get canAdminManageFixtures => isSuperuser || isClubAdmin || isSelector;
 
@@ -52,5 +61,7 @@ Future<ClubAccess> loadClubAccess({
     isSuperuser: superuserRow != null,
     isClubAdmin: role == 'admin',
     isSelector: role == 'selector',
+    membershipRole: role,
+    hasActiveMembership: membership != null,
   );
 }

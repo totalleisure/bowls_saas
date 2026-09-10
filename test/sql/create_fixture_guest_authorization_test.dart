@@ -7,8 +7,8 @@ String source(String path) => File(path).readAsStringSync();
 void main() {
   const canonical =
       'supabase/migrations/procedures/create_fixture_with_setup_v2.sql';
-  const migration =
-      'supabase/migrations/20260908213407_exclude_guest_fixture_creation.sql';
+  const latestMigration =
+      'supabase/migrations/20260909233020_harden_guest_participation_rpcs.sql';
 
   String ordinaryMemberBranch(String sql) {
     final start = sql.indexOf('v_is_ordinary_member_booking :=');
@@ -49,7 +49,16 @@ void main() {
     expect(branch, contains('cm.is_active = true'));
   });
 
-  test('new migration exactly matches the canonical function definition', () {
-    expect(source(migration), source(canonical));
+  test('latest migration contains the canonical function definition', () {
+    final migrationSql = source(latestMigration);
+    final functionStart = migrationSql.lastIndexOf(
+      'create or replace function public.create_fixture_with_setup_v2(',
+    );
+
+    expect(functionStart, greaterThanOrEqualTo(0));
+    expect(
+      migrationSql.substring(functionStart).replaceAll('\r\n', '\n').trim(),
+      source(canonical).replaceAll('\r\n', '\n').trim(),
+    );
   });
 }

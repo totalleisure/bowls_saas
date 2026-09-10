@@ -106,18 +106,7 @@ begin
   )
   into v_is_superuser;
 
-  v_has_permission :=
-    v_is_superuser
-    or v_fixture.captain_member_profile_id = v_actor_member_profile_id
-    or v_fixture.vice_captain_member_profile_id = v_actor_member_profile_id
-    or exists (
-      select 1
-      from public.club_memberships cm
-      where cm.club_id = v_fixture.club_id
-        and cm.member_profile_id = v_actor_member_profile_id
-        and cm.is_active = true
-        and lower(cm.role::text) in ('admin', 'selector')
-    );
+  v_has_permission := public.can_manage_fixture(p_fixture_id);
 
   if not v_has_permission then
     raise exception 'You do not have permission to process post-publish communications for this fixture.';
