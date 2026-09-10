@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 
-import '../../core/permissions/club_role_resolver.dart';
+import '../clubs/club_access.dart';
 import 'member_edit_screen.dart';
 
 class MembersScreen extends StatefulWidget {
@@ -25,6 +25,7 @@ class _MembersScreenState extends State<MembersScreen> {
 
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
+  bool _isGuest = false;
 
   String? _error;
 
@@ -157,32 +158,39 @@ class _MembersScreenState extends State<MembersScreen> {
         return;
       }
 
-      final mp = await _client
-          .from('member_profiles')
-          .select('id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      final myProfileId = mp?['id']?.toString();
+      final access = await loadClubAccess(
+        clubId: widget.clubId,
+        client: _client,
+      );
+      final myProfileId = access.currentMemberId;
 
       _myMemberProfileId = myProfileId;
+      _isGuest = access.membershipRole == 'guest';
 
-      await _loadUserPermissions(myProfileId);
+      await _loadUserPermissions(access);
 
-      final res = await _client
-          .from('club_memberships')
-          .select(
-            'member_profile_id, role, is_active, is_coach, coaching_award, '
-            'member_profiles('
-            'email_address, first_name, last_name, display_name, phone, home_phone, office_phone, '
-            'address_line1, address_line2, town_city, county, postcode, '
-            'gender, gender_self_described, sex_at_birth, preferred_position, '
-            'show_mobile_in_directory, show_home_phone_in_directory, show_office_phone_in_directory, '
-            'show_email_in_directory, show_address_in_directory'
-            ')',
-          )
-          .eq('club_id', widget.clubId)
-          .order('role', ascending: true);
+      const memberSelection =
+          'member_profile_id, role, is_active, is_coach, coaching_award, '
+          'member_profiles('
+          'email_address, first_name, last_name, display_name, phone, home_phone, office_phone, '
+          'address_line1, address_line2, town_city, county, postcode, '
+          'gender, gender_self_described, sex_at_birth, preferred_position, '
+          'show_mobile_in_directory, show_home_phone_in_directory, show_office_phone_in_directory, '
+          'show_email_in_directory, show_address_in_directory'
+          ')';
+
+      final res = _isGuest
+          ? await _client
+                .from('club_memberships')
+                .select(memberSelection)
+                .eq('club_id', widget.clubId)
+                .eq('member_profile_id', myProfileId)
+                .order('role', ascending: true)
+          : await _client
+                .from('club_memberships')
+                .select(memberSelection)
+                .eq('club_id', widget.clubId)
+                .order('role', ascending: true);
 
       final list = (res as List).cast<Map<String, dynamic>>();
 
@@ -190,7 +198,7 @@ class _MembersScreenState extends State<MembersScreen> {
       // email. Use it immediately in the displayed row so the list never shows
       // the old profile copy after a successfully confirmed email change.
       final authEmail = _client.auth.currentUser?.email?.trim() ?? '';
-      if (myProfileId != null && authEmail.isNotEmpty) {
+      if (authEmail.isNotEmpty) {
         for (final row in list) {
           if (row['member_profile_id']?.toString() != myProfileId) continue;
 
@@ -358,41 +366,14 @@ class _MembersScreenState extends State<MembersScreen> {
     }
   }
 
-  Future<void> _loadUserPermissions(String? myProfileId) async {
-    final userId = _client.auth.currentUser?.id;
-
-    bool isSuperuser = false;
-    bool isClubAdmin = false;
-
-    if (userId != null) {
-      final superRow = await _client
-          .from('app_superusers')
-          .select('user_id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-      isSuperuser = superRow != null;
-    }
-
-    if (myProfileId != null) {
-      final membershipRow = await _client
-          .from('club_memberships')
-          .select('role')
-          .eq('club_id', widget.clubId)
-          .eq('member_profile_id', myProfileId)
-          .maybeSingle();
-
-      final role = (membershipRow?['role'] ?? '').toString();
-      isClubAdmin = role == 'admin';
-    }
-
-    final canManageMembers = isSuperuser || isClubAdmin;
+  Future<void> _loadUserPermissions(ClubAccess access) async {
+    final canManageMembers = access.isSuperuser || access.isClubAdmin;
 
     if (!mounted) return;
 
     setState(() {
-      _isSuperuser = isSuperuser;
-      _isClubAdmin = isClubAdmin;
+      _isSuperuser = access.isSuperuser;
+      _isClubAdmin = access.isClubAdmin;
       _canManageMembers = canManageMembers;
       _isAdmin = canManageMembers;
       _readOnly = !canManageMembers;

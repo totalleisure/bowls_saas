@@ -12,6 +12,7 @@ import '../../core/utils/date_format.dart';
 
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
+import 'auth_failure_policy.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -349,10 +350,9 @@ class _AuthScreenState extends State<AuthScreen> {
           'Your account details have not been removed.';
     }
 
-    if (text.contains('invalid login credentials') ||
-        text.contains('invalid credentials')) {
-      return 'The email address or password was not recognised. '
-          'Please check both entries and try again.';
+    final invalidCredentials = AuthFailurePolicy.invalidCredentials(error);
+    if (invalidCredentials != null) {
+      return invalidCredentials.message;
     }
 
     if (text.contains('email not confirmed')) {
@@ -386,6 +386,7 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!mounted) return;
 
     final connectionFailure = _looksLikeConnectionFailure(error);
+    final invalidCredentials = AuthFailurePolicy.invalidCredentials(error);
 
     await showDialog<void>(
       context: context,
@@ -398,11 +399,12 @@ class _AuthScreenState extends State<AuthScreen> {
           color: connectionFailure ? Colors.orange.shade800 : Colors.red,
         ),
         title: Text(
-          connectionFailure
-              ? 'Unable to connect'
-              : (signingUp
-                    ? 'Registration unsuccessful'
-                    : 'Sign in unsuccessful'),
+          invalidCredentials?.title ??
+              (connectionFailure
+                  ? 'Unable to connect'
+                  : (signingUp
+                        ? 'Registration unsuccessful'
+                        : 'Sign in unsuccessful')),
         ),
         content: Text(
           _friendlyAuthMessage(error, signingUp: signingUp),
@@ -411,7 +413,10 @@ class _AuthScreenState extends State<AuthScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(connectionFailure ? 'Close' : 'Check details'),
+            child: Text(
+              invalidCredentials?.actionLabel ??
+                  (connectionFailure ? 'Close' : 'Check details'),
+            ),
           ),
           if (connectionFailure && retry != null)
             FilledButton.icon(
