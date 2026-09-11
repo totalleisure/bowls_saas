@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../clubs/club_access.dart';
 import 'member_edit_screen.dart';
+import 'member_import_options_dialog.dart';
 
 class MembersScreen extends StatefulWidget {
   final String clubId;
@@ -174,7 +175,7 @@ class _MembersScreenState extends State<MembersScreen> {
           'member_profiles('
           'email_address, first_name, last_name, display_name, phone, home_phone, office_phone, '
           'address_line1, address_line2, town_city, county, postcode, '
-          'gender, gender_self_described, sex_at_birth, preferred_position, '
+          'title, outdoor_club, gender, gender_self_described, sex_at_birth, preferred_position, '
           'show_mobile_in_directory, show_home_phone_in_directory, show_office_phone_in_directory, '
           'show_email_in_directory, show_address_in_directory'
           ')';
@@ -269,13 +270,16 @@ class _MembersScreenState extends State<MembersScreen> {
         throw Exception('Could not read CSV file bytes.');
       }
 
+      if (!mounted) return;
+
       // Confirm BEFORE uploading
-      final confirmed = await _confirmImportCsv(
+      final newMembersActive = await showMemberImportOptions(
+        context: context,
         fileName: fileName,
         bytes: bytes.length,
       );
 
-      if (!confirmed) return;
+      if (newMembersActive == null) return;
 
       final storagePath =
           '${widget.clubId}/members_${DateTime.now().millisecondsSinceEpoch}.csv';
@@ -298,9 +302,7 @@ class _MembersScreenState extends State<MembersScreen> {
         body: {
           'club_id': widget.clubId,
           'storage_path': storagePath,
-          'default_role': 'member',
-          'invite_redirect_to': '',
-          'bucket': 'Imports',
+          'new_members_active': newMembersActive,
         },
       );
 
@@ -311,6 +313,7 @@ class _MembersScreenState extends State<MembersScreen> {
       final data = resp.data as Map<String, dynamic>;
       final summary = (data['summary'] as Map?) ?? {};
       final report = (data['report'] as List?) ?? [];
+      final manualReview = (data['manual_review'] as List?) ?? [];
 
       if (!mounted) return;
 
@@ -326,8 +329,23 @@ class _MembersScreenState extends State<MembersScreen> {
                 children: [
                   Text('Created: ${summary['created'] ?? 0}'),
                   Text('Invited: ${summary['invited'] ?? 0}'),
-                  Text('Linked: ${summary['linked'] ?? 0}'),
+                  Text('New memberships: ${summary['linked'] ?? 0}'),
+                  Text(
+                    'Existing memberships preserved: ${summary['existing_memberships'] ?? 0}',
+                  ),
                   Text('Errors: ${summary['errors'] ?? 0}'),
+                  Text(
+                    'Set aside for manual review: ${summary['manual_review'] ?? 0}',
+                  ),
+                  for (final r in manualReview)
+                    if (r is Map)
+                      Text(
+                        'Row ${r['row']}: ${r['first_name'] ?? ''} ${r['last_name'] ?? ''} — ${r['reason'] ?? ''}',
+                      ),
+                  for (final r in report)
+                    if (r is Map)
+                      for (final warning in (r['warnings'] as List?) ?? [])
+                        Text('Row ${r['row']}: $warning'),
                   const SizedBox(height: 12),
                   if ((summary['errors'] ?? 0) != 0) ...[
                     const Text(
@@ -378,43 +396,6 @@ class _MembersScreenState extends State<MembersScreen> {
       _isAdmin = canManageMembers;
       _readOnly = !canManageMembers;
     });
-  }
-
-  Future<bool> _confirmImportCsv({
-    required String fileName,
-    required int bytes,
-  }) async {
-    String prettySize;
-    if (bytes < 1024) {
-      prettySize = '$bytes B';
-    } else if (bytes < 1024 * 1024) {
-      prettySize = '${(bytes / 1024).toStringAsFixed(1)} KB';
-    } else {
-      prettySize = '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Import members from CSV?'),
-        content: Text(
-          'File: $fileName\nSize: $prettySize\n\n'
-          'This will create users (if passwords are provided) or create invites (if passwords are blank).',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Import'),
-          ),
-        ],
-      ),
-    );
-
-    return ok == true;
   }
 
   Future<void> _openMemberEdit({
