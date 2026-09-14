@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  Future<void> open(WidgetTester tester, ValueChanged<bool?> onResult) async {
+  Future<void> open(
+    WidgetTester tester,
+    ValueChanged<MemberImportOptions?> onResult,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -26,49 +29,63 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets(
-    'each import defaults to Inactive and confirms false, not cancellation',
-    (tester) async {
-      bool? result;
-      var called = false;
-      await open(tester, (value) {
-        result = value;
-        called = true;
-      });
-      expect(find.text('Inactive'), findsOneWidget);
-      await tester.tap(find.text('Import'));
-      await tester.pumpAndSettle();
-      expect(called, isTrue);
-      expect(result, isFalse);
-    },
-  );
+  Future<void> choose(WidgetTester tester, String key, String text) async {
+    await tester.ensureVisible(find.byKey(Key(key)));
+    await tester.tap(find.byKey(Key(key)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(text).last);
+    await tester.pumpAndSettle();
+  }
 
+  testWidgets('defaults to importing inactive without sending', (tester) async {
+    MemberImportOptions? result;
+    await open(tester, (v) => result = v);
+    await tester.tap(find.text('Import'));
+    await tester.pumpAndSettle();
+    expect(result!.importMembers, isTrue);
+    expect(result!.newMembersActive, isFalse);
+    expect(result!.sendInvitations, isFalse);
+  });
   testWidgets(
-    'Active choice returns true; next import starts with Inactive again',
+    'active import with invitation review and defaults reset next time',
     (tester) async {
-      bool? result;
-      await open(tester, (value) => result = value);
-      await tester.tap(find.text('Inactive'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Active').last);
-      await tester.pumpAndSettle();
+      MemberImportOptions? result;
+      await open(tester, (v) => result = v);
+      await choose(tester, 'active-choice', 'Active');
+      await choose(tester, 'invite-choice', 'Yes — review invitations');
       await tester.tap(find.text('Import'));
       await tester.pumpAndSettle();
-      expect(result, isTrue);
+      expect(result!.newMembersActive, isTrue);
+      expect(result!.sendInvitations, isTrue);
       await tester.tap(find.text('Choose CSV'));
       await tester.pumpAndSettle();
       expect(find.text('Inactive'), findsOneWidget);
-      await tester.tap(find.text('Import'));
-      await tester.pumpAndSettle();
-      expect(result, isFalse);
     },
   );
-
-  testWidgets('Cancel returns null rather than choosing a status', (
+  testWidgets('invite-only hides active choice and does not import', (
     tester,
   ) async {
-    bool? result = true;
-    await open(tester, (value) => result = value);
+    MemberImportOptions? result;
+    await open(tester, (v) => result = v);
+    await choose(tester, 'import-choice', 'No — existing members only');
+    expect(find.byKey(const Key('active-choice')), findsNothing);
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+    await choose(tester, 'invite-choice', 'Yes — review invitations');
+    await tester.tap(find.text('Review invitations'));
+    await tester.pumpAndSettle();
+    expect(result!.importMembers, isFalse);
+    expect(result!.sendInvitations, isTrue);
+  });
+  testWidgets('cancel performs neither action', (tester) async {
+    MemberImportOptions? result = const MemberImportOptions(
+      importMembers: true,
+      newMembersActive: true,
+      sendInvitations: true,
+    );
+    await open(tester, (v) => result = v);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(result, isNull);

@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import '../clubs/club_access.dart';
 import 'member_edit_screen.dart';
 import 'member_import_options_dialog.dart';
+import 'member_invitation_screen.dart';
 
 class MembersScreen extends StatefulWidget {
   final String clubId;
@@ -273,13 +274,14 @@ class _MembersScreenState extends State<MembersScreen> {
       if (!mounted) return;
 
       // Confirm BEFORE uploading
-      final newMembersActive = await showMemberImportOptions(
+      final options = await showMemberImportOptions(
         context: context,
         fileName: fileName,
         bytes: bytes.length,
       );
 
-      if (newMembersActive == null) return;
+      if (options == null || !mounted) return;
+      setState(() => _loading = true);
 
       final storagePath =
           '${widget.clubId}/members_${DateTime.now().millisecondsSinceEpoch}.csv';
@@ -296,89 +298,110 @@ class _MembersScreenState extends State<MembersScreen> {
             ),
           );
 
-      // Call Edge Function to import users
-      final resp = await client.functions.invoke(
-        'import_members_csv',
-        body: {
-          'club_id': widget.clubId,
-          'storage_path': storagePath,
-          'new_members_active': newMembersActive,
-        },
-      );
+      final excludedEmails = <String>[];
+      if (options.importMembers) {
+        // Call Edge Function to import users
+        final resp = await client.functions.invoke(
+          'import_members_csv',
+          body: {
+            'club_id': widget.clubId,
+            'storage_path': storagePath,
+            'new_members_active': options.newMembersActive,
+          },
+        );
 
-      if (resp.status != 200) {
-        throw Exception(resp.data?.toString() ?? 'Import failed');
-      }
+        if (resp.status != 200) {
+          throw Exception(resp.data?.toString() ?? 'Import failed');
+        }
 
-      final data = resp.data as Map<String, dynamic>;
-      final summary = (data['summary'] as Map?) ?? {};
-      final report = (data['report'] as List?) ?? [];
-      final manualReview = (data['manual_review'] as List?) ?? [];
+        final data = resp.data as Map<String, dynamic>;
+        final summary = (data['summary'] as Map?) ?? {};
+        final report = (data['report'] as List?) ?? [];
+        final manualReview = (data['manual_review'] as List?) ?? [];
+        excludedEmails.addAll(
+          report
+              .whereType<Map>()
+              .where((r) => r['status'] == 'error')
+              .map((r) => '${r['email'] ?? ''}')
+              .where((e) => e.isNotEmpty),
+        );
 
-      if (!mounted) return;
+        if (!mounted) return;
 
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Import complete'),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Created: ${summary['created'] ?? 0}'),
-                  Text('Invited: ${summary['invited'] ?? 0}'),
-                  Text('New memberships: ${summary['linked'] ?? 0}'),
-                  Text(
-                    'Existing memberships preserved: ${summary['existing_memberships'] ?? 0}',
-                  ),
-                  Text('Errors: ${summary['errors'] ?? 0}'),
-                  Text(
-                    'Set aside for manual review: ${summary['manual_review'] ?? 0}',
-                  ),
-                  for (final r in manualReview)
-                    if (r is Map)
-                      Text(
-                        'Row ${r['row']}: ${r['first_name'] ?? ''} ${r['last_name'] ?? ''} — ${r['reason'] ?? ''}',
-                      ),
-                  for (final r in report)
-                    if (r is Map)
-                      for (final warning in (r['warnings'] as List?) ?? [])
-                        Text('Row ${r['row']}: $warning'),
-                  const SizedBox(height: 12),
-                  if ((summary['errors'] ?? 0) != 0) ...[
-                    const Text(
-                      'Errors:',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+        await showDialog<void>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Import complete'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Created: ${summary['created'] ?? 0}'),
+                    Text('Invited: ${summary['invited'] ?? 0}'),
+                    Text('New memberships: ${summary['linked'] ?? 0}'),
+                    Text(
+                      'Existing memberships preserved: ${summary['existing_memberships'] ?? 0}',
                     ),
-                    const SizedBox(height: 6),
-                    for (final r in report)
-                      if (r is Map && r['status'] == 'error')
+                    Text('Errors: ${summary['errors'] ?? 0}'),
+                    Text(
+                      'Set aside for manual review: ${summary['manual_review'] ?? 0}',
+                    ),
+                    for (final r in manualReview)
+                      if (r is Map)
                         Text(
-                          'Row ${r['row']}: ${r['email'] ?? ''} — ${r['message'] ?? ''}',
+                          'Row ${r['row']}: ${r['first_name'] ?? ''} ${r['last_name'] ?? ''} — ${r['reason'] ?? ''}',
                         ),
+                    for (final r in report)
+                      if (r is Map)
+                        for (final warning in (r['warnings'] as List?) ?? [])
+                          Text('Row ${r['row']}: $warning'),
+                    const SizedBox(height: 12),
+                    if ((summary['errors'] ?? 0) != 0) ...[
+                      const Text(
+                        'Errors:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+                      for (final r in report)
+                        if (r is Map && r['status'] == 'error')
+                          Text(
+                            'Row ${r['row']}: ${r['email'] ?? ''} — ${r['message'] ?? ''}',
+                          ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+        );
 
-      await _load();
+        await _load();
+      }
+      if (options.sendInvitations && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => MemberInvitationScreen(
+              clubId: widget.clubId,
+              storagePath: storagePath,
+              excludedEmails: excludedEmails,
+            ),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Import or invitation preparation failed: $e')),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }

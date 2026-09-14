@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../_shared/member_csv.ts', import.meta.url), 'utf8') + readFileSync(new URL('./index.ts', import.meta.url), 'utf8').replace(/^export \{ parseCsv \}.*$/gm, '');
 const executable = stripTypeScriptTypes(source.replace(/^import .*;?$/gm, '').replace(/export function/g, 'function'));
 const club = '11111111-1111-1111-1111-111111111111';
 const otherClub = '22222222-2222-2222-2222-222222222222';
