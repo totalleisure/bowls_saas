@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../fixtures/fixture_display.dart';
+import '../../fixtures/open_session_communications.dart';
+import '../../communications/communication_fixture_loader.dart';
 
 class CommunicationsFixtureSelector extends StatefulWidget {
   const CommunicationsFixtureSelector({
@@ -40,39 +42,10 @@ class _CommunicationsFixtureSelectorState
     });
 
     try {
-      final rows = await Supabase.instance.client
-          .from('team_selections')
-          .select('''
-            id,
-            status,
-            created_at,
-            fixtures!inner(
-              id,
-              start_at,
-              is_home,
-              section,
-              team_id,
-              team_name,
-              club_id,
-              clubs(name),
-              team:teams!fixtures_team_id_fkey(name),
-              competition_type:competition_types!fixtures_competition_type_id_fkey(
-                name,
-                selection_mode,
-                is_internal,
-                uses_rinks,
-                colour_scheme:fixture_colour_schemes!competition_types_colour_scheme_id_fkey(
-                  background_hex,
-                  foreground_hex
-                )
-              ),
-              venue:venues!fixtures_venue_id_fkey(name),
-              opponent_venue:venues!fixtures_opponent_venue_id_fkey(name)
-            )
-          ''')
-          .eq('fixtures.club_id', widget.clubId)
-          .order('created_at', ascending: false)
-          .limit(200);
+      final rows = await loadCommunicationFixtures(
+        Supabase.instance.client,
+        widget.clubId,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -218,7 +191,10 @@ class _CommunicationsFixtureSelectorState
     final fixtureId = fixture['id']?.toString();
     final selected = fixtureId != null && fixtureId == widget.selectedFixtureId;
     final bg = _fixtureBg(row, context);
-    final status = row['status']?.toString() ?? '';
+    final status = fixtureCommunicationStatus(
+      fixture,
+      row['status']?.toString() ?? '',
+    );
     final title = fixtureTitleUnified(fixture, myClubName: _clubName(fixture));
     final subtitle = fixtureSubtitleUnified(fixture);
 

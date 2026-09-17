@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'captain_view_section.dart';
 import 'set_captain_section.dart';
 import 'fixture_display.dart';
+import 'open_session_communications.dart';
 import 'fixture_message_screen.dart';
 import '../team/team_section.dart';
 import '../team/manage_team_screen.dart';
@@ -2038,7 +2039,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Future<void> _loadFixtureReadiness() async {
     if (!mounted) return;
 
-    if (_isEventStyleFixture || !_canViewFixtureMaintenanceStatus) {
+    if (_isEventStyleFixture ||
+        _selectedCompetitionSelectionMode == 'open' ||
+        !_canViewFixtureMaintenanceStatus) {
       setState(() {
         _readiness = null;
         _loadingReadiness = false;
@@ -5506,6 +5509,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Widget _buildFixtureReadinessCard() {
+    if (_selectedCompetitionSelectionMode == 'open') {
+      return const OpenSessionCommunicationsCard();
+    }
     final readiness = _readiness;
 
     if (_loadingReadiness) {

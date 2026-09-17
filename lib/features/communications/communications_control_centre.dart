@@ -5,6 +5,7 @@ import '../admin/widgets/communications_fixture_selector.dart';
 import '../../services/fixture_communications_service.dart';
 import '../../services/fixture_readiness_service.dart';
 import '../fixtures/fixture_details_page.dart';
+import '../fixtures/open_session_communications.dart';
 
 class CommunicationsControlCentreScreen extends StatefulWidget {
   const CommunicationsControlCentreScreen({super.key, required this.clubId});
@@ -89,6 +90,14 @@ class _CommunicationsControlCentreScreenState
       _communicationsError = null;
     });
 
+    if (isOpenSessionFixture(fixture)) {
+      setState(() {
+        _loadingReadiness = false;
+        _loadingHealth = false;
+      });
+      return;
+    }
+
     try {
       final client = Supabase.instance.client;
       final readiness = await FixtureReadinessService(client).check(fixtureId);
@@ -111,7 +120,7 @@ class _CommunicationsControlCentreScreenState
         detailRows = List<Map<String, dynamic>>.from(detailResult as List);
       }
 
-      if (!mounted) return;
+      if (!mounted || _selectedFixtureId != fixtureId) return;
       setState(() {
         _readiness = readiness;
         _healthRows = healthRows;
@@ -120,7 +129,7 @@ class _CommunicationsControlCentreScreenState
         _loadingHealth = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || _selectedFixtureId != fixtureId) return;
       setState(() {
         _loadingReadiness = false;
         _loadingHealth = false;
@@ -548,9 +557,15 @@ class _CommunicationsControlCentreScreenState
     return '$dd/$mm/$yyyy $hh:$min';
   }
 
-  bool get _fixtureNeedsCorrection => _readiness?.nextAction == 'open_fixture';
+  bool get _isSelectedOpenSession => isOpenSessionFixture(
+    _selectedFixtureRow == null ? null : _fixtureMap(_selectedFixtureRow!),
+  );
 
-  bool get _isSelectedPublished => _selectedSelectionStatus == 'published';
+  bool get _fixtureNeedsCorrection =>
+      !_isSelectedOpenSession && _readiness?.nextAction == 'open_fixture';
+
+  bool get _isSelectedPublished =>
+      !_isSelectedOpenSession && _selectedSelectionStatus == 'published';
 
   int get _checkCount => _healthRows
       .where(
@@ -605,6 +620,7 @@ class _CommunicationsControlCentreScreenState
   }
 
   Widget _buildCommunicationsHealthCard() {
+    if (_isSelectedOpenSession) return const OpenSessionCommunicationsCard();
     final healthColor = _nextStepColor(context);
 
     return Card(
@@ -700,6 +716,7 @@ class _CommunicationsControlCentreScreenState
   }
 
   Widget _buildMaintenanceCard() {
+    if (_isSelectedOpenSession) return const SizedBox.shrink();
     final busy =
         _busyRepair ||
         _busyRebuildTeamSheets ||
