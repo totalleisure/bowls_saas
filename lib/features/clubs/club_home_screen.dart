@@ -1,5 +1,4 @@
 import '../config/venues_screen.dart';
-import '../config/match_formats_screen.dart';
 import '../members/members_screen.dart';
 import '../fixtures/fixtures_screen.dart';
 import '../team/teams_screen.dart';
@@ -8,12 +7,9 @@ import '../communications/mailing_lists_screen.dart';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
-import 'package:share_plus/share_plus.dart';
-import '../../core/utils/date_format.dart';
 import '../competitions/screens/competition_type_list_screen.dart';
 import '../admin/queue_admin_screen.dart';
+import '../admin/feature_revision_screen.dart';
 import '../communications/communications_control_centre.dart';
 import 'club_access.dart';
 
@@ -230,6 +226,19 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
             ),
           ),
           if (_isSuperuser) ...[
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.toggle_on_outlined),
+                title: const Text('Feature releases'),
+                subtitle: const Text('Choose which new features are enabled'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const FeatureRevisionScreen(),
+                  ),
+                ),
+              ),
+            ),
             Card(
               child: ListTile(
                 leading: const Icon(Icons.admin_panel_settings_outlined),
