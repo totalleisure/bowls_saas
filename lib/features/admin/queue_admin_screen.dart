@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'email_queue_processor.dart';
+
 class QueueAdminScreen extends StatefulWidget {
   const QueueAdminScreen({super.key});
 
@@ -303,26 +305,30 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
       return;
     }
 
+    if (!mounted || _busyEmails) return;
     setState(() => _busyEmails = true);
 
     try {
-      await Supabase.instance.client.functions.invoke(
-        'process-email-queue',
-        body: {'limit': 50},
-      );
+      final result = await processPendingEmails(Supabase.instance.client);
 
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Email queue processed. Sent: ${result.sent}. Failed: ${result.failed}.',
+          ),
+        ),
+      );
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Email queue processed.')));
-      await _loadStats();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to process email queue: $e')),
-      );
+      ).showSnackBar(SnackBar(content: Text('Email processing stopped: $e')));
     } finally {
-      if (mounted) setState(() => _busyEmails = false);
+      if (mounted) {
+        await _loadStats();
+        if (mounted) setState(() => _busyEmails = false);
+      }
     }
   }
 
