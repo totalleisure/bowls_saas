@@ -1,4 +1,6 @@
-export const APP_STORE = "https://apps.apple.com/gb/app/total-leisure-bowls/id6762380407";
+export const APP_WEBSITE = "https://sites.google.com/view/totalleisurebowls/get-the-app";
+export const TEMPLATE_VERSION = "website-v4";
+export const PASSWORD_PLACEHOLDER = "{{INITIAL_PASSWORD}}";
 export const HELP_EMAIL = "bowls@totalleisure.com";
 export const GUIDE_LABELS = {
   introduction: "Member introduction",
@@ -11,9 +13,14 @@ export const escapeHtml = (value: string) =>
   );
 
 // The on-screen review and HTML message use exactly the same text.
-export function invitationContent(firstName: string, email: string, club: string) {
+export function invitationContent(
+  firstName: string,
+  email: string,
+  club: string,
+  initialPassword: string | null = null,
+) {
   return {
-    subject: `${firstName}, welcome to your Bowls Club App`,
+    subject: `${firstName}, your Bowls Club App is ready`,
     club,
     greeting: `Hello ${firstName},`,
     introduction:
@@ -22,20 +29,25 @@ export function invitationContent(firstName: string, email: string, club: string
     sections: [
       {
         title: "Your login details",
-        text:
-          `Email address: ${email}\nUse your current password. If you do not know it, choose Forgotten password on the sign-in screen to set a new one. You already have an account — there is no need to register again.`,
+        text: initialPassword
+          ? `Email address: ${email}\nInitial password: ${initialPassword}\nYour account is already set up — there is no need to register again. Keep your login details private.`
+          : `Email address: ${email}\nUse your current password. If you do not know it, choose Forgotten password on the sign-in screen to set a new one. You already have an account — there is no need to register again.`,
       },
       {
         title: "1. Get the app",
         text:
-          "iPhone or iPad: download Total Leisure Bowls using the App Store button below.\nAndroid or Samsung: email bowls@totalleisure.com to request the Android installation file. The attached Android & Samsung guide explains the steps.",
-        link: APP_STORE,
-        link_label: "Download for iPhone / iPad",
+          "Visit our website and choose the download link for your device. You will find links for Apple iPhone/iPad and Android, together with information to help you get started.",
+        link: APP_WEBSITE,
+        link_label: "Download the Bowls App",
       },
       {
         title: "2. Sign in and make it yours",
         text:
-          `Open the app, enter your email address and password, then choose Sign In. Select ${club} from your club list.\nOpen Member and Volunteer Lists → Account and Security if you would like to change your password. Please also check your membership details and choose which contact information other members can see.`,
+          `Open the app, enter your email address and password, then choose Sign In. Select ${club} from your club list.\n${
+            initialPassword
+              ? "Please change your initial password by opening"
+              : "You can change your password by opening"
+          } Member and Volunteer Lists → Account and Security. Please also check your membership details and choose which contact information other members can see.`,
       },
       {
         title: "3. See what’s happening",

@@ -147,6 +147,12 @@ serve(async (req) => {
           if (!userId) throw new Error("Account creation returned no user id");
           usersByEmail.set(email, userId);
           created++;
+          // Record only accounts created by this import. Existing accounts never
+          // acquire initial-password eligibility through a repeat import.
+          const { error: receiptError } = await admin.rpc('record_member_import_account', {
+            p_user: userId, p_club: club_id,
+          });
+          if (receiptError) warnings.push('Initial password could not be verified for invitations; use Forgotten password.');
         }
         const { data: profile, error: profileError } = await admin.from("member_profiles")
           .select("id, first_name, last_name, email_address, display_name, title, gender, sex_at_birth, outdoor_club, phone")

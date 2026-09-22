@@ -1,6 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
 import { parseCsv } from "../_shared/member_csv.ts";
-import { GUIDE_LABELS, invitationContent, invitationEligibility, invitationHtml } from "./email.ts";
+import {
+  GUIDE_LABELS,
+  invitationContent,
+  invitationEligibility,
+  invitationHtml,
+  PASSWORD_PLACEHOLDER,
+  TEMPLATE_VERSION,
+} from "./email.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -236,7 +243,35 @@ export async function handleInvitation(req: Request) {
           continue;
         }
         const firstName = profile.first_name?.trim() || row.first_name?.trim() || "Member";
-        const preview = invitationContent(firstName, email, club.name);
+        const initialPassword = row.password?.trim() || null;
+        const includePassword = !!initialPassword &&
+          requireData(
+              await admin.rpc("check_member_initial_password", {
+                p_user: profile.user_id,
+                p_club: clubId,
+                p_password: initialPassword,
+              }),
+            ) === true;
+        if (!account.user?.last_sign_in_at && !includePassword) {
+          issue(initialPassword
+            ? "The spreadsheet password does not match this unused account. Review the password before inviting."
+            : "This member has never signed in. Add their initial password to the CSV before inviting.");
+          continue;
+        }
+        const preview = invitationContent(
+          firstName,
+          email,
+          club.name,
+          includePassword ? initialPassword : null,
+        );
+        // Credentials are returned only for this authorized review, never copied
+        // into the durable invitation history or HTML stored in the database.
+        const storedPreview = invitationContent(
+          firstName,
+          email,
+          club.name,
+          includePassword ? PASSWORD_PLACEHOLDER : null,
+        );
         const attempt = {
           id: crypto.randomUUID(),
           club_id: clubId,
@@ -246,8 +281,10 @@ export async function handleInvitation(req: Request) {
           user_id: profile.user_id,
           first_name: firstName,
           subject: preview.subject,
-          html: invitationHtml(preview),
-          preview,
+          html: invitationHtml(storedPreview),
+          preview: storedPreview,
+          initial_password_source: includePassword ? path : null,
+          template_version: TEMPLATE_VERSION,
           guides: docs,
           previous_sent_id: previous?.status === "sent" ? previous.id : null,
         };
@@ -275,6 +312,11 @@ export async function handleInvitation(req: Request) {
       );
       if (!attempt) return json({ error: "Invitation review not found." }, 404);
       if (attempt.status !== "pending") return json({ status: attempt.status });
+      if (attempt.template_version !== TEMPLATE_VERSION) {
+        throw new UserError(
+          "The invitation has been updated. Prepare a new review to use the website and current guides.",
+        );
+      }
       if (Date.parse(attempt.created_at) < Date.now() - 86400000) {
         throw new UserError("This review has expired. Prepare a new review.");
       }
@@ -303,6 +345,21 @@ export async function handleInvitation(req: Request) {
         account.user?.email?.toLowerCase() !== attempt.email
       ) throw new UserError("The member’s email has changed. Prepare a new review.");
       const attachments = [];
+      let initialPassword: string | null = null;
+      if (attempt.initial_password_source) {
+        const csv = present(
+          requireData(
+            await admin.storage.from("Imports").download(attempt.initial_password_source),
+          ),
+        );
+        const row = parseCsv(await csv.text()).find((r) =>
+          r.email?.trim().toLowerCase() === attempt.email
+        );
+        initialPassword = row?.password?.trim() || null;
+        if (!initialPassword) {
+          throw new UserError("The initial password is no longer available. Prepare a new review.");
+        }
+      }
       let guideBytes = 0;
       for (const guide of attempt.guides as Guide[]) {
         const file = present(requireData(await admin.storage.from(bucket).download(guide.path)));
@@ -347,6 +404,29 @@ export async function handleInvitation(req: Request) {
       if (!tokenResponse.ok) throw new Error("Email authentication unavailable");
       const accessToken = (await tokenResponse.json()).access_token;
       if (!accessToken) throw new Error("Email authentication unavailable");
+      if (
+        initialPassword && requireData(
+            await admin.rpc("check_member_initial_password", {
+              p_user: attempt.user_id,
+              p_club: clubId,
+              p_password: initialPassword,
+            }),
+          ) !== true
+      ) {
+        throw new UserError(
+          "The member has signed in or their password has changed. Prepare a new review using their current password.",
+        );
+      }
+      const html = initialPassword
+        ? invitationHtml(
+          invitationContent(
+            attempt.first_name,
+            attempt.email,
+            attempt.preview.club,
+            initialPassword,
+          ),
+        )
+        : attempt.html;
       const claimed = requireData(
         await admin.rpc("claim_member_invitation", {
           p_id: attempt.id,
@@ -372,7 +452,7 @@ export async function handleInvitation(req: Request) {
             body: JSON.stringify({
               message: {
                 subject: attempt.subject,
-                body: { contentType: "HTML", content: attempt.html },
+                body: { contentType: "HTML", content: html },
                 toRecipients: [{ emailAddress: { address: attempt.email } }],
                 attachments,
               },

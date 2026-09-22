@@ -109,8 +109,38 @@ function haversineMiles(lat1: number, lon1: number, lat2: number, lon2: number):
 
 function looksLikeTenPin(name: string | null, types: string[]): boolean {
   const value = (name ?? "").toLowerCase();
-  const obviousTerms = ["tenpin", "ten pin", "bowling alley", "hollywood bowl", "lane7"];
-  return obviousTerms.some((term) => value.includes(term)) && types.includes("bowling_alley");
+  const lawnBowlsTerms = ["bowls club", "bowling club", "lawn bowls", "bowls centre", "bowls center"];
+  const obviousTenPinTerms = [
+    "tenpin", "ten pin", "bowling alley", "hollywood bowl", "lane7", "lane 7",
+    "bloomsbury bowling", "all star lanes", "rowans", "strikz", "tenpin ltd",
+  ];
+
+  if (obviousTenPinTerms.some((term) => value.includes(term))) return true;
+
+  // Google often categorises both lawn bowls and ten-pin venues as bowling_alley.
+  // Keep a clearly named bowls club, but reject a generic bowling-alley result.
+  return types.includes("bowling_alley") &&
+    !lawnBowlsTerms.some((term) => value.includes(term));
+}
+
+function isLocalityOrRegion(types: string[]): boolean {
+  const nonVenueTypes = new Set([
+    "locality", "postal_town", "neighborhood", "sublocality", "sublocality_level_1",
+    "administrative_area_level_1", "administrative_area_level_2", "administrative_area_level_3",
+    "country", "postal_code", "political", "route", "street_address",
+  ]);
+  return types.some((type) => nonVenueTypes.has(type));
+}
+
+function looksLikeBowlsClub(name: string | null, types: string[]): boolean {
+  const value = (name ?? "").toLowerCase();
+  if (looksLikeTenPin(name, types) || isLocalityOrRegion(types)) return false;
+
+  const nameSignals = [
+    "bowls club", "bowling club", "lawn bowls", "bowls centre", "bowls center",
+    "bowls association", "bowls academy",
+  ];
+  return nameSignals.some((term) => value.includes(term));
 }
 
 async function googlePost(apiKey: string, body: Record<string, unknown>, fieldMask: string) {
@@ -206,28 +236,47 @@ Deno.serve(async (req) => {
       const query = requiredString(body.query, "query");
       if (query.length < 3) throw new HttpError(400, "Enter at least three characters.");
 
-      const requestBody: Record<string, unknown> = {
-        textQuery: query,
-        pageSize: 8,
-        languageCode: "en",
-        regionCode: "GB",
-      };
-      if (latitude !== null && longitude !== null) {
-        requestBody.locationBias = {
-          circle: {
-            center: { latitude, longitude },
-            radius: Math.min(Math.max(optionalNumber(body.radiusMetres) ?? 30000, 1000), 50000),
-          },
-        };
+      const mode = typeof body.mode === "string" ? body.mode.trim().toLowerCase() : "general";
+      if (!["general", "bowls_club"].includes(mode)) {
+        throw new HttpError(400, "Search mode must be general or bowls_club.");
       }
 
-      const payload = await googlePost(
-        googleApiKey,
-        requestBody,
-        "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.businessStatus",
-      );
-      const places = (payload.places ?? []).map(normalisePlace);
-      return jsonResponse({ places, allowance });
+      const searchQueries = mode === "bowls_club"
+        ? [`${query} bowls club`, `${query} bowling club`, `${query} lawn bowls`]
+        : [query];
+
+      const fieldMask =
+        "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.businessStatus";
+
+      const responses = await Promise.all(searchQueries.map((textQuery) => {
+        const requestBody: Record<string, unknown> = {
+          textQuery,
+          pageSize: mode === "bowls_club" ? 12 : 8,
+          languageCode: "en",
+          regionCode: "GB",
+        };
+        if (latitude !== null && longitude !== null) {
+          requestBody.locationBias = {
+            circle: {
+              center: { latitude, longitude },
+              radius: Math.min(Math.max(optionalNumber(body.radiusMetres) ?? 30000, 1000), 50000),
+            },
+          };
+        }
+        return googlePost(googleApiKey, requestBody, fieldMask);
+      }));
+
+      const byPlaceId = new Map<string, ReturnType<typeof normalisePlace>>();
+      for (const response of responses) {
+        for (const rawPlace of response.places ?? []) {
+          const place = normalisePlace(rawPlace);
+          if (!place.placeId) continue;
+          if (mode === "bowls_club" && !looksLikeBowlsClub(place.name, place.types)) continue;
+          if (!byPlaceId.has(place.placeId)) byPlaceId.set(place.placeId, place);
+        }
+      }
+
+      return jsonResponse({ places: [...byPlaceId.values()], mode, allowance });
     }
 
     if (latitude === null || longitude === null) {
@@ -264,7 +313,7 @@ Deno.serve(async (req) => {
     for (const response of responses) {
       for (const rawPlace of response.places ?? []) {
         const place = normalisePlace(rawPlace);
-        if (!place.placeId || looksLikeTenPin(place.name, place.types)) continue;
+        if (!place.placeId || !looksLikeBowlsClub(place.name, place.types)) continue;
         let distanceMiles: number | null = null;
         if (place.latitude !== null && place.longitude !== null) {
           distanceMiles = haversineMiles(latitude, longitude, place.latitude, place.longitude);
