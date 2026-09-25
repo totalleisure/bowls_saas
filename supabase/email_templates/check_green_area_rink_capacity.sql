@@ -6,9 +6,8 @@ AS $function$
 declare
   v_green_rink_count integer;
   v_overlapping_rinks integer;
-  v_maintenance_rinks integer;
 begin
-  if new.green_area_id is null then
+  if new.green_area_id is null or new.cancelled_at is not null then
     return new;
   end if;
 
@@ -24,24 +23,17 @@ begin
     raise exception 'Selected green area was not found';
   end if;
 
-  select coalesce(sum(f.rinks_required), 0)
+  -- fixtures_set_time_range runs before this trigger, preserving its 4-hour fallback.
+  select coalesce(max(a.capacity_booked_rinks), 0)
     into v_overlapping_rinks
-  from public.fixtures f
-  where f.green_area_id = new.green_area_id
-    and f.id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid)
-    and f.time_range && new.time_range;
+  from public.get_green_rink_availability(
+    new.green_area_id, lower(new.time_range), upper(new.time_range), new.id
+  ) a;
 
-  select count(distinct m.rink_number)::integer
-    into v_maintenance_rinks
-  from public.green_rink_maintenance m
-  where m.green_area_id = new.green_area_id
-    and m.status = 'active'
-    and m.time_range && new.time_range;
-
-  if v_overlapping_rinks + v_maintenance_rinks + new.rinks_required > v_green_rink_count then
+  if v_overlapping_rinks + new.rinks_required > v_green_rink_count then
     raise exception 'Not enough rinks available for this time slot on the selected green';
   end if;
 
   return new;
 end;
-$function$
+$function$;

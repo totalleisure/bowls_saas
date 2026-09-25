@@ -1,3 +1,5 @@
+-- Restores the two original definitions supplied from production.
+BEGIN;
 CREATE OR REPLACE FUNCTION public.get_green_rink_availability(p_green_area_id uuid, p_start_at timestamp with time zone, p_end_at timestamp with time zone, p_exclude_fixture_id uuid DEFAULT NULL::uuid)
  RETURNS TABLE(rink_label text, is_booked boolean, booked_text text, background_hex text, foreground_hex text, total_rinks integer, physically_booked_rinks integer, capacity_booked_rinks integer, free_capacity_rinks integer, fixture_rink_id uuid, booked_fixture_id uuid)
  LANGUAGE sql
@@ -26,39 +28,29 @@ AS $function$
     from green g
     cross join generate_series(1, g.rink_count) as i
   ),
-  overlapping_fixtures as (
-    select f.time_range, f.rinks_required
-    from public.fixtures f
-    where f.green_area_id = p_green_area_id
-      and f.cancelled_at is null
-      and f.time_range && tstzrange(p_start_at, p_end_at, '[)')
-      and (p_exclude_fixture_id is null or f.id <> p_exclude_fixture_id)
+  fixture_capacity as (
+    select coalesce(sum(f.rinks_required), 0)::integer as booked
+    from green g
+    left join public.fixtures f
+      on f.green_area_id = g.id
+     and f.cancelled_at is null
+     and f.time_range && tstzrange(p_start_at, p_end_at, '[)')
+     and (p_exclude_fixture_id is null or f.id <> p_exclude_fixture_id)
   ),
-  overlapping_maintenance as (
-    select m.time_range, m.rink_number
+  maintenance_capacity as (
+    select count(distinct m.rink_number)::integer as blocked
     from public.green_rink_maintenance m
     where m.green_area_id = p_green_area_id
       and m.status = 'active'
       and m.time_range && tstzrange(p_start_at, p_end_at, '[)')
   ),
-  -- Occupancy can increase only at the requested start or an interval start.
-  -- [start,end) excludes bookings ending exactly when the next one starts.
-  capacity_points as (
-    select p_start_at as at_time where p_start_at < p_end_at
-    union
-    select greatest(lower(time_range), p_start_at) from overlapping_fixtures
-    union
-    select greatest(lower(time_range), p_start_at) from overlapping_maintenance
-  ),
   capacity as (
-    select g.rink_count as total_rinks,
-      coalesce((select max(
-        coalesce((select sum(f.rinks_required) from overlapping_fixtures f
-                  where f.time_range @> p.at_time), 0)
-        + (select count(distinct m.rink_number) from overlapping_maintenance m
-           where m.time_range @> p.at_time)
-      ) from capacity_points p), 0)::integer as capacity_booked_rinks
+    select
+      g.rink_count as total_rinks,
+      (fc.booked + mc.blocked)::integer as capacity_booked_rinks
     from green g
+    cross join fixture_capacity fc
+    cross join maintenance_capacity mc
   ),
   booked as (
     select
@@ -148,3 +140,53 @@ AS $function$
   left join maintenance m on m.rink_label = l.rink_label
   order by l.i;
 $function$;
+
+CREATE OR REPLACE FUNCTION public.check_green_area_rink_capacity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_green_rink_count integer;
+  v_overlapping_rinks integer;
+  v_maintenance_rinks integer;
+begin
+  if new.green_area_id is null then
+    return new;
+  end if;
+
+  if new.rinks_required is null or new.rinks_required < 1 then
+    raise exception 'Rinks required must be at least 1 when a green area is selected';
+  end if;
+
+  select ga.rink_count into v_green_rink_count
+  from public.green_areas ga
+  where ga.id = new.green_area_id;
+
+  if v_green_rink_count is null then
+    raise exception 'Selected green area was not found';
+  end if;
+
+  select coalesce(sum(f.rinks_required), 0)
+    into v_overlapping_rinks
+  from public.fixtures f
+  where f.green_area_id = new.green_area_id
+    and f.id <> coalesce(new.id, '00000000-0000-0000-0000-000000000000'::uuid)
+    and f.time_range && new.time_range;
+
+  select count(distinct m.rink_number)::integer
+    into v_maintenance_rinks
+  from public.green_rink_maintenance m
+  where m.green_area_id = new.green_area_id
+    and m.status = 'active'
+    and m.time_range && new.time_range;
+
+  if v_overlapping_rinks + v_maintenance_rinks + new.rinks_required > v_green_rink_count then
+    raise exception 'Not enough rinks available for this time slot on the selected green';
+  end if;
+
+  return new;
+end;
+$function$;
+
+COMMIT;

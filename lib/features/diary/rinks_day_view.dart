@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/utils/date_format.dart';
+import '../../core/utils/peak_interval_usage.dart';
 
 import '../fixtures/create_fixture_page.dart';
 import '../fixtures/fixture_details_page.dart';
@@ -1064,33 +1065,22 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   }
 
   List<int> _buildRinkUsagePerHour(List<RinkAssignmentBlock> assignments) {
-    final usage = List<int>.filled(kDayEndHour - kDayStartHour + 1, 0);
-
-    for (final block in assignments) {
-      final startMinutes =
-          ((block.startAt.hour - kDayStartHour) * 60) + block.startAt.minute;
-      final endMinutes =
-          ((block.endAt.hour - kDayStartHour) * 60) + block.endAt.minute;
-
-      final visibleStart = startMinutes.clamp(0, kDayMinutes);
-      final visibleEnd = endMinutes.clamp(0, kDayMinutes);
-
-      for (int hour = kDayStartHour; hour <= kDayEndHour; hour++) {
-        final hourStart = (hour - kDayStartHour) * 60;
-        final hourEnd = hourStart + 60;
-
-        final overlapsHour = visibleStart < hourEnd && visibleEnd > hourStart;
-
-        if (overlapsHour) {
-          final index = hour - kDayStartHour;
-          if (index >= 0 && index < usage.length) {
-            usage[index]++;
-          }
-        }
-      }
-    }
-
-    return usage;
+    // parseClubTime carries club wall-clock values in a UTC DateTime. Compare
+    // calendar components consistently, independent of the device time zone.
+    DateTime clock(DateTime value) => DateTime.utc(
+        value.year, value.month, value.day, value.hour, value.minute,
+        value.second, value.millisecond, value.microsecond);
+    final dayStart = DateTime.utc(widget.date.year, widget.date.month, widget.date.day,
+        kDayStartHour);
+    return List.generate(kDayEndHour - kDayStartHour + 1, (index) {
+      final start = dayStart.add(Duration(hours: index));
+      final dayEnd = dayStart.add(const Duration(minutes: kDayMinutes));
+      final end = start.add(const Duration(hours: 1));
+      return peakIntervalUsage(
+        assignments.map((b) => (start: clock(b.startAt), end: clock(b.endAt))),
+        start, end.isAfter(dayEnd) ? dayEnd : end,
+      );
+    });
   }
 
   Widget _buildTimeHeader(
