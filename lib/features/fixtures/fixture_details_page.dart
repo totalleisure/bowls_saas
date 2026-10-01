@@ -780,33 +780,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
-  Map<String, dynamic>? _venueMap(dynamic value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) {
-      return value.map((key, item) => MapEntry(key.toString(), item));
-    }
-    return null;
-  }
-
-  bool _hasVenueIdentity(Map<String, dynamic>? venue) {
-    if (venue == null) return false;
-    return VenueActionsService.text(venue['id']).isNotEmpty ||
-        VenueActionsService.text(venue['name']).isNotEmpty ||
-        VenueActionsService.hasAddress(venue) ||
-        VenueActionsService.canNavigate(venue);
-  }
-
-  Map<String, dynamic>? get _fixtureVenueForActions {
-    final homeVenue = _venueMap(_fixture?['venue']);
-    final opponentVenue = _venueMap(_fixture?['opponent_venue']);
-
-    if (_isEventStyleFixture || _isHome) {
-      return _hasVenueIdentity(homeVenue) ? homeVenue : null;
-    }
-
-    if (_hasVenueIdentity(opponentVenue)) return opponentVenue;
-    return _hasVenueIdentity(homeVenue) ? homeVenue : null;
-  }
+  Map<String, dynamic>? get _fixtureVenueForActions =>
+      VenueActionsService.fixtureVenue(_fixture);
 
   String get _fixtureVenueHeading {
     if (_isEventStyleFixture) return 'Event venue';

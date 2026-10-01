@@ -13,6 +13,20 @@ import 'navigation_service.dart';
 class VenueActionsService {
   VenueActionsService._();
 
+  /// fixtures.venue_id is the playing location for home AND away fixtures.
+  /// opponent_venue_id identifies the other club; for away games it is our club.
+  /// Never substitute it when the playing venue is unavailable.
+  static Map<String, dynamic>? fixtureVenue(Map<String, dynamic>? fixture) {
+    final raw = fixture?['venue'];
+    if (raw is! Map) return null;
+    final venue = raw.map((key, value) => MapEntry(key.toString(), value));
+    final hasIdentity = text(venue['id']).isNotEmpty ||
+        text(venue['name']).isNotEmpty ||
+        hasAddress(venue) ||
+        canNavigate(venue);
+    return hasIdentity ? venue : null;
+  }
+
   static String text(dynamic value) => (value ?? '').toString().trim();
 
   static String address(Map<String, dynamic> venue) {
