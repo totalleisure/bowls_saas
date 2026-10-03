@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../services/fixture_communications_service.dart';
 
 class FixtureMessageScreen extends StatefulWidget {
   final String fixtureId;
@@ -29,6 +30,8 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
   String? _currentMemberProfileId;
   String _senderName = '';
 
+  bool _attachTeamSheet = false;
+  bool _hasPublishedTeam = false;
   bool _includePlayers = true;
   bool _includeReserves = false;
   bool _includeOpponents = false;
@@ -132,7 +135,7 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
     // Team selection members: players/reserves/opponents/markers.
     final selection = await supabase
         .from('team_selections')
-        .select('id')
+        .select('id, status')
         .eq('fixture_id', widget.fixtureId)
         .maybeSingle();
 
@@ -143,6 +146,7 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
     }
 
     _teamSelectionId = selectionId;
+    _hasPublishedTeam = selection?['status'] == 'published';
 
     final rows = await supabase
         .from('team_selection_members')
@@ -151,7 +155,8 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
         role,
         member_profile:member_profiles!team_selection_members_member_profile_id_fkey(display_name)
         ''')
-        .eq('team_selection_id', selectionId);
+        .eq('team_selection_id', selectionId)
+        .eq('is_selected', true);
 
     for (final raw in rows as List) {
       final row = Map<String, dynamic>.from(raw as Map);
@@ -197,6 +202,7 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
   }
 
   Future<void> _send() async {
+    if (_sending) return;
     final title = _titleController.text.trim();
     final message = _messageController.text.trim();
 
@@ -224,6 +230,15 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
     try {
       final supabase = Supabase.instance.client;
       final startAt = _fixtureStartAt;
+      // Build before enqueueing: a failed PDF must not silently send without it.
+      final sheet = _attachTeamSheet
+          ? await FixtureCommunicationsService(
+              supabase,
+            ).buildTeamSheetAttachment(
+              fixture: {'id': widget.fixtureId},
+              teamSelectionId: _teamSelectionId,
+            )
+          : null;
 
       final rows = recipients.map((r) {
         return {
@@ -239,6 +254,11 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
             'recipient_role': r['role'],
             'fixture_label': _fixtureLabel,
             'fixture_date': startAt?.toIso8601String(),
+            if (sheet != null) ...{
+              'team_sheet_required': true,
+              'team_sheet_composition_version': sheet.compositionVersion,
+              'attachments': [sheet.attachment],
+            },
           },
           'status': 'pending',
         };
@@ -252,7 +272,9 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Message sent to ${recipients.length} recipient(s).'),
+          content: Text(
+            'Message queued for ${recipients.length} recipient(s).',
+          ),
         ),
       );
       Navigator.pop(context);
@@ -299,6 +321,19 @@ class _FixtureMessageScreenState extends State<FixtureMessageScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                CheckboxListTile(
+                  value: _attachTeamSheet,
+                  title: const Text('Attach current team sheet'),
+                  subtitle: Text(
+                    _hasPublishedTeam
+                        ? 'Include the latest saved team sheet with the email.'
+                        : 'Available once the team has been published.',
+                  ),
+                  onChanged: _sending || !_hasPublishedTeam
+                      ? null
+                      : (value) =>
+                            setState(() => _attachTeamSheet = value ?? false),
+                ),
                 const Text(
                   'Send to',
                   style: TextStyle(fontWeight: FontWeight.bold),

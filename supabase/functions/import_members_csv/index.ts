@@ -95,6 +95,11 @@ serve(async (req) => {
     try { rows = parseCsv(await file.text()); }
     catch (error) { return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 400); }
 
+    const auditArgs = { p_actor: caller.user.id, p_club: club_id,
+      p_filename: storage_path.split('/').pop(), p_active: new_members_active };
+    const { data: auditRun, error: auditStartError } = await admin.rpc('audit_member_import', auditArgs);
+    if (auditStartError || !auditRun) throw new Error('Could not start import audit');
+
     const usersByEmail = new Map<string, string>();
     // Paginate so repeat imports also find accounts beyond the first page.
     const pageSize = 1000;
@@ -147,12 +152,6 @@ serve(async (req) => {
           if (!userId) throw new Error("Account creation returned no user id");
           usersByEmail.set(email, userId);
           created++;
-          // Record only accounts created by this import. Existing accounts never
-          // acquire initial-password eligibility through a repeat import.
-          const { error: receiptError } = await admin.rpc('record_member_import_account', {
-            p_user: userId, p_club: club_id,
-          });
-          if (receiptError) warnings.push('Initial password could not be verified for invitations; use Forgotten password.');
         }
         const { data: profile, error: profileError } = await admin.from("member_profiles")
           .select("id, first_name, last_name, email_address, display_name, title, gender, sex_at_birth, outdoor_club, phone")
@@ -199,7 +198,13 @@ serve(async (req) => {
         report.push({ row: row._row, email, status: "error", message: error instanceof Error ? error.message : String(error) });
       }
     }
+    const { error: auditEndError } = await admin.rpc('audit_member_import', {
+      ...auditArgs, p_run: auditRun,
+      p_summary: { created, linked, existing_memberships: existingMemberships, errors,
+        manual_review: manual_review.length, total: rows.length },
+    });
     return json({ ok: true,
+      audit_warning: auditEndError ? 'Import processed, but the audit summary could not be saved. Do not repeat the import solely for this warning.' : null,
       summary: { created, invited: 0, linked, existing_memberships: existingMemberships, errors,
         manual_review: manual_review.length, total: rows.length }, report, manual_review });
   } catch {

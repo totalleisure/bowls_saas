@@ -1,0 +1,120 @@
+begin;
+create temp table reply_test_results(test text,passed boolean) on commit drop;
+do $test$
+declare
+ f public.fixtures%rowtype;
+ fixture uuid:=extensions.gen_random_uuid();
+ member uuid:=extensions.gen_random_uuid();
+ captain uuid:=extensions.gen_random_uuid();
+ selection uuid:=extensions.gen_random_uuid();
+ target uuid:=extensions.gen_random_uuid();
+ rink uuid:=extensions.gen_random_uuid();
+ queue uuid:=extensions.gen_random_uuid();
+ action uuid:=extensions.gen_random_uuid();
+ result jsonb;
+ first_reply uuid;
+ n integer;
+ captain_user uuid;
+ response_token text := 'RSP-'||repeat('A',48);
+ token_hash text := encode(extensions.digest('RSP-'||repeat('A',48),'sha256'),'hex');
+begin
+ if exists(select 1 from cron.job where active) then raise exception 'Staging cron must remain inactive'; end if;
+ select * into f from public.fixtures where cancelled_at is null and archived_at is null order by created_at desc limit 1;
+ if f.id is null then raise exception 'No fixture template'; end if;
+ insert into auth.users(id,email) values(member,'selection-test@example.invalid'),(captain,'captain-test@example.invalid');
+ select id into member from public.member_profiles where user_id=member;
+ select id into captain from public.member_profiles where user_id=captain;
+ update public.member_profiles set display_name='Synthetic reply member',email_address='selection-test@example.invalid' where id=member;
+ update public.member_profiles set display_name='Synthetic captain',email_address='captain-test@example.invalid' where id=captain;
+ insert into public.club_memberships(club_id,member_profile_id,role,is_active) values(f.club_id,member,'member',true),(f.club_id,captain,'member',true);
+ f.id:=fixture; f.start_at:=now()+interval '10 years'; f.end_at:=f.start_at+interval '2 hours';
+ f.captain_member_profile_id:=captain; f.vice_captain_member_profile_id:=null;
+ f.green_area_id:=null; f.rescheduled_to_fixture_id:=null; f.rescheduled_from_fixture_id:=null;
+ f.last_team_sheet_emailed_at:=null; f.last_team_sheet_emailed_by:=null;
+ insert into public.fixtures select f.*;
+ insert into public.team_selections(id,fixture_id,status,captain_member_profile_id) values(selection,fixture,'published',captain);
+ insert into public.team_selection_members(id,team_selection_id,member_profile_id,role,acceptance,is_selected) values(target,selection,member,'player','pending',true);
+ insert into public.fixture_rinks(id,fixture_id,fixture_rink_no,format,players_per_rink) values(rink,fixture,1,'singles',1);
+ insert into public.fixture_rink_assignments(fixture_id,fixture_rink_id,member_profile_id,position) values(fixture,rink,member,1);
+ insert into public.email_queue(id,member_profile_id,event_type,recipient_email,subject,body,payload,status,sent_at) values(queue,member,'synthetic_written_reply_test','selection-test@example.invalid','Synthetic selection','Synthetic','{}','sent',now()-interval '10 minutes');
+ insert into public.email_action_requests(id,club_id,member_profile_id,recipient_email,action_type,target_record_id,fixture_id,team_selection_id,source_email_queue_id,allowed_actions,response_code_hash,expires_at,created_at,response_token_hash,response_protocol_version)
+ values(action,f.club_id,member,'selection-test@example.invalid','team_selection',target,fixture,selection,queue,array['ACCEPT','DECLINE'],encode(extensions.digest('BWL-000000000001','sha256'),'hex'),now()+interval '1 day',now()-interval '10 minutes',token_hash,2);
+ insert into public.email_written_reply_settings(mailbox,enabled,enabled_at,reminder_recipients) values('test@example.invalid',true,now()-interval '1 minute',array['selection-test@example.invalid'])
+ on conflict(mailbox) do update set enabled=excluded.enabled,enabled_at=excluded.enabled_at,reminder_recipients=excluded.reminder_recipients;
+ result:=public.claim_written_selection_reply('test@example.invalid','<old@test>','old',now()-interval '1 hour','BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',token_hash);
+ insert into reply_test_results values('historical mail ignored',result->>'status'='ignored');
+ result:=public.claim_written_selection_reply('test@example.invalid','<wrong@test>','wrong',now(),'BWL-000000000001','other@example.invalid','Synthetic selection','Thanks',token_hash);
+ insert into reply_test_results values('wrong sender cannot claim',result->>'status'='recipient_not_enabled');
+ result:=public.claim_written_selection_reply('test@example.invalid','<support@test>','support',now(),'BWL-000000000001','selection-test@example.invalid','Support enquiry','Thanks',token_hash);
+ insert into reply_test_results values('support subject cannot claim',result->>'status'='selection_not_pending');
+ result:=public.claim_written_selection_reply('test@example.invalid','<missing-token@test>','missing',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',null);
+ insert into reply_test_results values('v2 missing credential cannot create actionable reminder',result->>'status'='invalid_response_credentials');
+ result:=public.claim_written_selection_reply('test@example.invalid','<wrong-token@test>','wrong-token',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',repeat('0',64));
+ insert into reply_test_results values('stale credential cannot create actionable reminder',result->>'status'='invalid_response_credentials');
+ insert into reply_test_results select 'invalid credentials create no reminder',not exists(select 1 from public.email_written_reply_reminders where target_record_id=target);
+ set local role service_role;
+ result:=public.claim_written_selection_reply('test@example.invalid','<one@test>','one',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks, I can play',token_hash);
+ reset role;
+ insert into reply_test_results values('service worker records and claims reminder',result->>'status'='recorded' and result->>'send_reminder'='true');
+ insert into reply_test_results values('claim confirms validated v2 protocol',result->>'response_protocol_version'='2');
+ insert into reply_test_results select 'reminder preserves original token hash',response_token_hash=token_hash from public.email_action_requests where id=action;
+ first_reply:=(result->>'reply_id')::uuid;
+ insert into reply_test_results select 'captain receives visible notification',exists(select 1 from public.app_notifications where member_profile_id=captain and data->>'written_reply_id'=first_reply::text and body like '%Thanks, I can play%');
+ select user_id into captain_user from public.member_profiles where id=captain;
+ perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',captain_user)::text,true);
+ set local role authenticated;
+ select count(*) into n from public.app_notifications where data->>'written_reply_id'=first_reply::text;
+ reset role;
+ insert into reply_test_results values('RLS captain sees exactly their own notification',n=1);
+ perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',(select user_id from public.member_profiles where id=member))::text,true);
+ set local role authenticated;
+ select count(*) into n from public.app_notifications where data->>'written_reply_id'=first_reply::text;
+ reset role;
+ insert into reply_test_results values('RLS member cannot read organiser notification',n=0);
+ perform set_config('request.jwt.claims','{}',true);
+ result:=public.claim_written_selection_reply('test@example.invalid','<one@test>','moved-graph-id',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',token_hash);
+ insert into reply_test_results values('same internet message deduplicates across Graph IDs',result->>'status'='duplicate');
+ result:=public.claim_written_selection_reply('test@example.invalid','<two@test>','two',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Another written reply',token_hash);
+ insert into reply_test_results values('second written reply never resends reminder',result->>'status'='recorded' and result->>'send_reminder'='false');
+ insert into reply_test_results select 'acceptance stays pending',acceptance='pending' and responded_at is null from public.team_selection_members where id=target;
+ insert into reply_test_results select 'request stays pending',status='pending' and last_action is null from public.email_action_requests where id=action;
+ insert into reply_test_results select 'only one durable reminder',count(*)=1 from public.email_written_reply_reminders where target_record_id=target;
+ update public.email_action_requests set expires_at=now()-interval '1 second' where id=action;
+ result:=public.claim_written_selection_reply('test@example.invalid','<expired@test>','expired',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',token_hash);
+ insert into reply_test_results values('expired request ignored',result->>'status'='no_current_request');
+ update public.email_action_requests set expires_at=now()+interval '1 day',status='responded' where id=action;
+ result:=public.claim_written_selection_reply('test@example.invalid','<responded@test>','responded',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',token_hash);
+ insert into reply_test_results values('responded request ignored',result->>'status'='no_current_request');
+ update public.email_action_requests set status='pending' where id=action;
+ update public.team_selection_members set acceptance='accepted' where id=target;
+ result:=public.claim_written_selection_reply('test@example.invalid','<accepted@test>','accepted',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',token_hash);
+ insert into reply_test_results values('accepted selection ignored',result->>'status'='selection_not_pending');
+ insert into reply_test_results values('anonymous cannot execute',not has_function_privilege('anon','public.claim_written_selection_reply(text,text,text,timestamptz,text,text,text,text,text)','EXECUTE'));
+ insert into reply_test_results values('user cannot execute',not has_function_privilege('authenticated','public.claim_written_selection_reply(text,text,text,timestamptz,text,text,text,text,text)','EXECUTE'));
+ insert into reply_test_results values('user cannot read audit mailbox records',not has_table_privilege('authenticated','public.email_written_replies','SELECT'));
+ -- Apply only synthetic fixture commands inside this rollback; never Wayne's choice.
+ update public.team_selection_members set acceptance='pending',responded_at=null where id=target;
+ result:=public.apply_email_action_response(p_response_code=>'BWL-000000000001',p_command=>'ACCEPT',
+   p_sender_email=>'selection-test@example.invalid',p_response_token=>response_token,p_graph_message_id=>'synthetic-accept',p_received_at=>now());
+ insert into reply_test_results values('reminder credential accepts synthetic selection',result->>'status'='processed');
+ result:=public.apply_email_action_response(p_response_code=>'BWL-000000000001',p_command=>'DECLINE',
+   p_sender_email=>'selection-test@example.invalid',p_response_token=>response_token,p_graph_message_id=>'synthetic-repeat',p_received_at=>now());
+ insert into reply_test_results values('same credential cannot apply twice',result->>'status'='already_responded');
+ insert into reply_test_results select 'repeat cannot change accepted response',acceptance='accepted' from public.team_selection_members where id=target;
+ result:=public.claim_written_selection_reply('test@example.invalid','<consumed@test>','consumed',now(),'BWL-000000000001','selection-test@example.invalid','Synthetic selection','Thanks',token_hash);
+ insert into reply_test_results values('consumed credential cannot issue reminder',result->>'status'='no_current_request');
+ -- A distinct synthetic request verifies the Decline command independently.
+ insert into public.email_action_requests(club_id,member_profile_id,recipient_email,action_type,target_record_id,fixture_id,team_selection_id,source_email_queue_id,allowed_actions,response_code_hash,expires_at,response_token_hash,response_protocol_version)
+ values(f.club_id,member,'selection-test@example.invalid','team_selection',target,fixture,selection,queue,array['ACCEPT','DECLINE'],encode(extensions.digest('BWL-000000000002','sha256'),'hex'),now()+interval '1 day',token_hash,2);
+ update public.team_selection_members set acceptance='pending',responded_at=null where id=target;
+ result:=public.apply_email_action_response(p_response_code=>'BWL-000000000002',p_command=>'DECLINE',
+   p_sender_email=>'selection-test@example.invalid',p_response_token=>response_token,p_graph_message_id=>'synthetic-decline',p_received_at=>now());
+ insert into reply_test_results values('decline credential applies correctly',result->>'status'='processed');
+ insert into reply_test_results select 'decline updates synthetic member only',acceptance='declined' from public.team_selection_members where id=target;
+ if exists(select 1 from reply_test_results where passed is distinct from true) then raise exception 'Written reply assertion failed'; end if;
+end;
+$test$;
+select * from reply_test_results;
+rollback;
+
+

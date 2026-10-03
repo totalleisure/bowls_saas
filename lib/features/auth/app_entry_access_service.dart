@@ -40,9 +40,13 @@ class AppEntryAccessService {
       );
     }
 
-    final memberProfileId = (await _client.rpc(
-      'my_member_profile_id',
-    )).toString();
+    final memberProfileId = await _client.rpc('my_member_profile_id');
+    if (memberProfileId == null) {
+      return const AppEntryAccess(
+        isSuperuser: false,
+        hasActiveMembership: false,
+      );
+    }
     final memberships = await _client
         .from('club_memberships')
         .select('id')

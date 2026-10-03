@@ -227,8 +227,7 @@ class UnifiedFixtureCard extends StatelessWidget {
         .trim();
     final showCompetitionTypeName =
         competitionTypeName.isNotEmpty &&
-        competitionTypeName.trim().toLowerCase() !=
-            title.trim().toLowerCase();
+        competitionTypeName.trim().toLowerCase() != title.trim().toLowerCase();
 
     final colourScheme =
         competitionType?['colour_scheme'] as Map<String, dynamic>?;
@@ -241,12 +240,14 @@ class UnifiedFixtureCard extends StatelessWidget {
         ?.toString()
         .toLowerCase();
 
+    final usesRinks = competitionType?['uses_rinks'] != false;
     final showOrientation =
+        usesRinks &&
         isHome &&
         discipline == 'outdoor' &&
         orientationMode != 'not_applicable';
 
-    final formatLabel = _formatLabel();
+    final formatLabel = usesRinks ? _formatLabel() : '';
 
     final normalBackground = _colourFromHex(
       colourScheme?['background_hex']?.toString(),
@@ -266,7 +267,7 @@ class UnifiedFixtureCard extends StatelessWidget {
       whenText,
       if (section.isNotEmpty) section,
       if (formatLabel.isNotEmpty) formatLabel,
-      if (rinks > 0) '$rinks rinks',
+      if (usesRinks && rinks > 0) '$rinks rinks',
       if (showOrientation) 'orient: ${orientation ?? 'not set'}',
     ];
 

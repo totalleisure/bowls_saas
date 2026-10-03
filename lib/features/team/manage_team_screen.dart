@@ -1,6 +1,6 @@
 import 'dart:convert';
+import 'package:uuid/uuid.dart';
 
-import '../rinks/rinks_setup_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +8,8 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/utils/date_format.dart';
+import '../../core/widgets/action_pill.dart';
+import '../fixtures/fixture_team_structure_service.dart';
 
 import '../../Core/widgets/app_badge.dart';
 
@@ -50,6 +52,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   String _status = 'draft';
   int _compositionVersion = 0;
   String _compositionBaseline = '';
+  List<Map<String, dynamic>> _originalRinks = [];
+  Set<String> _originallyPositionedPlayers = {};
+  Map<String, String> _reviewMemberNames = {};
   bool _hasStagedChanges = false;
   bool _confirmingTeamChanges = false;
 
@@ -60,6 +65,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   List<Map<String, dynamic>> _rinks = [];
   Map<String, Map<int, Map<String, dynamic>>> _assignmentsByRink = {};
   bool _savingAssignments = false;
+  bool _changingStructure = false;
 
   bool _checkingPermissions = true;
 
@@ -76,12 +82,12 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   bool _canForceAccept = false;
   bool _canAddPeople = false;
 
-  bool get effectiveReadOnly => widget.readOnly || !_canEditSelection;
+  bool get effectiveReadOnly => widget.readOnly || !_canEditSelection || _confirmingTeamChanges;
 
-  bool get _canModifySelection => !widget.readOnly && _canEditSelection;
-  bool get _canSendReminders => !widget.readOnly && _canEditSelection;
-  bool get _canPublishTeam => !widget.readOnly && _canPublish;
-  bool get _canForceAcceptSelection => !widget.readOnly && _canForceAccept;
+  bool get _canModifySelection => !widget.readOnly && _canEditSelection && !_confirmingTeamChanges;
+  bool get _canSendReminders => !widget.readOnly && _canEditSelection && !_confirmingTeamChanges;
+  bool get _canPublishTeam => !widget.readOnly && _canPublish && !_hasStagedChanges && !_confirmingTeamChanges;
+  bool get _canForceAcceptSelection => !widget.readOnly && _canForceAccept && !_hasStagedChanges && !_confirmingTeamChanges;
   bool get _usesPublishedCompositionStaging =>
       _status == 'published' &&
       !_isPreselectFixture &&
@@ -117,7 +123,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         return (a['position'] as int).compareTo(b['position'] as int);
       });
 
-    return jsonEncode({'members': members, 'assignments': assignments});
+    return jsonEncode({'members': members, 'assignments': assignments, 'rinks': buildConfirmedTeamRinks(_rinks)});
   }
 
   void _refreshCompositionDirty() {
@@ -574,6 +580,26 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     );
   }
 
+  Future<void> _showUnpositionedPlayers(List<Map<String, dynamic>> players) async {
+    final names = players.map((m) => _displayNameWithPreferredPosition(
+        m['member_profiles'] as Map<String, dynamic>?)).where((n) => n.isNotEmpty).join('\n');
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Choose what happens to these players'),
+        content: SingleChildScrollView(child: Text(
+          '${names.isEmpty ? 'A previously assigned player no longer has a team position.' : names}\n\n'
+          'Assign each player to a team position, make them a reserve, or remove them from the selection before confirming.\n\n'
+          'Your changes are still here to review. Nothing has been saved or sent.',
+        )),
+        actions: [FilledButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Review players'),
+        )],
+      ),
+    );
+  }
+
   Future<void> _confirmTeamChanges() async {
     if (!_usesPublishedCompositionStaging ||
         !_hasStagedChanges ||
@@ -582,10 +608,56 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       return;
     }
 
+    final unresolved = unresolvedDisplacedPlayers(
+      originallyPositioned: _originallyPositionedPlayers,
+      selected: _selected,
+      assignments: _currentPlayerAssignmentPayload(),
+    );
+    if (unresolved.isNotEmpty) {
+      await _showUnpositionedPlayers(unresolved);
+      return;
+    }
+
     final members = buildConfirmedTeamMembers(_selected);
 
     setState(() => _confirmingTeamChanges = true);
     try {
+      final review = buildTeamChangeReview(
+        before: Map<String, dynamic>.from(jsonDecode(_compositionBaseline)),
+        after: Map<String, dynamic>.from(jsonDecode(_compositionSignature())),
+        names: {..._reviewMemberNames, for (final m in _selected)
+          m['member_profile_id'].toString(): _fallbackDisplayName(m['member_profiles'] as Map<String, dynamic>?)},
+      );
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Review team changes'),
+          content: SizedBox(width: 480, child: SingleChildScrollView(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+              for (final line in review.teams) Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(line, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              for (final line in review.players) Card(
+                color: const Color(0xFFE2ECFC),
+                child: Padding(padding: const EdgeInsets.all(12), child: Text(line)),
+              ),
+              const SizedBox(height: 12),
+              Text(review.recipients == 0 ? 'No automatic player messages will be queued.' :
+                '${review.recipients} player(s) will have messages queued. Emails are sent where an email address is available. Teamsheets are included as shown above.'),
+              const SizedBox(height: 12),
+              const Text('Confirm saves these changes together. Keep editing returns without saving or sending anything.'),
+            ]),
+          )),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep editing')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF256B38), foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Confirm and save')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
       final result = await _client.rpc(
         'confirm_team_changes',
         params: {
@@ -593,6 +665,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           'p_expected_version': _compositionVersion,
           'p_members': members,
           'p_assignments': _currentPlayerAssignmentPayload(),
+          'p_rinks': buildConfirmedTeamRinks(_rinks),
+          'p_original_rinks': _originalRinks,
         },
       );
 
@@ -617,7 +691,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       await _load();
       if (!mounted) return;
       final summary = result is Map
-          ? 'Confirmed ${result['newly_positioned'] ?? 0} new player(s), '
+          ? 'Team changes confirmed. ${result['communications_queued'] ?? 0} message(s) queued. '
+                '${result['newly_positioned'] ?? 0} new player(s), '
                 '${result['position_only_moves'] ?? 0} position move(s).'
           : 'Team changes confirmed.';
       ScaffoldMessenger.of(context).showSnackBar(
@@ -632,7 +707,32 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      if (e.toString().contains('TEAM_COMPOSITION_VERSION_CONFLICT')) {
+      if (e is PostgrestException && e.message.startsWith('Resolve unpositioned players:')) {
+        await _showUnpositionedPlayers(const []);
+      } else if (e is PostgrestException &&
+          e.message == 'That physical rink is not available.') {
+        await _load();
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => PopScope(
+            canPop: false,
+            child: AlertDialog(
+              title: const Text('This rink is no longer available'),
+              content: Text(_error == null
+                  ? 'Your pending changes have been cleared and the fixture refreshed.'
+                  : 'The fixture could not be refreshed. Please reopen it before making further changes.'),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else if (e.toString().contains('TEAM_COMPOSITION_VERSION_CONFLICT')) {
         final reload = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -654,9 +754,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         );
         if (reload == true) await _load();
       } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Confirm failed: $e')));
+        debugPrint('Confirm team changes failed: $e');
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Unable to confirm team changes. Your edits are still available. Please try again.'),
+        ));
       }
     } finally {
       if (mounted) setState(() => _confirmingTeamChanges = false);
@@ -1278,7 +1379,24 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       }
 
       _rinks = rinkList;
+      _originalRinks = buildConfirmedTeamRinks(rinkList);
+      widget.fixture['rinks_required'] = rinkList.length;
+      widget.fixture['players_per_rink'] = rinkList.fold<int>(
+        1,
+        (maximum, rink) => _asInt(rink['players_per_rink']) > maximum
+            ? _asInt(rink['players_per_rink'])
+            : maximum,
+      );
       _assignmentsByRink = byRink;
+      final positionedIds = _currentPlayerAssignmentPayload()
+          .map((a) => a['member_profile_id'].toString()).toSet();
+      _originallyPositionedPlayers = buildConfirmedTeamMembers(_selected)
+          .where((m) => m['role'] == 'player' && positionedIds.contains(m['member_profile_id']))
+          .map((m) => m['member_profile_id'].toString()).toSet();
+      _reviewMemberNames = {
+        for (final m in _selected) m['member_profile_id'].toString():
+          _fallbackDisplayName(m['member_profiles'] as Map<String, dynamic>?),
+      };
       _compositionBaseline = _compositionSignature();
       _hasStagedChanges = false;
 
@@ -1355,7 +1473,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Player marked as accepted')),
+        const SnackBar(content: Text('Selection marked as accepted')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -2448,6 +2566,211 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return ids;
   }
 
+  Future<void> _changeTeamStructure([Map<String, dynamic>? rink]) async {
+    if (!_canEditRinkSetup || _changingStructure || _confirmingTeamChanges) return;
+    final fixtureId = widget.fixture['id'].toString();
+    final service = FixtureTeamStructureService(_client);
+    final labels = await service.availablePhysicalRinks(fixtureId);
+    if (!mounted) return;
+
+    String format = (rink?['format'] ?? 'rinks').toString();
+    if (!FixtureTeamStructureService.formats.containsKey(format)) {
+      format = _asInt(rink?['players_per_rink']) == 4 ? 'rinks' : format;
+    }
+    String? physical = rink?['home_rink_label']?.toString();
+    final isHome = widget.fixture['is_home'] == true;
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFFF5F8FF),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Row(
+            children: [
+              const Icon(Icons.edit_outlined, color: Color(0xFF244B86)),
+              const SizedBox(width: 12),
+              Expanded(child: Text(rink == null ? 'Add team' : 'Edit team ${rink['fixture_rink_no']}')),
+            ],
+          ),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE2ECFC),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(_usesPublishedCompositionStaging
+                        ? 'Make your changes here, then review your players. Nothing is saved or sent until you press Confirm Team Changes on the team screen.'
+                        : 'Choose the team format and rink. Save updates the team immediately.'),
+                  ),
+                  const SizedBox(height: 20),
+                  DropdownButtonFormField<String>(
+                    initialValue: format,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Team format',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(),
+                    ),
+                    items: FixtureTeamStructureService.formats.entries
+                        .map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value)))
+                        .toList(),
+                    onChanged: (value) => setDialogState(() => format = value ?? format),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(_usesPublishedCompositionStaging
+                      ? 'Sets the number of player positions. If you reduce the team size, review who stays, moves to reserve or is removed before confirming.'
+                      : 'Sets the number of player positions. Review your player assignments after saving.'),
+                  if (isHome) ...[
+                    const SizedBox(height: 20),
+                    DropdownButtonFormField<String?>(
+                      initialValue: physical?.isEmpty == true ? null : physical,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Playing rink (optional)',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(value: null, child: Text('Not assigned')),
+                        ...{...labels, if (physical != null && physical!.isNotEmpty) physical!}
+                            .map((label) => DropdownMenuItem<String?>(value: label, child: Text(label))),
+                      ],
+                      onChanged: (value) => setDialogState(() => physical = value),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Choose where this team will play, or leave it unassigned until a rink is decided.'),
+                  ],
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF256B38),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    ),
+                    onPressed: () => Navigator.pop(dialogContext, 'save'),
+                    icon: const Icon(Icons.check),
+                    label: Text(_usesPublishedCompositionStaging ? 'Apply' : 'Save'),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(_usesPublishedCompositionStaging
+                      ? 'Apply returns to the team screen so you can finish arranging players before confirming.'
+                      : 'Save these team settings now.'),
+                  if (rink != null) ...[
+                    const SizedBox(height: 18),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFA12525)),
+                      onPressed: () => Navigator.pop(dialogContext, 'delete'),
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Delete team'),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(_usesPublishedCompositionStaging
+                        ? 'Remove this team from your pending changes. Its players must be reassigned, made reserves or removed before you confirm.'
+                        : 'Remove this team. Club members stay selected without positions; external names are removed. You will be asked to confirm.'),
+                  ],
+                  const SizedBox(height: 18),
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text('Close without applying changes made in this window.'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'delete') {
+      if (_rinks.length <= 1) {
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => PopScope(
+            canPop: false,
+            child: AlertDialog(
+              title: const Text('Cannot delete the last team'),
+              content: const Text(
+                'This fixture must have at least one team. The team has not been deleted.',
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          ),
+        );
+        return;
+      }
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete team?'),
+          content: Text(_usesPublishedCompositionStaging
+              ? 'Players will remain selected without a position. Reassign them, make them reserves or remove them before confirming.\n\nEach affected player will then receive one Team withdrawn message explaining their final position or role.\n\nNothing is sent until you confirm all team changes.'
+              : 'Positioned club members will remain selected but become unpositioned. External names in this team will be removed.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+
+    if (_usesPublishedCompositionStaging) {
+      try {
+        setState(() {
+          stageTeamStructureChange(
+            rinks: _rinks,
+            assignmentsByRink: _assignmentsByRink,
+            rinkId: rink?['id']?.toString() ?? const Uuid().v4(),
+            action: action == 'delete' ? 'delete' : (rink == null ? 'add' : 'update'),
+            format: format,
+            homeRinkLabel: physical,
+          );
+          _refreshCompositionDirty();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Changes applied. Review your players, then press Confirm Team Changes to save and queue messages.'),
+        ));
+      } catch (error) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+      return;
+    }
+
+    setState(() => _changingStructure = true);
+    try {
+      await service.change(
+        fixtureId: fixtureId,
+        action: action == 'delete' ? 'delete' : (rink == null ? 'add' : 'update'),
+        fixtureRinkId: rink?['id']?.toString(),
+        format: format,
+        homeRinkLabel: physical,
+      );
+      await _load();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Team structure change failed: $error')));
+    } finally {
+      if (mounted) setState(() => _changingStructure = false);
+    }
+  }
+
   Widget _buildIntegratedTeamAssignmentsSection() {
     if (_selectionId == null) return const SizedBox.shrink();
 
@@ -2470,6 +2793,12 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                 'No teams have been created for this fixture yet.',
                 textAlign: TextAlign.center,
               ),
+              if (_canEditRinkSetup)
+                TextButton.icon(
+                  onPressed: _changingStructure ? null : _changeTeamStructure,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add team'),
+                ),
             ],
           ),
         ),
@@ -2491,12 +2820,22 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Team positions',
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Team positions',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (_canEditRinkSetup)
+                  ActionPill(
+                    label: 'Add team',
+                    tone: ActionPillTone.green,
+                    onPressed: _changingStructure || _confirmingTeamChanges ? null : _changeTeamStructure,
+                  ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(
@@ -2541,6 +2880,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     final rinkId = rink['id']?.toString() ?? '';
     final teamNo = rink['fixture_rink_no']?.toString() ?? '';
     final playersPerRink = _asInt(rink['players_per_rink']);
+    final physicalRink = (rink['home_rink_label'] ?? '').toString().trim();
+    final teamHeading = widget.fixture['is_home'] == true && physicalRink.isNotEmpty
+        ? 'Team $teamNo ($physicalRink)'
+        : 'Team $teamNo';
 
     return Card(
       elevation: 0,
@@ -2550,10 +2893,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Team $teamNo',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w700),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(teamHeading, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700)),
+                ),
+                if (_canEditRinkSetup)
+                  ActionPill(
+                    label: 'Edit team',
+                    onPressed: _changingStructure || _confirmingTeamChanges ? null : () => _changeTeamStructure(rink),
+                  ),
+              ],
             ),
             const SizedBox(height: 10),
             for (var position = 1; position <= playersPerRink; position++) ...[
@@ -2687,9 +3037,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         : 0;
 
     return PopScope(
-      canPop: !_hasStagedChanges,
+      canPop: !_hasStagedChanges && !_confirmingTeamChanges,
       onPopInvokedWithResult: (didPop, _) async {
-        if (!didPop && _hasStagedChanges) {
+        if (!didPop && _hasStagedChanges && !_confirmingTeamChanges) {
           await _requestLeaveWithStagedChanges();
         }
       },
@@ -2756,29 +3106,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          ElevatedButton.icon(
-                            onPressed:
-                                (_selectionId == null || !_canEditRinkSetup)
-                                ? null
-                                : () async {
-                                    await Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => RinksSetupScreen(
-                                          fixtureId: widget.fixture['id']
-                                              .toString(),
-                                          isHome:
-                                              widget.fixture['is_home'] == true,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                            icon: const Icon(Icons.grid_view),
-                            label: const Text('Teams Setup'),
-                          ),
-
-                          const SizedBox(height: 8),
-
                           // Team position assignment is now integrated below.
                           if (!isPublished)
                             ElevatedButton(
@@ -3040,8 +3367,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                             Text(
                               isSelectedUnpositioned
                                   ? 'Selected — not awaiting acceptance'
-                                  : role == 'reserve'
-                                  ? 'Reserve — not awaiting player acceptance'
                                   : acceptance == 'accepted'
                                   ? 'Accepted'
                                   : acceptance == 'declined'
@@ -3124,9 +3449,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                           value: 'return_to_pool',
                                           child: Text('Return to pool'),
                                         ),
-                                      if (_canForceAccept &&
+                                      if (_canForceAcceptSelection &&
+                                          acceptance != 'accepted' &&
                                           (!_usesPublishedCompositionStaging ||
-                                              isPositionedPlayer))
+                                              isPositionedPlayer || role == 'reserve'))
                                         const PopupMenuItem(
                                           value: 'accept',
                                           child: Text('Accept'),

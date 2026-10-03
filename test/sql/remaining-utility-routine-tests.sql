@@ -1,0 +1,72 @@
+begin;
+set local statement_timeout='25s';
+create temp table utility_results(test text,passed boolean) on commit drop;
+grant insert,select on utility_results to authenticated,anon;
+do $$
+declare
+ c uuid:=gen_random_uuid(); d uuid:=gen_random_uuid();
+ a uuid:=gen_random_uuid(); b uuid:=gen_random_uuid(); pa uuid; pb uuid;
+ v uuid; w uuid; f uuid; g uuid; h uuid; s uuid; t uuid; u uuid;
+ denied boolean; n bigint; baseline bigint; j jsonb; request_id bigint;
+begin
+ if exists(select 1 from cron.job where active) then raise exception 'Disable cron before test'; end if;
+ select count(*) into baseline from public.notification_queue;
+ insert into public.clubs(id,name) values(c,'ROLLBACK publication own'),(d,'ROLLBACK publication foreign');
+ insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data) values
+ (a,a::text||'@example.invalid','{"display_name":"Publication admin"}','{}'),
+ (b,b::text||'@example.invalid','{"display_name":"Publication foreign reserve"}','{}');
+ select id into pa from public.member_profiles where user_id=a;
+ select id into pb from public.member_profiles where user_id=b;
+ insert into public.club_memberships(club_id,member_profile_id,role,is_active) values(c,pa,'admin',true),(d,pb,'member',true);
+ insert into public.venues(club_id,name,is_home_venue) values(c,'Rollback own venue',false) returning id into v;
+ insert into public.venues(club_id,name,is_home_venue) values(d,'Rollback foreign venue',false) returning id into w;
+ insert into public.fixtures(club_id,start_at,is_home,venue_id,rinks_required,players_per_rink) values(c,now()+interval '30 days',false,v,1,4) returning id into f;
+ insert into public.fixtures(club_id,start_at,is_home,venue_id,rinks_required,players_per_rink) values(c,now()+interval '31 days',false,v,1,4) returning id into h;
+ insert into public.fixtures(club_id,start_at,is_home,venue_id,rinks_required,players_per_rink) values(d,now()+interval '32 days',false,w,1,4) returning id into g;
+ insert into public.team_selections(fixture_id) values(f) returning id into s;
+ insert into public.team_selections(fixture_id) values(g) returning id into t;
+ insert into public.team_selections(fixture_id) values(h) returning id into u;
+ insert into public.team_selection_members(team_selection_id,member_profile_id,role,is_selected) values(s,pa,'reserve',true),(t,pb,'reserve',true);
+ insert into public.venue_places_settings(id,is_enabled,daily_project_limit,daily_club_limit,daily_user_limit) values(true,true,1000000,1000000,1000000) on conflict(id) do update set is_enabled=true,daily_project_limit=1000000,daily_club_limit=1000000,daily_user_limit=1000000;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',a,'role','authenticated')::text,true); set local role authenticated;
+ insert into utility_results select 'debug returns only own profile',count(*)=1 and bool_and(member_profile_id=pa) from public.debug_my_profile();
+ j:=public.reserve_venue_places_requests(c,'search',1);
+ insert into utility_results values('admin reserves own club allowance',(j->>'allowed')::boolean);
+ denied:=false; begin perform public.reserve_venue_places_requests(d,'search',1); exception when insufficient_privilege then denied:=true; end; insert into utility_results values('foreign club quota denied',denied);
+ denied:=false; begin perform public.reserve_venue_places_requests(c,'search',6); exception when invalid_parameter_value then denied:=true; end; insert into utility_results values('invalid quota units denied',denied);
+ denied:=false; begin perform public.run_email_responses_now(); exception when raise_exception then denied:=sqlerrm='Superuser access required'; end; insert into utility_results values('club admin cannot run inbox processor',denied);
+ reset role;
+ insert into utility_results select 'quota attributed to caller and club',count(*)=1 and bool_and(user_id=a and club_id=c and units=1) from public.venue_places_usage where user_id=a;
+ update public.venue_places_settings set daily_user_limit=1 where id=true;
+ set local role authenticated;
+ denied:=false; begin perform public.reserve_venue_places_requests(c,'search',1); exception when raise_exception then denied:=sqlerrm='You have reached your daily Google venue-search allowance.'; end; insert into utility_results values('quota limit enforced',denied);
+ reset role;
+ update public.club_memberships set role='member',is_active=true where club_id=c and member_profile_id=pa; set local role authenticated;
+ denied:=false; begin perform public.reserve_venue_places_requests(c,'search',1); exception when insufficient_privilege then denied:=true; end; insert into utility_results values('member quota denied',denied);
+ denied:=false; begin perform public.run_email_responses_now(); exception when raise_exception then denied:=sqlerrm='Superuser access required'; end; insert into utility_results values('member inbox processor denied',denied);
+ reset role;
+ update public.club_memberships set role='admin',is_active=false where club_id=c and member_profile_id=pa; set local role authenticated;
+ denied:=false; begin perform public.reserve_venue_places_requests(c,'search',1); exception when insufficient_privilege then denied:=true; end; insert into utility_results values('inactive admin quota denied',denied);
+ denied:=false; begin perform public.run_email_responses_now(); exception when raise_exception then denied:=sqlerrm='Superuser access required'; end; insert into utility_results values('inactive admin inbox processor denied',denied);
+ reset role;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',b,'role','authenticated')::text,true); set local role authenticated;
+ insert into utility_results select 'second user debug isolated',count(*)=1 and bool_and(member_profile_id=pb) from public.debug_my_profile();
+ reset role;
+ perform set_config('request.jwt.claims','{}',true); set local role anon;
+ insert into utility_results select 'anonymous debug empty',count(*)=0 from public.debug_my_profile();
+ denied:=false; begin perform public.reserve_venue_places_requests(c,'search',1); exception when insufficient_privilege then denied:=true; end; insert into utility_results values('anonymous quota denied',denied);
+ denied:=false; begin perform public.run_email_responses_now(); exception when insufficient_privilege then denied:=true; end; insert into utility_results values('anonymous inbox execute denied',denied);
+ reset role;
+ insert into public.app_superusers(user_id) values(a);
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',a,'role','authenticated')::text,true); set local role authenticated;
+ -- pg_net does not dispatch until COMMIT; this entire test always rolls back.
+ j:=public.run_email_responses_now();
+ request_id:=(j->>'request_id')::bigint;
+ insert into utility_results values('superuser may enqueue inbox request',(j->>'ok')::boolean and request_id is not null);
+ reset role;
+ insert into utility_results select 'inbox request queued for staging only',count(*)=1 from net.http_request_queue where id=request_id and url='https://egxdkaotepgfjmszxlyn.supabase.co/functions/v1/process-email-responses' and method='POST';
+ insert into utility_results values('cron remains disabled',not exists(select 1 from cron.job where active));
+ if exists(select 1 from utility_results where not passed) then raise exception 'Utility checks failed'; end if;
+end $$;
+select * from utility_results order by test;
+rollback;

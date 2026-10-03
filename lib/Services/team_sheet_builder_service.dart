@@ -117,7 +117,7 @@ class TeamSheetBuilderService implements TeamSheetDataSource {
       for (var position = 1; position <= rinkPlayers; position++) {
         final name =
             byPosition[position]?['display_name']?.toString().trim() ?? '';
-        if (isPreselect || name.isNotEmpty) players.add(name);
+        players.add(name);
         if (isPreselect) {
           opponents.add(
             byPosition[100 + position]?['display_name']?.toString().trim() ??
@@ -133,6 +133,7 @@ class TeamSheetBuilderService implements TeamSheetDataSource {
       sheetRinks.add(
         TeamSheetRink(
           rinkNumber: intValue(rink['fixture_rink_no']),
+          playersPerRink: rinkPlayers,
           homeRinkLabel: rink['home_rink_label']?.toString(),
           players: players,
           opponents: opponents,

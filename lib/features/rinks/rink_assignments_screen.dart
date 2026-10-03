@@ -461,22 +461,19 @@ class _RinkAssignmentsScreenState extends State<RinkAssignmentsScreen> {
             markerAsn?['member_profiles']?['display_name']?.toString() ?? '';
         marker = markerName.trim().isEmpty ? null : markerName.trim();
       } else {
-        final positions = byPos.keys.toList()..sort();
-
-        for (final pos in positions) {
-          final a = byPos[pos]!;
+        for (var pos = 1; pos <= ppr; pos++) {
+          final a = byPos[pos] ?? <String, dynamic>{};
           final mpId = a['member_profile_id']?.toString() ?? '';
           final role = roleByMember[mpId] ?? 'player';
-          if (role == 'reserve') continue;
-
           final name = a['member_profiles']?['display_name']?.toString() ?? '';
-          if (name.isNotEmpty) players.add(name);
+          players.add(role == 'reserve' ? '' : name);
         }
       }
 
       rinks.add(
         TeamSheetRink(
           rinkNumber: rinkNo,
+          playersPerRink: ppr,
           homeRinkLabel: label,
           players: players,
           opponents: opponents,

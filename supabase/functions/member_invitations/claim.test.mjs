@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 // Set PGLITE_MODULE to a locally installed @electric-sql/pglite dist/index.js.
 // Tests run a disposable PostgreSQL engine, never the Supabase project.
 const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE).href);
-const migration = readFileSync(new URL('../../migrations/20260912005337_member_invitations.sql',import.meta.url),'utf8');
+const migration = readFileSync(new URL('../../../reference/migrations/20260912005337_member_invitations.sql',import.meta.url),'utf8');
 const club='11111111-1111-1111-1111-111111111111';
 const caller='22222222-2222-2222-2222-222222222222';
 const membership='33333333-3333-3333-3333-333333333333';
@@ -23,6 +23,7 @@ async function setup() {
     insert into public.club_memberships values('${membership}','${club}',true);
     grant usage on schema public to service_role; grant select,update on public.club_memberships to service_role;`);
   await db.exec(migration);
+  await db.exec(readFileSync(new URL('../../migrations/20260927153757_invitation_delivery_diagnostics.sql',import.meta.url),'utf8'));
   const insert=async(n,previous=null)=>db.query(`insert into public.member_invitation_attempts(id,club_id,membership_id,created_by,email,user_id,first_name,subject,html,preview,guides,previous_sent_id) values($1,$2,$3,$4,'test@example.test',$4,'Test','Subject','<p>test</p>','{}','[]',$5)`,[id(n),club,membership,caller,previous]);
   const claim=async(n,who=caller,where=club)=>(await db.query('select public.claim_member_invitation($1,$2,$3) as claimed',[id(n),where,who])).rows[0].claimed;
   return {db,insert,claim};
@@ -89,3 +90,14 @@ test('account deletion is not blocked by invitation history',async()=>{
   } finally {await db.close();}
 });
 
+
+test('diagnostic migration preserves existing attempts and can be reapplied',async()=>{
+  const {db,insert}=await setup();
+  try {
+    await insert(1);
+    await db.query('update public.member_invitation_attempts set provider_status=429,provider_code=$1,provider_request_id=$2,retry_after_seconds=120 where id=$3',['TooManyRequests','abc-123',id(1)]);
+    await db.exec(readFileSync(new URL('../../migrations/20260927153757_invitation_delivery_diagnostics.sql',import.meta.url),'utf8'));
+    const row=(await db.query('select status,provider_status,provider_code,provider_request_id,retry_after_seconds from public.member_invitation_attempts')).rows[0];
+    assert.deepEqual(row,{status:'pending',provider_status:429,provider_code:'TooManyRequests',provider_request_id:'abc-123',retry_after_seconds:120});
+  } finally {await db.close();}
+});

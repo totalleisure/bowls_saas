@@ -8,9 +8,7 @@ import '../communications/mailing_lists_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../competitions/screens/competition_type_list_screen.dart';
-import '../admin/queue_admin_screen.dart';
-import '../admin/feature_revision_screen.dart';
-import '../communications/communications_control_centre.dart';
+import '../admin/superuser_screen.dart';
 import 'club_access.dart';
 
 class ClubHomeScreen extends StatefulWidget {
@@ -225,53 +223,22 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
               },
             ),
           ),
-          if (_isSuperuser) ...[
+          if (_isSuperuser)
             Card(
               child: ListTile(
-                leading: const Icon(Icons.toggle_on_outlined),
-                title: const Text('Feature releases'),
-                subtitle: const Text('Choose which new features are enabled'),
+                leading: const Icon(Icons.admin_panel_settings_outlined),
+                title: const Text('Superuser'),
+                subtitle: const Text(
+                  'Audit, archived fixtures and administration',
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const FeatureRevisionScreen(),
+                  MaterialPageRoute<void>(
+                    builder: (_) => SuperuserScreen(clubId: widget.clubId),
                   ),
                 ),
               ),
             ),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.admin_panel_settings_outlined),
-                title: const Text('Queue Administration'),
-                subtitle: const Text('Technical queue processing tools'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const QueueAdminScreen()),
-                  );
-                },
-              ),
-            ),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.support_agent),
-                title: const Text('Communications Control Centre'),
-                subtitle: const Text(
-                  'Monitor and repair fixture communications',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => CommunicationsControlCentreScreen(
-                        clubId: widget.clubId,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
         ],
       ),
     );

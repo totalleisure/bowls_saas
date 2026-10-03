@@ -1,3 +1,4 @@
+import '../dashboard/dashboard_filter_store.dart';
 // Dashboard venue navigation + approximate distance: 20260730-phase2d2-distance.
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -88,6 +89,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   Map<String, String> _greenNameById = {};
 
   DashboardFixtureFilter _filter = const DashboardFixtureFilter();
+  int _shownFixtureCount = 0;
+  int _filteredOutFixtureCount = 0;
 
   Color? _fixtureTypeBackgroundColor(Map<String, dynamic> fixture) {
     final competitionType =
@@ -215,10 +218,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   }
 
   bool _matchesFilter(Map<String, dynamic> f) {
-    if (_filter.sections.isNotEmpty) {
-      final section = (f['section'] ?? '').toString().toLowerCase().trim();
-      if (!_filter.sections.contains(section)) return false;
-    }
+    if (!_filter.matchesSection(f['section']?.toString())) return false;
 
     final startAt = DateTime.tryParse((f['start_at'] ?? '').toString());
 
@@ -227,37 +227,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       return false;
     }
 
-    if (_filter.categories.isNotEmpty) {
-      final competitionType = f['competition_type'] as Map<String, dynamic>?;
-      final tags = (competitionType?['tags'] as List<dynamic>? ?? const [])
-          .map((e) => e.toString().toLowerCase().trim())
-          .toSet();
-
-      final isInternal = competitionType?['is_internal'] == true;
-
-      bool matched = false;
-
-      for (final selected in _filter.categories) {
-        if (selected == 'internal') {
-          if (isInternal) {
-            matched = true;
-            break;
-          }
-        } else {
-          if (tags.contains(selected)) {
-            matched = true;
-            break;
-          }
-        }
-      }
-
-      if (!matched) return false;
-    }
-
-    if (_filter.fixtureTypeIds.isNotEmpty) {
-      final typeId = (f['competition_type_id'] ?? '').toString();
-      if (!_filter.fixtureTypeIds.contains(typeId)) return false;
-    }
+    final type = f['competition_type'] as Map<String, dynamic>? ?? const {};
+    final typeId = (f['competition_type_id'] ?? type['id'] ?? '').toString();
+    if (!_filter.includesType(typeId, type)) return false;
 
     return true;
   }
@@ -289,33 +261,20 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     return false;
   }
 
-  bool _matchesPeriod(DateTime date) {
-    final now = DateTime.now();
-
-    if (_filter.period == 'all') return true;
-
-    if (_filter.period == 'this_month') {
-      return date.month == now.month && date.year == now.year;
-    }
-
-    if (_filter.period == 'next_month') {
-      final next = DateTime(now.year, now.month + 1);
-      return date.month == next.month && date.year == next.year;
-    }
-
-    if (_filter.period == 'three_months') {
-      final end = DateTime(now.year, now.month + 3);
-      return date.isBefore(end);
-    }
-
-    return true;
-  }
+  bool _matchesPeriod(DateTime date) =>
+      _filter.matchesPeriod(date, toClubTime(DateTime.now()));
 
   List<String> _activeFilterLabels() {
     final labels = <String>[];
+    if (_filter.explicitSections && _filter.sections.isEmpty) {
+      labels.add('No sections selected');
+    }
 
     for (final s in _filter.sections) {
       switch (s) {
+        case 'open':
+          labels.add('Open / everyone');
+          break;
         case 'mens':
           labels.add('Men');
           break;
@@ -371,16 +330,19 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
     switch (_filter.period) {
       case 'this_month':
-        labels.add('This month');
+        labels.add('Rest of this month');
         break;
       case 'next_month':
-        labels.add('Next month');
+        labels.add('Next calendar month');
         break;
       case 'three_months':
         labels.add('Next 3 months');
         break;
     }
 
+    if (_filter.explicitTypes && _filter.fixtureTypeIds.isEmpty) {
+      labels.add('No fixture types selected');
+    }
     if (_filter.fixtureTypeIds.isNotEmpty) {
       final count = _filter.fixtureTypeIds.length;
       labels.add('$count fixture type${count == 1 ? '' : 's'}');
@@ -604,9 +566,30 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Active filters',
-            style: TextStyle(fontWeight: FontWeight.w600),
+          Wrap(
+            spacing: 8,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                'Active filters',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              Text(
+                '(Showing $_shownFixtureCount '
+                '${_shownFixtureCount == 1 ? 'fixture' : 'fixtures'}, '
+                '$_filteredOutFixtureCount filtered out)',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Acceptance requests, accepted fixtures and fixtures you manage '
+            'are always shown, regardless of filters.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -670,6 +653,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       clubId: widget.clubId,
       clubName: widget.clubName,
       allowVolunteerLists: _canWrite,
+      allowAdmin:
+          _canWrite &&
+          (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator),
+      showAdminGuide: _isClubAdmin,
       openMembershipDetails: () async {
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -692,23 +679,24 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     );
 
     if (result is DashboardFixtureFilter && result != _filter) {
+      if (!await _saveFilterPreference(result) || !mounted) return;
       setState(() {
         _filter = result;
       });
 
-      await _saveFilterPreference();
       await _load();
     }
   }
 
   Future<void> _clearFilter() async {
     final oldFilter = _filter;
+    if (!await _saveFilterPreference(DashboardFixtureFilter.empty) || !mounted)
+      return;
 
     setState(() {
       _filter = DashboardFixtureFilter.empty;
     });
 
-    await _saveFilterPreference();
     await _load();
 
     if (!mounted) return;
@@ -719,10 +707,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () async {
+            if (!await _saveFilterPreference(oldFilter) || !mounted) return;
             setState(() {
               _filter = oldFilter;
             });
-            await _saveFilterPreference();
             await _load();
           },
         ),
@@ -758,32 +746,30 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       }
     } catch (e) {
       debugPrint('Failed to load saved dashboard filter: $e');
-      _filter = DashboardFixtureFilter.empty;
+      rethrow;
     }
   }
 
-  Future<void> _saveFilterPreference() async {
+  Future<bool> _saveFilterPreference(DashboardFixtureFilter filter) async {
     final client = Supabase.instance.client;
     final user = client.auth.currentUser;
-
-    if (user == null) return;
-
     try {
-      if (_filter.isDefault) {
-        await client
-            .from('user_club_dashboard_filters')
-            .delete()
-            .eq('user_id', user.id)
-            .eq('club_id', widget.clubId);
-      } else {
-        await client.from('user_club_dashboard_filters').upsert({
-          'user_id': user.id,
-          'club_id': widget.clubId,
-          'filter_json': _filter.toJson(),
-        });
-      }
+      if (user == null)
+        throw StateError('Please sign in again to save filters.');
+      await DashboardFilterStore(client).save(user.id, widget.clubId, filter);
+      return true;
     } catch (e) {
       debugPrint('Failed to save dashboard filter: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not save filters. Your previous filters are still active. Please try again.',
+            ),
+          ),
+        );
+      }
+      return false;
     }
   }
 
@@ -861,7 +847,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             .select(
               'acceptance, role, team_selections(status, fixture:fixtures('
               'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
-              'requires_rsvp, team_id, team_name, cancelled_at, '
+              'requires_rsvp, team_id, team_name, cancelled_at, competition_type_id, '
               'captain_member_profile_id, vice_captain_member_profile_id, '
               'fixture_rinks(format, players_per_rink), '
               'competition_type:competition_types!fixtures_competition_type_id_fkey('
@@ -918,7 +904,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               '    fixture_rinks(format, players_per_rink), '
               '    competition_type_id, '
               '    competition_type:competition_types!fixtures_competition_type_id_fkey('
-              '      id, name, is_internal, selection_mode, uses_rinks, '
+              '      id, name, is_internal, selection_mode, uses_rinks, tags, '
               '      colour_scheme:fixture_colour_schemes('
               '      id, name, background_hex, foreground_hex)'
               '    ), '
@@ -1015,6 +1001,22 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         return fromId != null && fromId.isNotEmpty;
       }
 
+      // Count unique dashboard-eligible fixtures before applying user filters.
+      final eligibleFixtureIds = <String>{};
+      final shownFixtureIds = <String>{};
+      bool matchesDashboardFilter(
+        Map<String, dynamic> fixture, {
+        bool protectedSection = false,
+      }) {
+        final id = fixture['id']?.toString() ?? '';
+        final matches = protectedSection || _matchesFilter(fixture);
+        if (id.isNotEmpty) {
+          eligibleFixtureIds.add(id);
+          if (matches) shownFixtureIds.add(id);
+        }
+        return matches;
+      }
+
       final toRsvp = allFixtures.where((f) {
         if (f['cancelled_at'] != null) return false;
         if (!_canRsvpFromDashboard) return false;
@@ -1031,7 +1033,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         if (!_isEligibleForFixtureSection(f)) return false;
 
-        return _matchesFilter(f);
+        return matchesDashboardFilter(f);
       }).toList();
 
       final canManagePreselect = _isSuperuser || _isClubAdmin || _isSelector;
@@ -1067,7 +1069,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         if (!visible) return false;
 
-        return _matchesFilter(f);
+        return matchesDashboardFilter(f);
       }).toList();
 
       /*
@@ -1076,14 +1078,14 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       final openSessionsAndEvents = showOpenSessionsAndEvents
           ? allFixtures.where((f) {
               if (!_isOpenSessionOrEvent(f)) return false;
-              return _matchesFilter(f);
+              return matchesDashboardFilter(f);
             }).toList()
           : <Map<String, dynamic>>[];
 */
 
       final openSessionsAndEvents = allFixtures.where((f) {
         if (!_isOpenSessionOrEvent(f)) return false;
-        return _matchesFilter(f);
+        return matchesDashboardFilter(f);
       }).toList();
 
       // Needs my acceptance (published team + pending) for this club only
@@ -1103,7 +1105,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         if (startAt.isEmpty) return false;
         if (startAt.compareTo(nowUtcIso) < 0) return false;
 
-        return _matchesFilter(fx);
+        return matchesDashboardFilter(fx, protectedSection: true);
       }).toList();
 
       needsAcceptance.sort((a, b) {
@@ -1137,8 +1139,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         // Unfiltered list for next match popup
         upcomingAcceptedAll.add(fx);
 
-        // Filtered list for dashboard section
-        if (_matchesFilter(fx)) {
+        // Accepted commitments remain visible regardless of browsing filters.
+        if (matchesDashboardFilter(fx, protectedSection: true)) {
           upcomingAccepted.add(fx);
         }
       }
@@ -1189,7 +1191,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
             if (!isResponsible) return false;
 
-            return _matchesFilter(f);
+            return matchesDashboardFilter(f, protectedSection: true);
           }).toList()..sort(
             (a, b) =>
                 (a['start_at'] as String).compareTo(b['start_at'] as String),
@@ -1255,6 +1257,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
       setState(() {
         _myClubName = myClubName;
+        _shownFixtureCount = shownFixtureIds.length;
+        _filteredOutFixtureCount = eligibleFixtureIds
+            .difference(shownFixtureIds)
+            .length;
 
         _venueNameById = venueNameById;
         _greenNameById = greenNameById;
@@ -1685,7 +1691,23 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+      child: Semantics(
+        header: true,
+        child: Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionDivider() {
+    return Divider(
+      height: 12,
+      thickness: 1,
+      color: Theme.of(context).colorScheme.outlineVariant,
     );
   }
 
@@ -1927,7 +1949,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       ),
       appBar: AppBar(
         title: Text(widget.clubName),
-        actions: _dashboardAppBarActions(context, [
+        actions: [
           IconButton(
             tooltip: 'User Guide',
             icon: const Icon(Icons.fiber_manual_record_outlined),
@@ -1980,12 +2002,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                 }
               },
             ),
-
-          IconButton(
-            icon: const Icon(Icons.groups),
-            tooltip: 'Membership and Volunteer Lists',
-            onPressed: _openMemberOptions,
-          ),
 
           if (canAccessAdmin)
             IconButton(
@@ -2049,12 +2065,13 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               ],
             ),
           ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
           IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Options',
+            onPressed: _openMemberOptions,
           ),
-        ]),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -2064,7 +2081,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
               children: [
                 _buildActiveFilterSummary(),
-                _buildSectionHeader('Fixture Needing your Acceptance:'),
+                _buildSectionHeader('Fixtures needing your Acceptance'),
                 const SizedBox(height: 6),
                 if (_needsAcceptance.isEmpty)
                   _buildEmptyState('   Nothing waiting for you.')
@@ -2117,7 +2134,56 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                     );
                   }),
 
-                const SizedBox(height: 12),
+                _buildSectionDivider(),
+                _buildSectionHeader('Fixtures you have Accepted (upcoming)'),
+                const SizedBox(height: 6),
+
+                if (_upcomingAccepted.isEmpty)
+                  _buildEmptyState('   No upcoming accepted fixtures.')
+                else
+                  ..._upcomingAccepted.map((f) {
+                    final title = fixtureTitleUnified(
+                      f,
+                      myClubName: _myClubName,
+                    );
+                    final subtitle = fixtureSubtitleUnified(f);
+                    final venue = _physicalVenueForFixture(f);
+                    final distanceText = _distanceTextForFixture(f);
+                    final canNavigate =
+                        venue != null && VenueActionsService.canNavigate(venue);
+                    final foregroundColor =
+                        _fixtureTypeForegroundColor(f) ?? Colors.black87;
+
+                    return _buildFixtureCard(
+                      fixture: f,
+                      title: title,
+                      subtitle: subtitle,
+                      actionHint: distanceText,
+                      trailing: canNavigate
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip:
+                                      'Navigate to ${VenueActionsService.text(venue['name'])}',
+                                  onPressed: () => _navigateToFixtureVenue(f),
+                                  icon: Icon(
+                                    Icons.directions,
+                                    color: foregroundColor,
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.chevron_right,
+                                  color: foregroundColor,
+                                ),
+                              ],
+                            )
+                          : null,
+                      onTap: () => _openFixtureById(f['id']?.toString() ?? ''),
+                    );
+                  }),
+
+                _buildSectionDivider(),
                 _buildSectionHeader('Fixtures you can RSVP to:'),
                 const SizedBox(height: 6),
                 if (_toRsvp.isEmpty)
@@ -2168,7 +2234,48 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                     );
                   }),
 
-                const SizedBox(height: 12),
+                _buildSectionDivider(),
+                if (_fixturesManaging.isNotEmpty) ...[
+                  _buildSectionHeader('Fixtures you are managing'),
+                  const SizedBox(height: 6),
+
+                  ..._fixturesManaging.map((f) {
+                    final title = fixtureTitleUnified(
+                      f,
+                      myClubName: _myClubName,
+                    );
+                    final subtitle = fixtureSubtitleUnified(f);
+                    final fixtureId = f['id']?.toString() ?? '';
+
+                    final captainId = f['captain_member_profile_id']
+                        ?.toString();
+                    final viceCaptainId = f['vice_captain_member_profile_id']
+                        ?.toString();
+
+                    final roleLabel = captainId == _currentMemberId
+                        ? (_isEventStyleFixture(f) ? 'Organiser' : 'Captain')
+                        : viceCaptainId == _currentMemberId
+                        ? (_isEventStyleFixture(f)
+                              ? 'Deputy organiser'
+                              : 'Vice-captain')
+                        : 'Managing';
+
+                    return _buildFixtureCard(
+                      fixture: f,
+                      title: title,
+                      subtitle: subtitle,
+                      actionHint: roleLabel,
+                      trailing: _buildResponsePill(
+                        label: roleLabel,
+                        backgroundColor: Colors.blue.shade100,
+                        foregroundColor: Colors.blue.shade900,
+                      ),
+                      onTap: () => _openFixtureById(fixtureId),
+                    );
+                  }),
+                  _buildSectionDivider(),
+                ],
+
                 _buildSectionHeader('Fixtures Awaiting Team Selection'),
                 const SizedBox(height: 6),
 
@@ -2230,98 +2337,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                     );
                   }),
 
-                const SizedBox(height: 12),
-                _buildSectionHeader('Fixtures you have Accepted (upcoming)'),
-                const SizedBox(height: 6),
-
-                if (_upcomingAccepted.isEmpty)
-                  _buildEmptyState('   No upcoming accepted fixtures.')
-                else
-                  ..._upcomingAccepted.map((f) {
-                    final title = fixtureTitleUnified(
-                      f,
-                      myClubName: _myClubName,
-                    );
-                    final subtitle = fixtureSubtitleUnified(f);
-                    final venue = _physicalVenueForFixture(f);
-                    final distanceText = _distanceTextForFixture(f);
-                    final canNavigate =
-                        venue != null && VenueActionsService.canNavigate(venue);
-                    final foregroundColor =
-                        _fixtureTypeForegroundColor(f) ?? Colors.black87;
-
-                    return _buildFixtureCard(
-                      fixture: f,
-                      title: title,
-                      subtitle: subtitle,
-                      actionHint: distanceText,
-                      trailing: canNavigate
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  tooltip:
-                                      'Navigate to ${VenueActionsService.text(venue['name'])}',
-                                  onPressed: () => _navigateToFixtureVenue(f),
-                                  icon: Icon(
-                                    Icons.directions,
-                                    color: foregroundColor,
-                                  ),
-                                ),
-                                Icon(
-                                  Icons.chevron_right,
-                                  color: foregroundColor,
-                                ),
-                              ],
-                            )
-                          : null,
-                      onTap: () => _openFixtureById(f['id']?.toString() ?? ''),
-                    );
-                  }),
-
-                if (_fixturesManaging.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _buildSectionHeader('Fixtures you are managing'),
-                  const SizedBox(height: 6),
-
-                  ..._fixturesManaging.map((f) {
-                    final title = fixtureTitleUnified(
-                      f,
-                      myClubName: _myClubName,
-                    );
-                    final subtitle = fixtureSubtitleUnified(f);
-                    final fixtureId = f['id']?.toString() ?? '';
-
-                    final captainId = f['captain_member_profile_id']
-                        ?.toString();
-                    final viceCaptainId = f['vice_captain_member_profile_id']
-                        ?.toString();
-
-                    final roleLabel = captainId == _currentMemberId
-                        ? (_isEventStyleFixture(f) ? 'Organiser' : 'Captain')
-                        : viceCaptainId == _currentMemberId
-                        ? (_isEventStyleFixture(f)
-                              ? 'Deputy organiser'
-                              : 'Vice-captain')
-                        : 'Managing';
-
-                    return _buildFixtureCard(
-                      fixture: f,
-                      title: title,
-                      subtitle: subtitle,
-                      actionHint: roleLabel,
-                      trailing: _buildResponsePill(
-                        label: roleLabel,
-                        backgroundColor: Colors.blue.shade100,
-                        foregroundColor: Colors.blue.shade900,
-                      ),
-                      onTap: () => _openFixtureById(fixtureId),
-                    );
-                  }),
-                ],
-
+                _buildSectionDivider(),
                 if (_openSessionsAndEvents.isNotEmpty) ...[
-                  const SizedBox(height: 12),
                   _buildSectionHeader('Open Sessions and Events'),
                   const SizedBox(height: 6),
 
@@ -2342,37 +2359,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                       onTap: () => _openFixtureById(fixtureId),
                     );
                   }),
+                  _buildSectionDivider(),
                 ],
               ],
             ),
     );
   }
-}
-
-List<Widget> _dashboardAppBarActions(
-  BuildContext context,
-  List<IconButton> actions,
-) {
-  if (MediaQuery.sizeOf(context).width >= 600) return actions;
-  return [
-    actions.first,
-    PopupMenuButton<VoidCallback>(
-      tooltip: 'More dashboard actions',
-      icon: const Icon(Icons.more_vert),
-      onSelected: (action) => action(),
-      itemBuilder: (context) => [
-        for (final action in actions.skip(1))
-          PopupMenuItem<VoidCallback>(
-            value: action.onPressed!,
-            child: Row(
-              children: [
-                action.icon,
-                const SizedBox(width: 12),
-                Flexible(child: Text(action.tooltip ?? 'Action')),
-              ],
-            ),
-          ),
-      ],
-    ),
-  ];
 }

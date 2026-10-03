@@ -11,7 +11,7 @@ const header = 'first name,last name,title,email,mobile phone,gender,outdoor clu
 const csv = `${header}\nWayne,Example,,wayne@example.test,,Male,,not-to-be-emailed`;
 const plain = v => JSON.parse(JSON.stringify(v));
 
-function setup({ authorized = true, active = true, graphStatus = 202, lostResponse = false, csvText = csv } = {}) {
+function setup({ authorized = true, active = true, graphStatus = 202, graphBody = null, graphHeaders = {}, lostResponse = false, csvText = csv } = {}) {
   let handler;
   const tables = {
     app_superusers: authorized ? [{ user_id: 'admin' }] : [],
@@ -22,7 +22,7 @@ function setup({ authorized = true, active = true, graphStatus = 202, lostRespon
     member_invitation_attempts: [],
   };
   const calls = { sends: [], downloads: [], uploads: [], userWrites: 0, reads: 0 };
-  const accounts = { user: { id: 'user', email: 'wayne@example.test' } };
+  const accounts = { user: { id: 'user', email: 'wayne@example.test', last_sign_in_at: '2026-01-01' } };
   const admin = {
     auth: { getUser: async token => token === 'valid' ? { data: { user: { id: 'admin' } } } : { data: { user: null }, error: 'invalid' }, admin: { getUserById: async id => ({ data: { user: accounts[id] } }) } },
     storage: { from: bucket => ({
@@ -64,6 +64,7 @@ function setup({ authorized = true, active = true, graphStatus = 202, lostRespon
     },
     // The actual database claim is tested separately against PostgreSQL/PGlite.
     rpc: async (name, args) => {
+      if(name==='check_member_initial_password') return {data: accounts.user.last_sign_in_at == null && args.p_password === 'not-to-be-emailed'};
       assert.equal(name,'claim_member_invitation');
       const a=tables.member_invitation_attempts.find(r=>r.id===args.p_id && r.club_id===args.p_club && r.created_by===args.p_caller);
       const previous=tables.member_invitation_attempts.find(r=>r.membership_id===a?.membership_id && ['sending','sent','unknown'].includes(r.status));
@@ -79,7 +80,7 @@ function setup({ authorized = true, active = true, graphStatus = 202, lostRespon
       if (url.includes('oauth2')) return new Response(JSON.stringify({access_token:'mail-token'}));
       calls.sends.push(JSON.parse(args.body));
       if (lostResponse) throw new Error('response lost');
-      return new Response(null,{status:graphStatus});
+      return new Response(graphBody,{status:graphStatus,headers:graphHeaders});
     },
   });
   vm.runInContext(executable,context);
@@ -98,7 +99,7 @@ test('preview creates no accounts and sends no email; personalisation contains n
   assert.equal(result.status,200); assert.equal(result.recipients.length,1);
   assert.equal(s.calls.sends.length,0);
   const a=s.tables.member_invitation_attempts[0];
-  assert.match(a.html,/Hello Wayne/); assert.match(a.html,/id6762380407/);
+  assert.match(a.html,/Hello Wayne/); assert.match(a.html,/sites.google.com\/view\/totalleisurebowls\/get-the-app/);
   assert.match(a.html,/Forgotten password/); assert.doesNotMatch(a.html,/not-to-be-emailed/);
   assert.equal(a.guides.length,2);
 });
@@ -190,3 +191,44 @@ test('HTML escapes all personal and club values',()=>{
   assert.doesNotMatch(html,/<script>|<Club>/);assert.match(html,/&lt;script&gt;/);assert.match(html,/a&amp;b/);
 });
 
+
+test('throttling retains safe diagnostics and requires a fresh review without sending twice',async()=>{
+  const s=setup({graphStatus:429,graphHeaders:{'retry-after':'120','request-id':'abc-123'},graphBody:JSON.stringify({error:{code:'TooManyRequests',message:'private body and password'}})});
+  const p=await s.preview(), id=p.recipients[0].id;
+  const result=await s.send(id);
+  assert.equal(result.status,'failed');
+  assert.equal(result.retry_after_seconds,120);
+  assert.match(result.message,/120 seconds/);
+  const a=s.tables.member_invitation_attempts[0];
+  assert.equal(a.provider_status,429); assert.equal(a.provider_code,'TooManyRequests');
+  assert.equal(a.provider_request_id,'abc-123');
+  assert.doesNotMatch(JSON.stringify(a),/private body and password/);
+  await s.send(id); assert.equal(s.calls.sends.length,1);
+  assert.equal((await s.preview(false)).recipients.length,1);
+});
+test('malformed provider response still records a definitive rejection',async()=>{
+  const s=setup({graphStatus:403,graphBody:'not JSON',graphHeaders:{'retry-after':'invalid'}});
+  const p=await s.preview(); assert.equal((await s.send(p.recipients[0].id)).status,'failed');
+  const a=s.tables.member_invitation_attempts[0];
+  assert.equal(a.provider_status,403); assert.equal(a.provider_code,null); assert.equal(a.retry_after_seconds,null);
+});
+
+test('unused account receives matching initial password without storing it in history',async()=>{
+ const s=setup(); s.accounts.user.last_sign_in_at=null;
+ const p=await s.preview(); assert.equal(p.recipients.length,1);
+ assert.match(JSON.stringify(p.recipients[0].preview),/not-to-be-emailed/);
+ assert.doesNotMatch(JSON.stringify(s.tables.member_invitation_attempts),/not-to-be-emailed/);
+ assert.equal((await s.send(p.recipients[0].id)).status,'sent');
+ assert.match(s.calls.sends[0].message.body.content,/not-to-be-emailed/);
+ assert.equal(s.calls.sends[0].message.attachments.length,2);
+});
+test('unused account with wrong password is excluded before sending',async()=>{
+ const s=setup({csvText:csv.replace('not-to-be-emailed','wrong')}); s.accounts.user.last_sign_in_at=null;
+ const p=await s.preview(); assert.equal(p.recipients.length,0); assert.match(p.exceptions[0].reason,/does not match/);
+ assert.equal(s.calls.sends.length,0);
+});
+test('sign-in between review and send prevents stale initial password disclosure',async()=>{
+ const s=setup(); s.accounts.user.last_sign_in_at=null; const p=await s.preview();
+ s.accounts.user.last_sign_in_at='2026-09-27';
+ assert.equal((await s.send(p.recipients[0].id)).status,400); assert.equal(s.calls.sends.length,0);
+});

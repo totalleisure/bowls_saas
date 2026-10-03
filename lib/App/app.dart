@@ -7,13 +7,6 @@ class BowlsApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FeatureRevisionHost(
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Bowls SaaS',
-        theme: ThemeData(useMaterial3: true),
-        home: const AuthGate(),
-      ),
-    );
+    return const FeatureRevisionHost(child: AuthGate());
   }
 }

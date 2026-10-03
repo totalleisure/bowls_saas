@@ -246,7 +246,10 @@ serve(async (req) => {
 
     for (const email of emails ?? []) {
       try {
-        if (TEAM_SHEET_EVENT_TYPES.has(email.event_type)) {
+        if (TEAM_SHEET_EVENT_TYPES.has(email.event_type) ||
+          (email.event_type === "fixture_message" &&
+            (email.payload?.team_sheet_required === true ||
+              (Array.isArray(email.attachments) && email.attachments.length > 0)))) {
           const attachments = Array.isArray(email.attachments)
             ? email.attachments as Record<string, unknown>[]
             : [];

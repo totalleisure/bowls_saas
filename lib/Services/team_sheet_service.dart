@@ -120,7 +120,7 @@ class TeamSheetService {
 
       final assigned = asnByRink[rinkId] ?? const [];
 
-      final players = <String>[];
+      final players = List<String>.filled(ppr > 0 ? ppr : 4, '');
       for (final a in assigned) {
         final mpId = a['member_profile_id']?.toString() ?? '';
         final role = roleByMember[mpId] ?? 'player';
@@ -132,12 +132,16 @@ class TeamSheetService {
             a['member_profiles']?['display_name']?.toString() ??
             nameByMember[mpId] ??
             '';
-        if (name.isNotEmpty) players.add(name);
+        final position = _asInt(a['position']);
+        if (position >= 1 && position <= players.length) {
+          players[position - 1] = name;
+        }
       }
 
       rinksOut.add(
         TeamSheetRink(
           rinkNumber: rinkNo,
+          playersPerRink: ppr > 0 ? ppr : 4,
           // We can add physical label support later if you want it printed per rink box:
           // physicalLabel: rr['home_rink_label']?.toString(),
           players: players,

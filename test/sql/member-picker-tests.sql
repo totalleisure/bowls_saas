@@ -1,0 +1,70 @@
+begin;
+set local statement_timeout='25s';
+create temp table picker_results(test text,passed boolean) on commit drop;
+grant insert,select on picker_results to authenticated,anon,service_role;
+do $$
+declare
+ c uuid; f uuid; d uuid:=gen_random_uuid(); a uuid:=gen_random_uuid(); b uuid:=gen_random_uuid(); su uuid:=gen_random_uuid();
+ pa uuid; pb uuid; t uuid; other_t uuid; denied boolean; n integer;
+begin
+ select club_id,id into c,f from public.fixtures limit 1;
+ if c is null then raise exception 'Fixture required'; end if;
+ insert into public.clubs(id,name) values(d,'ROLLBACK picker foreign club');
+ insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data) values
+ (a,a::text||'@example.invalid','{"display_name":"Picker synthetic A"}','{}'),
+ (b,b::text||'@example.invalid','{"display_name":"Picker synthetic B"}','{}'),
+ (su,su::text||'@example.invalid','{"display_name":"Picker superuser"}','{}');
+ select id into pa from public.member_profiles where user_id=a;
+ select id into pb from public.member_profiles where user_id=b;
+ update public.member_profiles set sex_at_birth='male' where id=pa;
+ insert into public.club_memberships(club_id,member_profile_id,role,is_active) values(c,pa,'member',true),(d,pb,'member',true);
+ insert into public.app_superusers(user_id) values(su);
+ insert into public.teams(club_id,name) values(c,'Picker own team') returning id into t;
+ insert into public.teams(club_id,name) values(d,'Picker foreign team') returning id into other_t;
+ insert into public.team_members(team_id,member_profile_id) values(t,pa);
+ insert into public.fixture_rsvps(fixture_id,member_profile_id,status) values(f,pa,'yes');
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',a,'role','authenticated')::text,true);
+ set local role authenticated;
+ insert into picker_results select 'ordinary active member own club',count(*)=1 from public.get_club_member_picker_list(c) where member_profile_id=pa;
+ insert into picker_results select 'foreign club denied',count(*)=0 from public.get_club_member_picker_list(d);
+ insert into picker_results select 'own team filter',count(*)=1 from public.get_club_member_picker_list(c,p_team_id=>t) where member_profile_id=pa;
+ insert into picker_results select 'foreign team denied',count(*)=0 from public.get_club_member_picker_list(c,p_team_id=>other_t);
+ insert into picker_results select 'own fixture RSVP yes',count(*)=1 from public.get_club_member_picker_list(c,p_fixture_id=>f,p_rsvp_statuses=>array['yes'],p_use_fixture_section=>false) where member_profile_id=pa;
+ insert into picker_results select 'RSVP no excludes yes',count(*)=0 from public.get_club_member_picker_list(c,p_fixture_id=>f,p_rsvp_statuses=>array['no'],p_use_fixture_section=>false) where member_profile_id=pa;
+ insert into picker_results select 'section filter includes male',count(*)=1 from public.get_club_member_picker_list(c,p_section=>'men') where member_profile_id=pa;
+ insert into picker_results select 'section filter excludes male',count(*)=0 from public.get_club_member_picker_list(c,p_section=>'ladies') where member_profile_id=pa;
+ insert into picker_results select 'search preserved',count(*)=1 from public.get_club_member_picker_list(c,p_search=>'Picker synthetic A');
+ reset role;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',b,'role','authenticated')::text,true);
+ set local role authenticated;
+ insert into picker_results select 'second club own members',count(*)=1 from public.get_club_member_picker_list(d) where member_profile_id=pb;
+ insert into picker_results select 'foreign fixture rejected even when section ignored',count(*)=0 from public.get_club_member_picker_list(d,p_fixture_id=>f,p_use_fixture_section=>false);
+ reset role;
+ update public.club_memberships set is_active=false where club_id=c and member_profile_id=pa;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',a,'role','authenticated')::text,true);
+ set local role authenticated;
+ insert into picker_results select 'inactive caller denied',count(*)=0 from public.get_club_member_picker_list(c);
+ reset role;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',su,'role','authenticated')::text,true);
+ set local role authenticated;
+ insert into picker_results select 'superuser cross club access',count(*)=1 from public.get_club_member_picker_list(d) where member_profile_id=pb;
+ insert into picker_results select 'superuser filters still club bound',count(*)=0 from public.get_club_member_picker_list(d,p_fixture_id=>f,p_use_fixture_section=>false);
+ insert into picker_results select 'inactive candidate excluded',count(*)=0 from public.get_club_member_picker_list(c) where member_profile_id=pa;
+ reset role;
+ perform set_config('request.jwt.claims','{}',true);
+ set local role authenticated;
+ insert into picker_results select 'missing identity denied',count(*)=0 from public.get_club_member_picker_list(c);
+ reset role;
+ set local role anon;
+ denied:=false;
+ begin perform * from public.get_club_member_picker_list(c); exception when insufficient_privilege then denied:=true; end;
+ insert into picker_results values('anonymous execute denied',denied);
+ reset role;
+ set local role service_role;
+ insert into picker_results select 'server access retained',count(*)=1 from public.get_club_member_picker_list(d) where member_profile_id=pb;
+ reset role;
+ insert into picker_results values('cron remains disabled',not exists(select 1 from cron.job where active));
+ if exists(select 1 from picker_results where not passed) then raise exception 'Picker tests failed'; end if;
+end $$;
+select * from picker_results order by test;
+rollback;

@@ -1,0 +1,80 @@
+begin;
+set local statement_timeout='20s';
+create temp table push_results(test text,passed boolean) on commit drop;
+grant insert,select on push_results to authenticated,anon,service_role;
+do $test$
+declare
+ a uuid:=gen_random_uuid(); b uuid:=gen_random_uuid();
+ pa uuid; pb uuid; ta uuid:=gen_random_uuid(); tb uuid:=gen_random_uuid(); spare uuid:=gen_random_uuid();
+ n integer; denied boolean; op text;
+begin
+ if exists(select 1 from cron.job where active) then raise exception 'Cron must remain disabled'; end if;
+ insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data)
+ values(a,a::text||'@example.invalid','{"display_name":"Push RLS test"}','{}'),
+ (b,b::text||'@example.invalid','{"display_name":"Push RLS test"}','{}');
+ select id into pa from public.member_profiles where user_id=a;
+ select id into pb from public.member_profiles where user_id=b;
+ set local role service_role;
+ insert into public.user_push_tokens(id,user_id,member_profile_id,device_token) values(tb,b,pb,'synthetic-b');
+ reset role;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',a,'role','authenticated')::text,true);
+ set local role authenticated;
+ insert into public.user_push_tokens(id,user_id,member_profile_id,device_token,platform) values(ta,a,pa,'synthetic-a','test');
+ insert into push_results select 'own registration readable',count(*)=1 from public.user_push_tokens where id=ta;
+ insert into public.user_push_tokens(id,user_id,device_token) values(spare,a,'synthetic-no-profile');
+ insert into push_results select 'optional profile allowed',count(*)=1 from public.user_push_tokens where id=spare and member_profile_id is null;
+ insert into public.user_push_tokens(id,user_id,member_profile_id,device_token,app_build) values(ta,a,pa,'synthetic-rotated','test-2')
+ on conflict(id) do update set device_token=excluded.device_token,app_build=excluded.app_build;
+ insert into push_results select 'own upsert and token rotation',device_token='synthetic-rotated' and app_build='test-2' from public.user_push_tokens where id=ta;
+ update public.user_push_tokens set is_active=false where id=ta;
+ insert into push_results select 'own deactivate',not is_active from public.user_push_tokens where id=ta;
+ insert into push_results select 'foreign token hidden',count(*)=0 from public.user_push_tokens where id=tb;
+ update public.user_push_tokens set device_token='forged' where id=tb;
+ get diagnostics n=row_count;
+ insert into push_results values('foreign update denied',n=0);
+ delete from public.user_push_tokens where id=tb;
+ get diagnostics n=row_count;
+ insert into push_results values('foreign delete denied',n=0);
+ denied:=false;
+ begin insert into public.user_push_tokens(user_id,device_token) values(b,'forged'); exception when insufficient_privilege then denied:=true; end;
+ insert into push_results values('foreign registration denied',denied);
+ denied:=false;
+ begin insert into public.user_push_tokens(user_id,member_profile_id,device_token) values(a,pb,'forged'); exception when insufficient_privilege then denied:=true; end;
+ insert into push_results values('foreign profile insert denied',denied);
+ denied:=false;
+ begin update public.user_push_tokens set member_profile_id=pb where id=ta; exception when insufficient_privilege then denied:=true; end;
+ insert into push_results values('foreign profile update denied',denied);
+ denied:=false;
+ begin update public.user_push_tokens set user_id=b where id=ta; exception when insufficient_privilege then denied:=true; end;
+ insert into push_results values('ownership transfer denied',denied);
+ denied:=false;
+ begin insert into public.user_push_tokens(id,user_id,device_token) values(tb,a,'forged') on conflict(id) do update set device_token=excluded.device_token; exception when insufficient_privilege then denied:=true; end;
+ insert into push_results values('foreign row upsert denied',denied);
+ delete from public.user_push_tokens where id=spare;
+ get diagnostics n=row_count;
+ insert into push_results values('own delete',n=1);
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',b,'role','authenticated')::text,true);
+ insert into push_results select 'second owner token unchanged',device_token='synthetic-b' from public.user_push_tokens where id=tb;
+ insert into push_results select 'second owner isolation',count(*)=0 from public.user_push_tokens where id=ta;
+ perform set_config('request.jwt.claims','{"role":"anon"}',true);
+ set local role anon;
+ foreach op in array array['select count(*) from public.user_push_tokens','update public.user_push_tokens set is_active=false','delete from public.user_push_tokens'] loop
+  denied:=false;
+  begin execute op; exception when insufficient_privilege then denied:=true; end;
+  insert into push_results values('anonymous denied '||split_part(op,' ',1),denied);
+ end loop;
+ denied:=false;
+ begin insert into public.user_push_tokens(user_id,device_token) values(a,'anonymous'); exception when insufficient_privilege then denied:=true; end;
+ insert into push_results values('anonymous insert denied',denied);
+ reset role;
+ set local role service_role;
+ insert into push_results select 'server reads recipients',count(*)=2 from public.user_push_tokens where id in(ta,tb);
+ update public.user_push_tokens set is_active=false where id=tb;
+ get diagnostics n=row_count;
+ insert into push_results values('server invalidates token',n=1);
+ reset role;
+ insert into push_results values('no client truncate',not has_table_privilege('authenticated','public.user_push_tokens','TRUNCATE') and not has_table_privilege('anon','public.user_push_tokens','TRUNCATE'));
+ insert into push_results values('cron disabled',not exists(select 1 from cron.job where active));
+end $test$;
+select * from push_results order by test;
+rollback;

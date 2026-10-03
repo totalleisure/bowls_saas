@@ -14,15 +14,17 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
   final _scrollController = ScrollController();
 
   final _indexKey = GlobalKey();
-  final _gettingStartedKey = GlobalKey();
-  final _whatAppDoesKey = GlobalKey();
-  final _dashboardOverviewKey = GlobalKey();
-  final _playerJourneyKey = GlobalKey();
-  final _fixturesKey = GlobalKey();
-  final _notificationsKey = GlobalKey();
-  final _internalFixturesKey = GlobalKey();
-  final _fixtureSheetsKey = GlobalKey();
-  final _commonQuestionsKey = GlobalKey();
+  final _topic1Key = GlobalKey();
+  final _topic2Key = GlobalKey();
+  final _topic3Key = GlobalKey();
+  final _topic4Key = GlobalKey();
+  final _topic5Key = GlobalKey();
+  final _topic6Key = GlobalKey();
+  final _topic7Key = GlobalKey();
+  final _topic8Key = GlobalKey();
+  final _topic9Key = GlobalKey();
+  final _topic10Key = GlobalKey();
+  final _topic11Key = GlobalKey();
   final _adminGuideKey = GlobalKey();
 
   Future<void> _jumpTo(GlobalKey key) async {
@@ -135,7 +137,7 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.65),
+            color: Colors.white.withValues(alpha: 0.65),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.grey.shade300),
           ),
@@ -185,12 +187,12 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
             child: Image.asset(
               _backgroundImageForWidth(context),
               fit: BoxFit.cover,
-              color: Colors.black.withOpacity(0.45),
+              color: Colors.black.withValues(alpha: 0.45),
               colorBlendMode: BlendMode.darken,
             ),
           ),
           Positioned.fill(
-            child: Container(color: Colors.white.withOpacity(0.65)),
+            child: Container(color: Colors.white.withValues(alpha: 0.65)),
           ),
           SingleChildScrollView(
             controller: _scrollController,
@@ -202,12 +204,14 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                   key: _indexKey,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.75),
+                    color: Colors.white.withValues(alpha: 0.75),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withOpacity(0.4)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.4),
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -226,30 +230,38 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                         'This guide explains how to use the Bowls App from a player\'s point of view. You can scroll through the full guide or jump straight to any topic below.',
                       ),
                       const SizedBox(height: 8),
-                      _topicButton('1. Getting Started', _gettingStartedKey),
-                      _topicButton('2. What the App Does', _whatAppDoesKey),
+                      _topicButton("1. Getting Started", _topic1Key),
+                      _topicButton("2. Options and Navigation", _topic2Key),
                       _topicButton(
-                        '3. Dashboard Overview',
-                        _dashboardOverviewKey,
+                        "3. Dashboard and Your Commitments",
+                        _topic3Key,
+                      ),
+                      _topicButton("4. The Four Diary Views", _topic4Key),
+                      _topicButton(
+                        "5. Filters: What Is Shown and Hidden",
+                        _topic5Key,
                       ),
                       _topicButton(
-                        '4. Your Journey as a Player',
-                        _playerJourneyKey,
+                        "6. Availability, Selection and Acceptance",
+                        _topic6Key,
+                      ),
+                      _topicButton("7. Events and Open Sessions", _topic7Key),
+                      _topicButton(
+                        "8. Your Internal Fixture Bookings",
+                        _topic8Key,
                       ),
                       _topicButton(
-                        '5. Fixtures and Match Interaction',
-                        _fixturesKey,
+                        "9. Fixture Details, Sheets and Notifications",
+                        _topic9Key,
                       ),
-                      _topicButton('6. Notifications', _notificationsKey),
                       _topicButton(
-                        '7. Internal Match Fixtures',
-                        _internalFixturesKey,
+                        "10. Membership, Account and Volunteer Lists",
+                        _topic10Key,
                       ),
-                      _topicButton('8. Fixture Sheets', _fixtureSheetsKey),
-                      _topicButton('9. Common Questions', _commonQuestionsKey),
+                      _topicButton("11. Common Questions", _topic11Key),
                       if (widget.showAdminGuide)
                         _topicButton(
-                          '10. Club Admin & Selector Guide',
+                          "12. Club Admin & Selector Guide",
                           _adminGuideKey,
                         ),
                     ],
@@ -258,344 +270,357 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
 
                 const SizedBox(height: 20),
                 _buildSection(
-                  key: _gettingStartedKey,
-                  title: '1. Getting Started',
+                  key: _topic1Key,
+                  title: "1. Getting Started",
                   children: [
                     _p(
-                      'The Bowls App helps you keep track of matches, club activity, competitions, team selection and green usage.',
-                    ),
-                    _subHeading('Installing the App'),
-                    _bullet(
-                      'iPhone and iPad users should install the app from the Apple App Store.',
+                      "Use this guide for playing, organising your own bookings and following club activity. Tap a topic to jump to it, or use Back to Topics at the end of a section.",
                     ),
                     _bullet(
-                      'Android users should install the app from the Google Play Store once the Android version has been published by the club.',
-                    ),
-                    _subHeading('Your Login Details'),
-                    _bullet(
-                      'Your username is your registered club email address.',
+                      "Install or update the app using the link or instructions supplied by your club. Follow your invitation instructions to set up access; an existing account may already have a password.",
                     ),
                     _bullet(
-                      'Your initial password will be sent to that registered email address.',
+                      "Sign in with your login email and password, then select your club. If an invitation or recovery email is missing, check Junk or Spam and confirm the address with the club.",
                     ),
                     _bullet(
-                      'If you cannot find the email, check your Junk or Spam folder.',
+                      "Opening a club uses your chosen starting screen: Dashboard, Monthly Diary or Diary List. Dashboard is the default.",
                     ),
                     _bullet(
-                      'If your email address has changed, contact the club so your member record can be updated.',
-                    ),
-                    _subHeading('Logging In'),
-                    _bullet(
-                      'Open the app and enter your registered email address and password.',
+                      "Use Options → Starting screen to change this. The choice is saved for your account and that club on this device; choose it separately on another device.",
                     ),
                     _bullet(
-                      'After logging in, you will be taken to your dashboard.',
+                      "An inactive membership or account-access issue may prevent entry. Contact the club rather than creating another account.",
                     ),
-                    _subHeading('Need Help'),
                     _bullet(
-                      'Use the Need Help button on the login screen if you want guidance before signing in.',
+                      "Use Need Help on the sign-in screen for guidance before logging in.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _whatAppDoesKey,
-                  title: '2. What the App Does',
+                  key: _topic2Key,
+                  title: "2. Options and Navigation",
                   children: [
                     _p(
-                      'The Bowls App is more than a match selection tool. It can act as a day-to-day club diary and player information hub.',
+                      "Options is the three-dot button at the right of the toolbar. It is available from the Dashboard and Diary views. The coloured icons help distinguish actions; your permissions determine which actions are available.",
                     ),
-                    _bullet('View matches, competitions and club fixtures'),
-                    _bullet('See meetings, events and club activities'),
-                    _bullet('Track daily green usage and rink use'),
-                    _bullet('Respond to invitations and team selections'),
-                    _bullet('View published teams and fixture details'),
-                    _bullet('Receive important updates about changes'),
-                  ],
-                ),
-
-                _buildSection(
-                  key: _dashboardOverviewKey,
-                  title: '3. Dashboard Overview',
-                  children: [
-                    _p(
-                      'The dashboard is the main player home screen. It is designed to show the actions that matter most to you.',
+                    _bullet(
+                      "Dashboard, Monthly Diary and Diary List switch your current view. Switching views does not change your saved starting screen.",
                     ),
-                    _subHeading('Needs Your Acceptance'),
-                    _p(
-                      'This section shows fixtures where you have already been selected to play and now need to accept or decline your place.',
+                    _bullet(
+                      "Starting screen chooses the view to open next time you enter the club.",
                     ),
-                    _subHeading('Fixtures to RSVP'),
-                    _p(
-                      'This section shows fixtures where you are invited to say whether you are available. You may be able to answer Yes, Maybe or No.',
+                    _bullet(
+                      "Membership Details opens the membership directory and details available to you. Respect members’ contact-sharing preferences.",
                     ),
-                    _subHeading('Awaiting Team Selection'),
-                    _p(
-                      'This section shows fixtures where availability is being gathered before the team is chosen. Your response helps the selector or captain decide who can play.',
+                    _bullet(
+                      "Account and Security lets you change your login email or password.",
                     ),
-                    _subHeading('Accepted Fixtures'),
+                    _bullet(
+                      "Volunteer Lists lets eligible members join or leave the club lists available to them. My fixture bookings opens your member-booking view.",
+                    ),
+                    _bullet(
+                      "Notifications opens your in-app messages. User Guide returns to this guide.",
+                    ),
+                    _bullet(
+                      "Club administration appears only when your permissions allow it. View-only members do not receive the same editing and booking controls as active playing members.",
+                    ),
                     _p(
-                      'This section shows your upcoming fixtures that you have already accepted. These are your confirmed matches and events.',
+                      "Within the Diary, use Month, List, Day and Rinks to change the diary view. Use Back to return to the previous screen.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _playerJourneyKey,
-                  title: '4. Your Journey as a Player',
+                  key: _topic3Key,
+                  title: "3. Dashboard and Your Commitments",
                   children: [
                     _p(
-                      'Most players move through the app in a simple journey from invitation to confirmed match.',
+                      "The Dashboard is personal: it highlights responses, commitments and responsibilities. Use the Diary to browse wider club activity.",
+                    ),
+                    _subHeading("Dashboard sections"),
+                    _bullet(
+                      "Fixtures needing your Acceptance: you have a published selection and must accept or decline. Selecting or allocating a player in a draft team does not itself create this request.",
                     ),
                     _bullet(
-                      'First, you may be invited to a fixture and asked to RSVP or declare availability.',
+                      "Fixtures you have Accepted (upcoming): your accepted upcoming selections. Check whether you are a player or reserve and read the fixture details.",
                     ),
                     _bullet(
-                      'Next, a captain or selector reviews the responses.',
+                      "Fixtures you can RSVP to: availability or attendance responses that are open to you. An existing Yes, Maybe or No can still be displayed here.",
                     ),
                     _bullet(
-                      'If selected, the fixture moves into the acceptance stage for you.',
+                      "Fixtures you are managing: fixtures for which you are a captain, vice-captain, organiser or deputy, as applicable. A fixture can also appear in a personal section when you participate in it.",
                     ),
-                    _bullet('You then accept or decline your place.'),
                     _bullet(
-                      'Once accepted, the fixture appears in your upcoming accepted fixtures list.',
+                      "Fixtures Awaiting Team Selection and Open Sessions and Events show further relevant activity.",
+                    ),
+                    _subHeading("Protected sections"),
+                    _p(
+                      "Dashboard filters do not hide fixtures needing your acceptance, your upcoming accepted fixtures or fixtures you manage. For example, a male manager can still see a Ladies fixture he manages when browsing with a Men filter.",
                     ),
                     _p(
-                      'The quicker and clearer your responses are, the easier it is for captains and selectors to organise teams.',
+                      "Other Dashboard sections can be narrowed by filters. Check the active-filter summary and the showing/filtered-out counts before assuming a fixture is missing.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _fixturesKey,
-                  title: '5. Fixtures and Match Interaction',
+                  key: _topic4Key,
+                  title: "4. The Four Diary Views",
                   children: [
-                    _p(
-                      'Fixtures may appear in slightly different ways depending on the type of match and how your club runs selection.',
-                    ),
-                    _subHeading('Team fixtures'),
-                    _p(
-                      'For team fixtures, you may see the fixture before the team has been selected. This allows you to declare availability early, giving the fixture captain a clearer view of who can play before selection begins.',
+                    _bullet(
+                      "Month: see activity arranged in a monthly calendar. Move between months, return to today, or open a date or fixture.",
                     ),
                     _bullet(
-                      'Available means you can play and wish to be considered.',
+                      "List: browse date-grouped cards for club activity you are permitted to see, including matches, events, open sessions and active green maintenance.",
                     ),
                     _bullet(
-                      'Not available means you cannot play on that date.',
+                      "Day: inspect activity for a particular day and move to neighbouring days.",
                     ),
                     _bullet(
-                      'Once the team is published, selected players are asked to accept or decline.',
+                      "Rinks: inspect the day’s green and rink usage, including maintenance. Booking or editing controls depend on your role.",
+                    ),
+                    _subHeading("Using Diary List"),
+                    _bullet(
+                      "Scroll towards earlier or later dates. Earlier dates and Later dates also load more dates when the current range is empty or filtered. The loaded date range is shown above the cards.",
                     ),
                     _bullet(
-                      'Selected players should also receive the fixture sheet by email where email is enabled.',
-                    ),
-                    _subHeading('RSVP Stage'),
-                    _bullet(
-                      'Yes means you are available and wish to be considered.',
+                      "Choose date jumps to a date. Today returns to today when you have moved away. Refresh diary reloads the current date range; use it after changes made elsewhere.",
                     ),
                     _bullet(
-                      'Maybe means you may be available but are not certain.',
-                    ),
-                    _bullet('No means you are unavailable.'),
-                    _subHeading('Selection Stage'),
-                    _bullet(
-                      'If chosen, you may be selected as a player, reserve, marker or umpire depending on the fixture type.',
-                    ),
-                    _subHeading('Acceptance Stage'),
-                    _bullet(
-                      'When selected, you should accept promptly if you can play.',
+                      "Search by words from the fixture label, type, team, opponent, venue or green. All entered words must match the descriptive information; search works together with your filters.",
                     ),
                     _bullet(
-                      'If you cannot play, decline as soon as possible so changes can be made.',
+                      "Tap a fixture or event card for its existing details. A maintenance card opens its maintenance details. Cancelled entries are labelled; check the current status before travelling.",
                     ),
-                    _subHeading('Changes'),
                     _bullet(
-                      'If teams, rinks, dates or times change after publication, you may receive an update and should check the fixture again.',
+                      "The showing and filtered-out counts refer to the loaded dates, not every entry in the club’s entire diary.",
+                    ),
+                    _subHeading("Your involvement and Next match"),
+                    _bullet(
+                      "Small badges identify published selections: You’re playing, You’re a reserve, or Awaiting your acceptance. You’re managing or You’re organising identifies your responsibility. A card can carry more than one badge.",
+                    ),
+                    _bullet(
+                      "Next match finds your next upcoming, published, accepted selection, including a reserve selection. Cancelled fixtures are excluded. It can find a fixture beyond the currently loaded dates and jump to its card.",
+                    ),
+                    _bullet(
+                      "If filters or search hide that fixture, the app explains this and offers Open details or Keep browsing. It does not change or override your filters.",
+                    ),
+                    _bullet(
+                      "If personal markers cannot be loaded, the club diary remains available with an explanatory message. Refresh to try again; absence of a badge is not proof that you are uninvolved.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _notificationsKey,
-                  title: '6. Notifications',
+                  key: _topic5Key,
+                  title: "5. Filters: What Is Shown and Hidden",
                   children: [
                     _p(
-                      'The app is designed to keep players and captains informed as fixtures move through their life-cycle. Important messages may appear as in-app notifications and may also be sent by email to your registered email address.',
+                      "The Dashboard and Diary List have different purposes and separate saved filters. Diary List initially shows all permitted activity. Its filters are saved for your account and club on this device.",
                     ),
-                    _subHeading('Players may receive notifications when'),
-                    _bullet('they are selected for a fixture or team match'),
-                    _bullet('they are made a reserve'),
-                    _bullet('they are asked to act as a marker or umpire'),
-                    _bullet('a fixture is first published'),
-                    _bullet('a fixture sheet is issued by email'),
-                    _bullet('a date, time, rink or team arrangement changes'),
-                    _bullet('they are promoted from reserve to player'),
-                    _subHeading('Captains may receive notifications when'),
-                    _bullet('a player accepts their place'),
-                    _bullet('a player declines their place'),
+                    _subHeading("Fixture types, tags and sections"),
                     _bullet(
-                      'changes happen to a fixture they are responsible for',
+                      "All types includes every fixture type. None selects no types. A deliberate empty selection stays empty; it does not mean All.",
                     ),
-                    _subHeading('Notification channels'),
-                    _bullet('In-app notifications'),
-                    _bullet('Email notifications where enabled'),
-                    _bullet('Other messaging routes as these are developed'),
-                    _subHeading('Turning on mobile notifications'),
-                    _p(
-                      'On iPhone and Android, notifications usually need to be allowed on the device the first time the app asks. If declined, they can normally be turned back on in the phone\'s Settings under Apps or Notifications for the Bowls App.',
+                    _bullet(
+                      "Tags select groups of fixture types. From All, selecting a tag narrows the types to that group. Adding other groups or individual types includes them too: this is OR between the selected types.",
+                    ),
+                    _bullet(
+                      "Selecting a fully selected tag removes its group. Selecting a partly selected tag includes the whole group. Shared types can affect the counts shown on other tags.",
+                    ),
+                    _bullet(
+                      "Counts such as Leagues (9 of 10) describe selected fixture types in that tag, not the number of fixtures. Review the individual type selections if unsure.",
+                    ),
+                    _bullet(
+                      "Section applies to every selected type. All sections includes Open / everyone, Men, Ladies and Mixed. Selecting none hides all ordinary filtered entries.",
+                    ),
+                    _subHeading("Periods"),
+                    _bullet(
+                      "Rest of this month runs from today to the end of the current month. Next calendar month excludes the current month.",
+                    ),
+                    _bullet(
+                      "Next 3 months runs from today through the corresponding date three months ahead, using the last valid day if necessary. It does not mean this month plus three complete calendar months.",
+                    ),
+                    _bullet(
+                      "All upcoming is the Dashboard’s unrestricted upcoming period. All dates in Diary List also permits earlier entries as you browse backwards.",
+                    ),
+                    _subHeading("Additional Diary List controls"),
+                    _bullet(
+                      "Home / away and team choices combine with the type, section, period and search criteria. An entry must pass all these restrictions. No team shows entries with no team assigned.",
+                    ),
+                    _bullet(
+                      "Every Diary List entry obeys the filters, including your own accepted or managed fixtures. There are no protected-section exceptions in this view.",
+                    ),
+                    _bullet(
+                      "Clear search removes the search words. Clear filters in Diary List removes all narrowing, including search. Reset on the filter screen resets that screen’s choices; use Return to apply them.",
+                    ),
+                    _bullet(
+                      "Saved filters can survive a restart. Check Filters active and the filtered-out count whenever the diary looks unexpectedly quiet. Filters never grant access to entries you are not permitted to see.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _internalFixturesKey,
-                  title: '7. Booking Internal Match Fixtures',
+                  key: _topic6Key,
+                  title: "6. Availability, Selection and Acceptance",
                   children: [
                     _p(
-                      'Some internal fixtures can be arranged directly by members using a simplified booking process designed for friendly games, practice matches and club competitions.',
+                      "Availability and acceptance are different steps. Saying you can play does not mean you have been selected or accepted a published place.",
                     ),
-
-                    _p(
-                      'These fixtures differ from normal club-managed fixtures because players create and organise the match themselves.',
+                    _bullet(
+                      "For an RSVP or availability request, Yes means available, Maybe means uncertain, and No means unavailable. Use the controls offered on that fixture.",
                     ),
-
-                    _subHeading('What is an Internal Match Fixture?'),
-
-                    _bullet('Arrange a match directly between members'),
-                    _bullet('Book the rink or rinks needed'),
-                    _bullet('Add the players involved'),
-                    _bullet('Manage the fixture through to play'),
-
-                    _subHeading('Who Creates the Fixture?'),
-
-                    _p(
-                      'One player starts the booking and is automatically assigned as the Captain of that fixture.',
+                    _bullet(
+                      "The captain or selector reviews the pool and prepares the team. A draft selection or rink position is not yet a published invitation.",
                     ),
-
-                    _p(
-                      'The captain becomes responsible for creating and maintaining the fixture, monitoring responses and making changes where needed.',
+                    _bullet(
+                      "Once the team is published, selected players and reserves should check their role and respond to the acceptance request promptly.",
                     ),
-
-                    _subHeading('Step 1 — Create the Fixture'),
-
-                    _bullet('Select an Internal Match fixture type'),
-                    _bullet('Choose the date and start time'),
-                    _bullet('Enter duration if applicable'),
-
-                    _p(
-                      'Because these fixtures are often arranged between players directly, date and time are usually agreed before booking.',
+                    _bullet(
+                      "Accept if you can fulfil that selection. Decline promptly if you cannot, so a replacement can be arranged.",
                     ),
-
-                    _subHeading('Step 2 — Book the Rink(s)'),
-
-                    _bullet('Select the green if required'),
-                    _bullet('Assign the rink or rinks needed'),
-                    _bullet('Check the correct time slot'),
-
-                    _p(
-                      'Booking the rink is one of the most important parts of the process.',
+                    _bullet(
+                      "If you can no longer play after accepting, use the response or withdrawal controls available in the fixture and contact the captain promptly. Do not assume changing an RSVP alone withdraws a published selection.",
                     ),
-
-                    _subHeading('Step 3 — Add Players'),
-
-                    _bullet('Add opponent or opponents'),
-                    _bullet('Add teammates if required'),
-                    _bullet('Add a marker if needed'),
-                    _bullet('Add an umpire if required'),
-
-                    _p(
-                      'The player creating the fixture is included automatically as captain.',
+                    _bullet(
+                      "A declined RSVP can remain visible while responses are open. Its presence does not mean your decline was lost.",
                     ),
-
-                    _subHeading('Step 4 — Confirm the Fixture'),
-
-                    _bullet('Players receive notification of the fixture'),
-                    _bullet('Players can confirm participation'),
-                    _bullet('The captain can monitor responses'),
-
-                    _subHeading('Notifications You May Receive'),
-
-                    _bullet('Notification when you are added to a fixture'),
-                    _bullet('Notification if date or time changes'),
-                    _bullet('Notification if rink bookings change'),
-                    _bullet('Notification if player assignments change'),
-
-                    _subHeading('Making Changes'),
-
-                    _p(
-                      'Because internal matches are often arranged informally, changes may happen. The fixture captain can maintain:',
-                    ),
-
-                    _bullet('Date or time'),
-                    _bullet('Rink booking'),
-                    _bullet('Players involved'),
-                    _bullet('Markers or officials'),
-
-                    _subHeading('Captain Responsibilities'),
-
-                    _bullet('Keep fixture details accurate'),
-                    _bullet('Ensure rink bookings are correct'),
-                    _bullet('Manage player changes'),
-                    _bullet('Communicate when arrangements change'),
-
-                    _subHeading('Typical Lifecycle'),
-
-                    _bullet('1. Agree the match'),
-                    _bullet('2. Create the fixture'),
-                    _bullet('3. Book the rink'),
-                    _bullet('4. Add players'),
-                    _bullet('5. Players confirm'),
-                    _bullet('6. Captain manages changes'),
-                    _bullet('7. Play the fixture'),
-
-                    _subHeading('Quick Tip'),
-
-                    _p(
-                      'For the smoothest experience: agree the date first, book the rink second and add players third.',
+                    _bullet(
+                      "After rescheduling, availability can be requested again, including from players already selected. Recheck the new date and respond again as requested; a fixture may be both an accepted commitment and open for RSVP.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _fixtureSheetsKey,
-                  title: '8. Fixture Sheets',
+                  key: _topic7Key,
+                  title: "7. Events and Open Sessions",
                   children: [
                     _p(
-                      'Once a fixture has been published, you may be able to view the fixture sheet or team sheet for that match.',
-                    ),
-                    _bullet('Check the date and start time carefully'),
-                    _bullet('Check whether the match is home or away'),
-                    _bullet('Check your rink and team position if shown'),
-                    _bullet(
-                      'Check the captain and any important contact information',
+                      "A non-playing event, such as a quiz, AGM or meeting, can request attendance numbers without using team selection or rinks.",
                     ),
                     _bullet(
-                      'Check again nearer the day in case any updates have been made',
+                      "When the organiser enables Request RSVPs, open the event and use its attendance controls. These responses help the organiser estimate numbers; they are not acceptance of a playing position.",
+                    ),
+                    _bullet(
+                      "When Request RSVPs is off, attendance is open and no response is required. No-rinks event cards omit playing formats and rink counts.",
+                    ),
+                    _bullet(
+                      "A Club Event has an Organiser and can have a Deputy Organiser. Open its details for the event information and contacts.",
+                    ),
+                    _bullet(
+                      "A genuine Open Session is for activity without team-selection acceptance or RSVP attendance controls. Open its card for the label, time and relevant green/rink information.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _commonQuestionsKey,
-                  title: '9. Common Questions',
+                  key: _topic8Key,
+                  title: "8. Your Internal Fixture Bookings",
                   children: [
-                    _subHeading('Why can’t I see a fixture?'),
                     _p(
-                      'It may not yet have been published to players, or it may not apply to you.',
+                      "Where your club enables member booking for a fixture type, use Options → My fixture bookings. Only the types and actions available to your membership can be used.",
                     ),
-                    _subHeading('Can I change my response?'),
+                    _bullet(
+                      "Agree the match arrangements, then choose the appropriate internal fixture type, date, start/end time and Fixture label where useful.",
+                    ),
+                    _bullet(
+                      "Check the green, rink requirement and available time. Reserving rink capacity and assigning actual rink numbers are separate steps.",
+                    ),
+                    _bullet(
+                      "Add the players, opponents and any required marker or officials using the controls offered by that fixture type. Being the creator or captain is not a substitute for checking the playing positions.",
+                    ),
+                    _bullet(
+                      "The creating member normally becomes the fixture captain. Check this and the assignments before confirming the booking.",
+                    ),
+                    _bullet(
+                      "Review the saved fixture and any outstanding responses. Maintain the date, time, rink and participant details, and communicate changes to those affected.",
+                    ),
+                    _bullet(
+                      "If a change affects a published team, follow its review and confirmation process. Read warnings before changing a playing format because incompatible assignments may be removed.",
+                    ),
+                  ],
+                ),
+
+                _buildSection(
+                  key: _topic9Key,
+                  title: "9. Fixture Details, Sheets and Notifications",
+                  children: [
+                    _bullet(
+                      "Open a fixture card to check its date/time, home or away status, venue, organiser or captain, team position and assigned rink. A rink number may be allocated later.",
+                    ),
+                    _bullet(
+                      "Use fixture or team sheets where available. Recheck the current app details after a change; an older downloaded PDF or email can be out of date.",
+                    ),
+                    _bullet(
+                      "Use Options → Notifications, or the Dashboard notification bell, for in-app messages. Open a relevant message to review the fixture.",
+                    ),
+                    _bullet(
+                      "Selection, reserves, confirmed changes, cancellations and rescheduling can generate messages. Email depends on the club’s settings, your address and delivery status.",
+                    ),
+                    _bullet(
+                      "Do not rely solely on an email arriving or a phone alert appearing. Check the app for current selections and messages, and check Junk or Spam when an expected email is missing.",
+                    ),
+                  ],
+                ),
+
+                _buildSection(
+                  key: _topic10Key,
+                  title: "10. Membership, Account and Volunteer Lists",
+                  children: [
+                    _bullet(
+                      "Options → Membership Details opens the membership information available to you. Keep your own contact details accurate and review any contact-sharing choices.",
+                    ),
+                    _bullet(
+                      "Options → Account and Security → Change login email asks for your current password and the new address. Complete the confirmation-code step sent to the new address. Editing a contact field is not a substitute for changing your login email.",
+                    ),
+                    _bullet(
+                      "Change password asks for the current password and matching new-password entries. Follow the requirements shown. If you cannot sign in, use the sign-in recovery options or contact the club.",
+                    ),
+                    _bullet(
+                      "Options → Volunteer Lists lets you join or leave available lists where your membership allows this. These list preferences are separate from team selection and fixture RSVP responses.",
+                    ),
+                    _bullet(
+                      "If an action is missing, it may not be available to your membership role. Ask a club administrator rather than using another member’s account.",
+                    ),
+                  ],
+                ),
+
+                _buildSection(
+                  key: _topic11Key,
+                  title: "11. Common Questions",
+                  children: [
+                    _subHeading("Why is a fixture missing?"),
                     _p(
-                      'In many cases yes, provided selection or publication has not passed the point where changes are locked down.',
+                      "Check the current view, loaded dates, search, sections, types, period and home/team choices. Clear filters and refresh if appropriate. The Dashboard is personal; the Diary is broader, subject to your access permissions.",
                     ),
                     _subHeading(
-                      'What should I do if I accepted and can no longer play?',
+                      "Why can I still see an accepted fixture with Dashboard filters set to None?",
                     ),
                     _p(
-                      'You should tell the fixture captain or club organiser as soon as possible.',
+                      "Acceptance requests, accepted upcoming fixtures and managed fixtures are protected on the Dashboard. Diary List has no such exceptions.",
                     ),
-                    _subHeading('Why have I received a change notification?'),
+                    _subHeading(
+                      "Why did my chosen starting screen not appear on another device?",
+                    ),
                     _p(
-                      'This usually means something important about the fixture has been updated, such as the team, rink, date or time.',
+                      "Starting-screen choices are saved per account and club on each device. Set the preference again there.",
+                    ),
+                    _subHeading(
+                      "Why am I seeing RSVP for a fixture I already accepted?",
+                    ),
+                    _p(
+                      "A rescheduled fixture can reopen availability so the same players can confirm the new arrangements. Read the new date and the current response status.",
+                    ),
+                    _subHeading(
+                      "Why does Next match say my fixture is hidden?",
+                    ),
+                    _p(
+                      "Your current Diary filters or search exclude it. Open details directly or change the filters yourself; the shortcut does not silently override them.",
+                    ),
+                    _subHeading("The diary has not reflected a recent change"),
+                    _p(
+                      "Refresh the view. If a load or connection error remains, keep the exact message and contact the club. Avoid repeatedly submitting a booking or response whose result is unclear.",
                     ),
                   ],
                 ),
@@ -603,24 +628,18 @@ class _PlayerHelpScreenState extends State<PlayerHelpScreen> {
                 if (widget.showAdminGuide)
                   _buildSection(
                     key: _adminGuideKey,
-                    title: '10. Club Admin & Selector Guide',
+                    title: "12. Club Admin & Selector Guide",
                     children: [
                       _p(
-                        'This section is available to club admins, selectors and authorised club officials. It covers club setup, fixture types, workflows, venues, greens, rinks, publishing, notifications and captain responsibilities.',
+                        'The administrator guide covers setup, fixture types, team publication and confirmation, rescheduling, invitations and member support. Available actions still depend on your permissions.',
                       ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.admin_panel_settings_outlined),
-                          label: const Text('Open Admin Guide'),
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const AdminHelpScreen(),
-                              ),
-                            );
-                          },
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.admin_panel_settings_outlined),
+                        label: const Text('Open Admin Guide'),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const AdminHelpScreen(),
+                          ),
                         ),
                       ),
                     ],

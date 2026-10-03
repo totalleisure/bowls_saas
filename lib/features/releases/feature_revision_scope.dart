@@ -41,7 +41,10 @@ class _FeatureRevisionHostState extends State<FeatureRevisionHost>
       },
     );
     WidgetsBinding.instance.addObserver(this);
-    _auth = _client.auth.onAuthStateChange.listen((_) => _refresh());
+    _auth = _client.auth.onAuthStateChange.listen(
+      (_) => _refresh(),
+      onError: (Object error, StackTrace stack) => _controller.clear(),
+    );
     _refresh();
   }
 

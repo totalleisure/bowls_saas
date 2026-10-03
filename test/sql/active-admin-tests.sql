@@ -1,0 +1,80 @@
+begin;
+set local statement_timeout='30s';
+create temp table admin_results(test text,passed boolean) on commit drop;
+grant insert,select on admin_results to authenticated,anon;
+do $$
+declare
+ c uuid; f uuid; s uuid; v uuid; foreign_c uuid:=gen_random_uuid();
+ users uuid[]:=array[]::uuid[]; profiles uuid[]:=array[]::uuid[];
+ u uuid; p uuid; i integer; denied boolean; member_id uuid; actual uuid; n integer; target uuid;
+begin
+ if exists(select 1 from cron.job where active) then raise exception 'Disable cron'; end if;
+ select ts.fixture_id,ts.id,fx.club_id into f,s,c from public.team_selections ts join public.fixtures fx on fx.id=ts.fixture_id limit 1;
+ insert into public.clubs(id,name) values(foreign_c,'ROLLBACK admin foreign club');
+ for i in 1..6 loop
+  u:=gen_random_uuid(); users:=array_append(users,u);
+  insert into auth.users(id,email,raw_user_meta_data,raw_app_meta_data) values
+   (u,u::text||'@example.invalid','{"display_name":"Active admin test"}','{}');
+  select id into p from public.member_profiles where user_id=u;
+  profiles:=array_append(profiles,p);
+  insert into public.club_memberships(club_id,member_profile_id,role,is_active)
+  values(case when i=4 then foreign_c else c end,p,case when i in(3,6) then 'member'::public.club_role else 'admin'::public.club_role end,i<>2);
+ end loop;
+ insert into public.app_superusers(user_id) values(users[5]);
+ insert into public.venues(club_id,name,is_home_venue) values(c,'ROLLBACK venue',false) returning id into v;
+ insert into public.team_selection_members(team_selection_id,member_profile_id) values(s,profiles[6]) returning id into member_id;
+ for i in 1..5 loop
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',users[i],'role','authenticated')::text,true);
+  set local role authenticated;
+  denied:=false;
+  begin actual:=public.team_admin_add_member(s,profiles[6]); exception when insufficient_privilege then denied:=true; end;
+  insert into admin_results values('actor '||i||' add player',case when i in(1,5) then not denied and actual=member_id else denied end);
+  denied:=false;
+  begin perform public.team_admin_set_acceptance(member_id,'accepted'); exception when insufficient_privilege then denied:=true; end;
+  insert into admin_results values('actor '||i||' acceptance',denied=(i not in(1,5)));
+  denied:=false;
+  begin actual:=public.update_club_venue_full(v,c,'ROLLBACK updated',false); exception when insufficient_privilege then denied:=true; end;
+  insert into admin_results values('actor '||i||' venue',case when i in(1,5) then not denied and actual=v else denied end);
+  reset role;
+ end loop;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',users[1],'role','authenticated')::text,true);
+ set local role authenticated;
+ denied:=false;
+ begin perform public.team_admin_add_member(s,profiles[4]); exception when insufficient_privilege then denied:=true; end;
+ insert into admin_results values('foreign player rejected',denied);
+ denied:=false;
+ begin perform public.team_admin_add_member(s,profiles[2]); exception when insufficient_privilege then denied:=true; end;
+ insert into admin_results values('inactive player rejected',denied);
+ reset role;
+ update public.club_memberships set role='guest' where club_id=c and member_profile_id=profiles[6];
+ set local role authenticated;
+ denied:=false;
+ begin perform public.team_admin_add_member(s,profiles[6]); exception when insufficient_privilege then denied:=true; end;
+ insert into admin_results values('guest player rejected',denied);
+ reset role;
+ update public.club_memberships set role='member' where club_id=c and member_profile_id=profiles[6];
+ update public.club_memberships set is_active=false where club_id=c and member_profile_id=profiles[1];
+ set local role authenticated;
+ denied:=false;
+ begin perform public.update_club_venue_full(v,c,'Revoked',false); exception when insufficient_privilege then denied:=true; end;
+ insert into admin_results values('deactivation takes effect immediately',denied);
+ reset role;
+ perform set_config('request.jwt.claims','{}',true);
+ set local role anon;
+ denied:=false;
+ begin perform public.team_admin_add_member(s,profiles[6]); exception when insufficient_privilege then denied:=true; end;
+ insert into admin_results values('anonymous add denied',denied);
+ denied:=false;
+ begin perform public.team_admin_set_acceptance(member_id,'accepted'); exception when insufficient_privilege then denied:=true; end;
+ insert into admin_results values('anonymous acceptance denied',denied);
+ denied:=false;
+ begin perform public.update_club_venue_full(v,c,'Anonymous',false); exception when insufficient_privilege then denied:=true; end;
+ insert into admin_results values('anonymous venue denied',denied);
+ reset role;
+ insert into admin_results select 'allowed venue update persisted in transaction',name='ROLLBACK updated' from public.venues where id=v;
+ insert into admin_results select 'allowed acceptance persisted in transaction',acceptance::text='accepted' from public.team_selection_members where id=member_id;
+ insert into admin_results values('cron remains disabled',not exists(select 1 from cron.job where active));
+ if exists(select 1 from admin_results where not passed) then raise exception 'Admin tests failed'; end if;
+end $$;
+select * from admin_results order by test;
+rollback;

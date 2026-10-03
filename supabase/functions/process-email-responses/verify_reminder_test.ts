@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {validReminderButtons} from './verify_reminder.ts';
+import {buildReminderHtml,responseTokenHash} from './written_reply.ts';
+const mailbox='bowls-staging@totalleisure.com',code='BWL-123456ABCDEF',token='RSP-'+'A'.repeat(48);
+const html=buildReminderHtml(mailbox,code,token,2);
+test('actual HTML verifier checks both commands and hashed credentials',async()=>assert(await validReminderButtons(html,mailbox,(await responseTokenHash(code))!,(await responseTokenHash(token))!)));
+test('actual HTML verifier rejects other request token',async()=>assert(!await validReminderButtons(html,mailbox,(await responseTokenHash(code))!,(await responseTokenHash('RSP-'+'B'.repeat(48)))!)));
+test('actual HTML verifier rejects wrong button recipient',async()=>assert(!await validReminderButtons(html,'other@example.test',(await responseTokenHash(code))!,(await responseTokenHash(token))!)));
+test('actual HTML verifier rejects missing decline button',async()=>assert(!await validReminderButtons(html.replace('Decline selection','Other'),mailbox,(await responseTokenHash(code))!,(await responseTokenHash(token))!)));

@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 
 import '../clubs/club_access.dart';
 import 'member_edit_screen.dart';
+import 'member_directory_loader.dart';
 import 'member_import_options_dialog.dart';
 import 'member_invitation_screen.dart';
 
@@ -171,30 +172,11 @@ class _MembersScreenState extends State<MembersScreen> {
 
       await _loadUserPermissions(access);
 
-      const memberSelection =
-          'member_profile_id, role, is_active, is_coach, coaching_award, '
-          'member_profiles('
-          'email_address, first_name, last_name, display_name, phone, home_phone, office_phone, '
-          'address_line1, address_line2, town_city, county, postcode, '
-          'title, outdoor_club, gender, gender_self_described, sex_at_birth, preferred_position, '
-          'show_mobile_in_directory, show_home_phone_in_directory, show_office_phone_in_directory, '
-          'show_email_in_directory, show_address_in_directory'
-          ')';
-
-      final res = _isGuest
-          ? await _client
-                .from('club_memberships')
-                .select(memberSelection)
-                .eq('club_id', widget.clubId)
-                .eq('member_profile_id', myProfileId)
-                .order('role', ascending: true)
-          : await _client
-                .from('club_memberships')
-                .select(memberSelection)
-                .eq('club_id', widget.clubId)
-                .order('role', ascending: true);
-
-      final list = (res as List).cast<Map<String, dynamic>>();
+      final list = await loadClubMembers(
+        _client,
+        widget.clubId,
+        onlyMemberProfileId: _isGuest ? myProfileId : null,
+      );
 
       // For the signed-in member, Auth is the master source for the login
       // email. Use it immediately in the displayed row so the list never shows
@@ -318,6 +300,7 @@ class _MembersScreenState extends State<MembersScreen> {
         final summary = (data['summary'] as Map?) ?? {};
         final report = (data['report'] as List?) ?? [];
         final manualReview = (data['manual_review'] as List?) ?? [];
+        final auditWarning = data['audit_warning']?.toString();
         excludedEmails.addAll(
           report
               .whereType<Map>()
@@ -346,7 +329,8 @@ class _MembersScreenState extends State<MembersScreen> {
                     ),
                     Text('Errors: ${summary['errors'] ?? 0}'),
                     Text(
-                      'Set aside for manual review: ${summary['manual_review'] ?? 0}',
+                      'Set aside for manual review: ${summary['manual_review'] ?? 0}'
+                      '${auditWarning == null ? '' : '\n\n$auditWarning'}',
                     ),
                     for (final r in manualReview)
                       if (r is Map)

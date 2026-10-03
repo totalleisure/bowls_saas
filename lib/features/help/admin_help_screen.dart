@@ -13,17 +13,19 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
   final _scrollController = ScrollController();
 
   final _indexKey = GlobalKey();
-  final _setupKey = GlobalKey();
-  final _venuesKey = GlobalKey();
-  final _fixtureTypesKey = GlobalKey();
-  final _creatingFixturesKey = GlobalKey();
-  final _workflowsKey = GlobalKey();
-  final _teamsLifecycleKey = GlobalKey();
-  final _rinksKey = GlobalKey();
-  final _publishingKey = GlobalKey();
-  final _notificationsKey = GlobalKey();
-  final _internalKey = GlobalKey();
-  final _captainsKey = GlobalKey();
+  final _topic1Key = GlobalKey();
+  final _topic2Key = GlobalKey();
+  final _topic3Key = GlobalKey();
+  final _topic4Key = GlobalKey();
+  final _topic5Key = GlobalKey();
+  final _topic6Key = GlobalKey();
+  final _topic7Key = GlobalKey();
+  final _topic8Key = GlobalKey();
+  final _topic9Key = GlobalKey();
+  final _topic10Key = GlobalKey();
+  final _topic11Key = GlobalKey();
+  final _topic12Key = GlobalKey();
+  final _topic13Key = GlobalKey();
 
   String _backgroundImageForWidth(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
@@ -56,7 +58,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
         text,
         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
           height: 1.45,
-          color: Colors.black.withOpacity(0.85),
+          color: Colors.black.withValues(alpha: 0.85),
         ),
       ),
     );
@@ -78,7 +80,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
               text,
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                 height: 1.4,
-                color: Colors.black.withOpacity(0.85),
+                color: Colors.black.withValues(alpha: 0.85),
               ),
             ),
           ),
@@ -94,7 +96,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
         text,
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
           fontWeight: FontWeight.w800,
-          color: Colors.black.withOpacity(0.9),
+          color: Colors.black.withValues(alpha: 0.9),
         ),
       ),
     );
@@ -110,9 +112,9 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.65),
+            color: Colors.white.withValues(alpha: 0.65),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.35)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
           ),
           child: Row(
             children: [
@@ -142,12 +144,12 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
       margin: const EdgeInsets.only(bottom: 26),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.80),
+        color: Colors.white.withValues(alpha: 0.80),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.4)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -160,7 +162,7 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
             title,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w900,
-              color: Colors.black.withOpacity(0.9),
+              color: Colors.black.withValues(alpha: 0.9),
             ),
           ),
           const SizedBox(height: 14),
@@ -194,13 +196,13 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
               child: Image.asset(
                 _backgroundImageForWidth(context),
                 fit: BoxFit.cover,
-                color: Colors.black.withOpacity(0.20),
+                color: Colors.black.withValues(alpha: 0.20),
                 colorBlendMode: BlendMode.darken,
               ),
             ),
           ),
           Positioned.fill(
-            child: Container(color: Colors.white.withOpacity(0.62)),
+            child: Container(color: Colors.white.withValues(alpha: 0.62)),
           ),
           SingleChildScrollView(
             controller: _scrollController,
@@ -211,9 +213,11 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                   key: _indexKey,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.82),
+                    color: Colors.white.withValues(alpha: 0.82),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withOpacity(0.45)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.45),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -228,43 +232,57 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                         'This user guide explains how club admins, selectors, fixture secretaries and captains set up and manage the Bowls App, from venues and greens through to fixtures, teams, rinks, captains and notifications.',
                       ),
                       const SizedBox(height: 8),
-                      _topicButton('1. First Club Setup', _setupKey),
-                      _topicButton('2. Home Venues and Greens', _venuesKey),
                       _topicButton(
-                        '3. Fixture Types and Workflows',
-                        _fixtureTypesKey,
+                        "1. Administration and Member Navigation",
+                        _topic1Key,
                       ),
                       _topicButton(
-                        '4. Creating Fixtures',
-                        _creatingFixturesKey,
+                        "2. Club Setup, Venues and Greens",
+                        _topic2Key,
                       ),
                       _topicButton(
-                        '5. Fixture Workflows and Stages',
-                        _workflowsKey,
+                        "3. Fixture Types, Tags and Participation Modes",
+                        _topic3Key,
                       ),
                       _topicButton(
-                        '6. Using the App to Manage Teams',
-                        _teamsLifecycleKey,
+                        "4. Creating Fixtures, Events and Open Sessions",
+                        _topic4Key,
                       ),
                       _topicButton(
-                        '7. Rink Allocation and Physical Rinks',
-                        _rinksKey,
+                        "5. Teams, Captains and Selection",
+                        _topic5Key,
                       ),
                       _topicButton(
-                        '8. Publishing Teams and Fixture Sheets',
-                        _publishingKey,
+                        "6. Publishing and Confirming Team Changes",
+                        _topic6Key,
                       ),
                       _topicButton(
-                        '9. Notifications and Communication',
-                        _notificationsKey,
+                        "7. Rink Capacity, Positions and Maintenance",
+                        _topic7Key,
                       ),
                       _topicButton(
-                        '10. Member Booked Internal Fixtures',
-                        _internalKey,
+                        "8. Fixture Sheets, Responses and Reminders",
+                        _topic8Key,
                       ),
                       _topicButton(
-                        '11. Captains and Vice-Captains',
-                        _captainsKey,
+                        "9. Rescheduling and Cancellation",
+                        _topic9Key,
+                      ),
+                      _topicButton(
+                        "10. Member-Booked Internal Fixtures",
+                        _topic10Key,
+                      ),
+                      _topicButton(
+                        "11. Membership Imports, Invitations and Accounts",
+                        _topic11Key,
+                      ),
+                      _topicButton(
+                        "12. Communication and Volunteer Lists",
+                        _topic12Key,
+                      ),
+                      _topicButton(
+                        "13. Supporting Members: Diary, Filters and Starting Screens",
+                        _topic13Key,
                       ),
                     ],
                   ),
@@ -273,405 +291,353 @@ class _AdminHelpScreenState extends State<AdminHelpScreen> {
                 const SizedBox(height: 22),
 
                 _buildSection(
-                  key: _setupKey,
-                  title: '1. First Club Setup',
+                  key: _topic1Key,
+                  title: "1. Administration and Member Navigation",
                   children: [
                     _p(
-                      'Before fixtures can be managed properly, the club needs its basic playing structure set up. This includes home venues, greens, fixture types and the rules that control how each type of fixture behaves.',
+                      "This guide covers club setup and fixture management. Use Options → Club administration where your permissions allow it. A club role, team responsibility and responsibility for one fixture are not interchangeable.",
                     ),
-                    _bullet('Set up the club home venue or venues.'),
-                    _bullet('Create the greens used at each home venue.'),
-                    _bullet('Confirm the number and naming style of rinks.'),
-                    _bullet('Create the fixture types used by the club.'),
                     _bullet(
-                      'Decide which fixture types require RSVP, team selection, pre-selection or member booking.',
+                      "Options is the three-dot control at the right of the Dashboard and Diary toolbars. It provides view switching, Starting screen, membership/account actions, notifications and User Guide. Member booking and volunteer actions depend on access.",
+                    ),
+                    _bullet(
+                      "Members can start in Dashboard, Monthly Diary or Diary List. The preference is saved per member and club on that device. Changing the current view does not change the preference.",
+                    ),
+                    _bullet(
+                      "A fixture captain or vice-captain can have fixture-specific responsibilities without becoming a club administrator. Club administration and editing actions remain subject to permissions.",
+                    ),
+                    _bullet(
+                      "An inactive membership or a view-only role must not be treated as an active playing membership. Check access when a member reports missing controls.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _venuesKey,
-                  title: '2. Home Venues and Greens',
+                  key: _topic2Key,
+                  title: "2. Club Setup, Venues and Greens",
                   children: [
-                    _p(
-                      'The first practical setup task is normally to create the club’s home venue and then add the greens available at that venue.',
-                    ),
-                    _subHeading('Home Venue'),
-                    _bullet('Create the main club venue.'),
-                    _bullet('Add address and contact details where required.'),
-                    _bullet('Mark the venue as a home venue.'),
-                    _subHeading('Greens'),
-                    _bullet('Add each green used by the club.'),
-                    _bullet('Choose whether the green is indoor or outdoor.'),
-                    _bullet('Set the rink numbering or labelling system.'),
                     _bullet(
-                      'Enter the maximum number of rinks the green can support.',
+                      "Create the club’s home venue and check its address and contact information. Mark the home venue correctly and maintain opponent venues for away matches.",
                     ),
-                    _p(
-                      'If your club varies the width of rinks on a green, enter the maximum number of rinks that may be used. This gives the system enough capacity to manage different layouts later.',
+                    _bullet(
+                      "Add the relevant greens, indoor/outdoor settings, rink capacity and rink numbering or custom labels. If rink widths vary, use the supported maximum capacity and check the operating layout.",
+                    ),
+                    _bullet(
+                      "Set up fixture types, colour schemes, participation modes and member-booking rules before loading the season.",
+                    ),
+                    _bullet(
+                      "Create teams and maintain their member pools. Link season fixtures to the correct team where team availability and selection should apply.",
+                    ),
+                    _bullet(
+                      "Review the club’s communications settings and responsible officers. Verify key details with a sample fixture before creating a large batch.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _fixtureTypesKey,
-                  title: '3. Fixture Types and Workflows',
+                  key: _topic3Key,
+                  title: "3. Fixture Types, Tags and Participation Modes",
                   children: [
                     _p(
-                      'Fixture Types are one of the most important parts of the system. They do far more than describe the name of a match.',
-                    ),
-                    _p(
-                      'A Fixture Type controls how a fixture behaves, what players see, what actions are expected, and how the fixture moves through the system.',
-                    ),
-                    _subHeading('What is a workflow?'),
-                    _p(
-                      'A workflow is the journey a fixture follows from creation through to play. Different types of fixtures may need different journeys.',
-                    ),
-                    _bullet('A friendly match may ask players to RSVP first.'),
-                    _bullet(
-                      'A league match may gather availability before a selector chooses the team.',
+                      "A Fixture Type defines behaviour as well as appearance. Its settings affect the creation form, participation controls, rink requirements and visibility under member filters.",
                     ),
                     _bullet(
-                      'An internal competition may allow players to be selected directly.',
+                      "Team Selection: team availability and selection lead to publication and acceptance of selected places.",
                     ),
                     _bullet(
-                      'A member booked fixture may focus on booking a rink and adding the players involved.',
+                      "RSVP: collect Yes, Maybe or No availability before selecting players where a playing team is required. Event attendance can also use RSVPs without team selection.",
                     ),
-                    _p(
-                      'Setting up Fixture Types correctly is pivotal because it creates the structure of the whole system. It allows the app to know what process each fixture should follow.',
-                    ),
-                    _subHeading('Fixture Types may control'),
-                    _bullet('Whether the fixture uses rinks.'),
                     _bullet(
-                      'How many rinks and players are normally required.',
+                      "Pre-Select: choose participants directly using the fixture’s supported controls, without relying on an RSVP pool.",
                     ),
-                    _bullet('Whether players RSVP or declare availability.'),
-                    _bullet('Whether players are selected directly.'),
                     _bullet(
-                      'Whether members can create the fixture themselves.',
+                      "Open Session: activity without team-selection acceptance or RSVP attendance controls. Choose another supported mode if responses are required.",
                     ),
-                    _bullet('Whether captains or admins manage the fixture.'),
                     _bullet(
-                      'What colours are used on the dashboard and diary.',
+                      "Uses rinks distinguishes playing/green bookings from no-rinks events. Check default rink numbers, formats, player numbers, internal status and whether members may create bookings.",
+                    ),
+                    _bullet(
+                      "Colours identify fixture types on cards and in the diary. Use readable foreground/background combinations.",
+                    ),
+                    _bullet(
+                      "Tags group fixture types in filters. They are not separate fixture counts. A type can belong to more than one tag; overlapping groups affect the selected-type counts.",
+                    ),
+                    _bullet(
+                      "Check section and tag settings carefully. They influence what members see when filtering; a misclassified event or fixture can be hidden by an otherwise reasonable filter.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _creatingFixturesKey,
-                  title: '4. Creating Fixtures',
+                  key: _topic4Key,
+                  title: "4. Creating Fixtures, Events and Open Sessions",
                   children: [
-                    _p(
-                      'When creating a fixture, the selected Fixture Type should drive most of the process. Admins and selectors should start by choosing the correct type.',
-                    ),
-                    _subHeading('Typical details'),
-                    _bullet('Fixture type.'),
-                    _bullet('Date and start time.'),
-                    _bullet('Home or away.'),
-                    _bullet('Opponent or internal description.'),
-                    _bullet('Venue.'),
-                    _bullet('Green and rink requirements where applicable.'),
-                    _bullet('Captain and vice-captain where known.'),
-                    _subHeading('Good practice'),
-                    _bullet('Choose the Fixture Type first.'),
-                    _bullet('Check the default number of rinks and players.'),
                     _bullet(
-                      'Confirm whether RSVP, availability or direct selection is required.',
+                      "Choose the Fixture Type first, then check the date, start/end time, home/away setting, opponent, venue, team and Fixture label.",
                     ),
                     _bullet(
-                      'Assign a captain where possible before publishing.',
+                      "Fixture label gives an event or open session a useful name. Check how the saved card reads rather than relying only on a generic type name.",
+                    ),
+                    _bullet(
+                      "For playing fixtures, check green, rink requirements, playing formats and captain/vice-captain. Selecting players and assigning them to positions are separate checks.",
+                    ),
+                    _bullet(
+                      "For a no-rinks Club Event, assign an Organiser. A Deputy Organiser is optional and must be a different member. The event cannot be left without an Organiser.",
+                    ),
+                    _bullet(
+                      "Use Request RSVPs for an event when attendance numbers are needed. When enabled, members can answer Yes, No or Maybe; when disabled, attendance is open without a response requirement.",
+                    ),
+                    _bullet(
+                      "For a genuine Open Session, check the label, time and relevant rink/green details. Do not expect team-acceptance or RSVP attendance buttons.",
+                    ),
+                    _bullet(
+                      "Read any playing-format warning before continuing. Format changes can remove draft rink, player, opponent or marker assignments that no longer fit; inspect the resulting arrangement.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _workflowsKey,
-                  title: '5. Fixture Workflows and Stages',
+                  key: _topic5Key,
+                  title: "5. Teams, Captains and Selection",
                   children: [
                     _p(
-                      'Different fixtures pass through different stages depending on their Fixture Type.',
-                    ),
-                    _subHeading('RSVP fixtures'),
-                    _bullet('Players are asked whether they are available.'),
-                    _bullet('Players may respond Yes, Maybe or No.'),
-                    _bullet(
-                      'Selectors or captains choose the team from the responses.',
+                      "A team is a reusable member pool. A fixture’s selection is the group chosen for that particular match. Keeping the team pool current does not remove the need to review each fixture.",
                     ),
                     _bullet(
-                      'Selected players are then asked to accept or decline.',
-                    ),
-                    _subHeading('Team selection fixtures'),
-                    _bullet('Players indicate availability.'),
-                    _bullet('The selector chooses the team.'),
-                    _bullet('The fixture is published.'),
-                    _bullet('Players confirm whether they can play.'),
-                    _subHeading('Pre-select fixtures'),
-                    _bullet(
-                      'Players are selected directly by an admin, selector or captain.',
-                    ),
-                    _bullet('There may be no RSVP stage.'),
-                    _bullet(
-                      'The fixture can be published once the team or players are ready.',
-                    ),
-                    _subHeading('Member booked internal fixtures'),
-                    _bullet('A member creates the fixture.'),
-                    _bullet('The creator becomes the fixture captain.'),
-                    _bullet('The rink is booked.'),
-                    _bullet('Players, opponents and markers are added.'),
-                    _bullet('Changes can be managed by the captain or admin.'),
-                  ],
-                ),
-
-                _buildSection(
-                  key: _teamsLifecycleKey,
-                  title: '6. Using the App to Manage Teams',
-                  children: [
-                    _p(
-                      'A team in the app is more than a static list of names. It is a working group of members who may be considered for a set of fixtures during the season.',
-                    ),
-                    _p(
-                      'The team can be linked to fixtures, used to gather availability, used as the starting pool for selection, and then used to publish fixture sheets and communicate with selected players.',
-                    ),
-                    _subHeading('The people involved'),
-                    _bullet(
-                      'Club admins manage the wider setup of the app, including members, venues, greens, fixture types, teams and permissions.',
+                      "Enter known season fixtures early and link them to the intended team so eligible members can respond to availability requests.",
                     ),
                     _bullet(
-                      'Fixture secretaries may enter the known fixtures for the season and link those fixtures to the correct teams.',
+                      "Review Yes, Maybe and No responses. The available selection pool depends on whether the fixture uses a team, RSVP or direct selection.",
                     ),
                     _bullet(
-                      'Selectors may review availability, choose players, arrange reserves and help prepare the team before publication.',
+                      "Select the required players and reserves. Allocate playing members to the correct rink/team and position; being selected alone does not prove the positions are filled.",
                     ),
                     _bullet(
-                      'Captains may monitor availability and acceptance, organise players and deal with fixture changes.',
+                      "Check mixed-format arrangements rink by rink. Do not assume every rink has the same number of players.",
                     ),
                     _bullet(
-                      'Vice-captains provide a second point of contact and can support the fixture captain where required.',
-                    ),
-                    _p(
-                      'To keep the manual clear, the app uses the term fixture captain for the person in charge of an individual fixture. This may be the team captain, a selector, the fixture secretary or another authorised officer nominated for that match.',
-                    ),
-                    _p(
-                      'The rest of this guide refers to the fixture captain as the person managing the fixture. However, club admins, fixture secretaries, selectors and captains can also view and interact with teams and team fixtures where their permissions allow.',
-                    ),
-                    _subHeading('Creating and maintaining a team'),
-                    _bullet(
-                      'Create the team for a league, division, competition squad or regular playing group.',
+                      "The fixture captain manages that match; the vice-captain supports them. Events use Organiser and Deputy Organiser terminology. Verify the nominated people and contacts.",
                     ),
                     _bullet(
-                      'Add the members who should normally be considered for that team.',
-                    ),
-                    _bullet('Keep the team pool up to date during the season.'),
-                    _bullet('Add players when they become part of the squad.'),
-                    _bullet(
-                      'Remove players who move to another team, play up to a higher division, or are no longer eligible for that team.',
-                    ),
-                    _subHeading('Creating fixtures early'),
-                    _p(
-                      'Once fixtures are known, the fixture secretary can enter them into the app as early as possible. As soon as a team fixture exists, members of that team can see it and register their availability.',
-                    ),
-                    _bullet('Members can check their diaries early.'),
-                    _bullet('Members can respond Yes, Maybe or No.'),
-                    _bullet(
-                      'The fixture captain can see who is available, who is unsure, and who is not available.',
-                    ),
-                    _bullet(
-                      'This gives the fixture captain useful information before any selection is made.',
-                    ),
-                    _subHeading('Selecting the team'),
-                    _p(
-                      'The fixture remains unpublished while the fixture captain prepares the selection. This allows players to be selected, deselected, moved into positions, or marked as reserves before the team is formally released.',
-                    ),
-                    _bullet('Select players from the team pool.'),
-                    _bullet('Add other eligible players if required.'),
-                    _bullet(
-                      'Remove players who should not be considered for that fixture.',
-                    ),
-                    _bullet(
-                      'Arrange players into pairs, triples, rinks or other team formats.',
-                    ),
-                    _bullet('Allocate reserves where appropriate.'),
-                    _subHeading('Publishing the team'),
-                    _p(
-                      'Publishing is the point at which selected members are formally told that they have been chosen. The fixture appears on their dashboard and they are asked to accept or decline their selection. Selected members should also receive the fixture sheet by email, where email delivery is enabled.',
-                    ),
-                    _bullet('Selected members receive an in-app notification.'),
-                    _bullet(
-                      'Selected members receive an email where email is enabled.',
-                    ),
-                    _bullet(
-                      'The email should include the fixture sheet as a PDF attachment or link, depending on the club email setup.',
-                    ),
-                    _bullet(
-                      'The fixture sheet shows the fixture details, selected players, positions, reserves, captain details and rink information where entered.',
-                    ),
-                    _subHeading('Monitoring replies and sending reminders'),
-                    _p(
-                      'After publication, the fixture captain can monitor who has accepted, who has declined and who has not yet replied. This makes it easier to chase outstanding responses and arrange replacements if needed.',
-                    ),
-                    _bullet(
-                      'The app may send reminders to players who have not replied after a period of time.',
-                    ),
-                    _bullet(
-                      'A further reminder may be sent shortly before the fixture if a player still has not replied.',
-                    ),
-                    _bullet(
-                      'The fixture captain can also send reminders manually at any stage.',
-                    ),
-                    _bullet(
-                      'Reminders may be sent as both an in-app notification and an email.',
-                    ),
-                    _subHeading('Changes after publication'),
-                    _p(
-                      'A published team may still change. Players may decline, become unavailable, be promoted from reserve to player, change position, or need updated rink details. When important changes are made, affected members should be notified and asked to check the fixture again.',
+                      "Before publication, selections are drafts. Members should not receive a published-team acceptance request merely because they were selected or put in a position.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _rinksKey,
-                  title: '7. Rink Allocation and Physical Rinks',
+                  key: _topic6Key,
+                  title: "6. Publishing and Confirming Team Changes",
                   children: [
-                    _p(
-                      'The system separates reserving rink capacity from assigning exact physical rinks.',
-                    ),
-                    _subHeading('Rink allocation'),
-                    _p(
-                      'Rink allocation means deciding how many rinks the fixture needs. For example, a match may require four rinks.',
-                    ),
-                    _bullet('This helps reserve space on the green.'),
-                    _bullet('It gives the club visibility of green usage.'),
+                    _subHeading("First publication"),
                     _bullet(
-                      'It can be done before exact rink numbers are known.',
+                      "Review selected players, reserves, positions, rinks and contacts before publishing. Publication is the point at which selected members are formally asked to respond.",
                     ),
-                    _subHeading('Physical rink assignment'),
-                    _p(
-                      'Physical rink assignment means choosing the actual rink numbers or labels, such as Rink 1, Rink 2 or Rink A.',
-                    ),
-                    _bullet('This may happen when creating the fixture.'),
-                    _bullet('It may also be done later in Fixture Details.'),
                     _bullet(
-                      'Admins may adjust rinks if green conditions or layouts change.',
+                      "The app can warn that the team is incomplete and offer Publish anyway. Treat this as a deliberate decision after checking the gaps, not evidence that the fixture is fully staffed.",
                     ),
-                    _p(
-                      'This distinction is important because clubs often know how many rinks they need before they know exactly which physical rinks will be used.',
+                    _bullet(
+                      "Publishing an incomplete team is not, by itself, a new rule to keep RSVP recruitment open. Check the fixture’s actual participation and rescheduling state.",
+                    ),
+                    _subHeading("Changes to an already published team"),
+                    _bullet(
+                      "Where Confirm Team Changes is shown, player, reserve, position and team-structure edits are staged for review. Apply in a sub-dialog applies the draft change; it is not the final save.",
+                    ),
+                    _bullet(
+                      "Resolve any unpositioned players, then press Confirm Team Changes. Read Review team changes, including affected players and the messages that will be queued.",
+                    ),
+                    _bullet(
+                      "Confirm and save saves the reviewed changes together. Keep editing returns without saving or sending them. Do not leave assuming staged changes have already been applied.",
+                    ),
+                    _bullet(
+                      "Publication controls are unavailable while staged changes still need confirmation. Finish the review rather than repeatedly trying Publish.",
+                    ),
+                    _bullet(
+                      "For promotions, removals, reserve changes and replacements, use the current review to see who will be notified. Do not assume every small edit sends the same message to everyone.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _publishingKey,
-                  title: '8. Publishing Teams and Fixture Sheets',
+                  key: _topic7Key,
+                  title: "7. Rink Capacity, Positions and Maintenance",
                   children: [
                     _p(
-                      'Publishing a fixture makes the selected team or players visible to the relevant members.',
+                      "Rink capacity, physical rink assignment and player position are different things. A fixture can reserve a number of rinks before the actual rink labels are assigned.",
                     ),
-                    _bullet('Players can see that they have been selected.'),
-                    _bullet('Players may be asked to accept or decline.'),
-                    _bullet('Captains can monitor responses.'),
                     _bullet(
-                      'Fixture sheets or team sheets can be viewed where available.',
+                      "Check the fixture’s start/end time and required rink capacity. Review availability before choosing physical rinks.",
                     ),
-                    _subHeading('Fixture sheets may show'),
-                    _bullet('Date and time.'),
-                    _bullet('Home or away information.'),
-                    _bullet('Opponent or internal fixture details.'),
-                    _bullet('Team or rink groupings.'),
-                    _bullet('Captain and vice-captain details.'),
-                    _bullet('Rink numbers where assigned.'),
-                  ],
-                ),
-
-                _buildSection(
-                  key: _notificationsKey,
-                  title: '9. Notifications and Communication',
-                  children: [
-                    _p(
-                      'The app is designed to notify the right people when important fixture events happen.',
+                    _bullet(
+                      "Assign the actual rink numbers or labels when known. Check player positions within each playing team separately.",
                     ),
-                    _subHeading('Players may receive notifications when'),
-                    _bullet('they are invited to respond to a fixture.'),
-                    _bullet('they are selected for a team or fixture.'),
-                    _bullet('they are made a reserve.'),
-                    _bullet('they are asked to act as marker or umpire.'),
-                    _bullet('a fixture is published.'),
-                    _bullet('the team, date, time or rink changes.'),
-                    _bullet('they are promoted from reserve to player.'),
-                    _subHeading('Captains may receive notifications when'),
-                    _bullet('players accept their place.'),
-                    _bullet('players decline their place.'),
-                    _bullet('player assignments change.'),
-                    _bullet('rinks or fixture details are updated.'),
-                    _subHeading('Admins may receive notifications when'),
-                    _bullet('fixtures require attention.'),
-                    _bullet('member booked fixtures are created.'),
-                    _bullet('important changes are made.'),
-                    _bullet('reports or exceptions need review.'),
-                    _p(
-                      'Notifications may be delivered through in-app notifications, email or other messaging routes depending on club setup and rollout stage.',
+                    _bullet(
+                      "Use Diary → Rinks to inspect usage and active maintenance. Check that bookings do not conflict with blocked periods or the operating layout.",
+                    ),
+                    _bullet(
+                      "Active green maintenance also appears in Diary List for members permitted to see it. Its details show the green, rink, reason and time interval.",
+                    ),
+                    _bullet(
+                      "If changing a published team’s formats or structure, review the affected assignments and complete Confirm Team Changes where offered. Recheck the resulting fixture sheet.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _internalKey,
-                  title: '10. Member Booked Internal Fixtures',
+                  key: _topic8Key,
+                  title: "8. Fixture Sheets, Responses and Reminders",
                   children: [
-                    _p(
-                      'Some internal Fixture Types allow members to create their own smaller fixtures, such as singles matches, pairs games, practice matches or internal competition games.',
-                    ),
-                    _subHeading('Process'),
                     _bullet(
-                      'The member chooses the correct internal fixture type.',
-                    ),
-                    _bullet('The member enters the agreed date and time.'),
-                    _bullet('The member books the required rink or rinks.'),
-                    _bullet(
-                      'The member adds the opponent, teammates, marker or umpire if required.',
+                      "Review the current fixture sheet for date/time, venue, home/away status, team/rink groupings, formats, positions, reserves and captain details.",
                     ),
                     _bullet(
-                      'The member who creates the fixture becomes the captain.',
-                    ),
-                    _subHeading('Admin role'),
-                    _bullet(
-                      'Set which internal Fixture Types members are allowed to book.',
+                      "A downloaded or emailed sheet reflects the details at the time it was produced. Issue or view the current sheet after confirmed changes as appropriate.",
                     ),
                     _bullet(
-                      'Check that rink limits and player numbers are sensible.',
+                      "Monitor pending, accepted and declined responses. An RSVP Yes is availability, not acceptance of a published selection.",
                     ),
-                    _bullet('Monitor bookings if required.'),
                     _bullet(
-                      'Step in where corrections or cancellations are needed.',
+                      "Use Send reminder where offered for members who still need to respond. Do not assume an automatic reminder has been sent or that a delivered email has been read.",
                     ),
-                    _subHeading('Changes'),
-                    _p(
-                      'Because these fixtures are often arranged directly between players, date, time and rink changes may happen more often. Participants should be notified when important changes are made.',
+                    _bullet(
+                      "If someone declines or withdraws, review the replacement and affected positions. Complete the applicable confirmation process before treating the new team as final.",
+                    ),
+                    _bullet(
+                      "Email and teamsheet delivery depend on club settings, valid addresses and processing. A queued message is not a guarantee of inbox delivery.",
                     ),
                   ],
                 ),
 
                 _buildSection(
-                  key: _captainsKey,
-                  title: '11. Captains and Vice-Captains',
+                  key: _topic9Key,
+                  title: "9. Rescheduling and Cancellation",
+                  children: [
+                    _bullet(
+                      "Use the fixture’s rescheduling or cancellation controls and read the confirmation. Check linked fixtures and the resulting date, time, rinks and current status.",
+                    ),
+                    _bullet(
+                      "Rescheduling can reopen RSVP availability so the same players can reconfirm the new arrangements, including players already selected. This is intentional and is separate from whether every team position is filled.",
+                    ),
+                    _bullet(
+                      "A member can therefore see a fixture in an accepted section and still have an open RSVP for the changed date. Check the response state before treating this as a duplicate or a lost reply.",
+                    ),
+                    _bullet(
+                      "Review player acceptance requirements and communications after the change; do not assume old availability still applies to the new date.",
+                    ),
+                    _bullet(
+                      "Cancelled entries are labelled in Diary List and excluded from its Next match lookup. Remind members to check the latest fixture details rather than an old PDF or email.",
+                    ),
+                  ],
+                ),
+
+                _buildSection(
+                  key: _topic10Key,
+                  title: "10. Member-Booked Internal Fixtures",
+                  children: [
+                    _bullet(
+                      "Enable member booking only for the intended fixture types. Check sensible rink, format and participant requirements.",
+                    ),
+                    _bullet(
+                      "Members enter through Options → My fixture bookings where their membership permits it. View-only members do not have the same booking controls.",
+                    ),
+                    _bullet(
+                      "The creating member normally becomes the fixture captain. Check actual player, opponent and marker assignments; captaincy is not itself a playing position.",
+                    ),
+                    _bullet(
+                      "Members agree the time, create the fixture, reserve/assign rinks and add participants using the fixture-type controls. Administrators can assist with corrections where authorised.",
+                    ),
+                    _bullet(
+                      "For subsequent changes, review availability, rink usage and any confirmation or publication requirements. Use the current fixture details as the source of truth.",
+                    ),
+                  ],
+                ),
+
+                _buildSection(
+                  key: _topic11Key,
+                  title: "11. Membership Imports, Invitations and Accounts",
+                  children: [
+                    _bullet(
+                      "Maintain accurate names, contact details, membership roles and active status. Check for an existing member before creating a duplicate.",
+                    ),
+                    _bullet(
+                      "Importing member data and sending invitations are separate operations. Review import results before opening Review member invitations.",
+                    ),
+                    _bullet(
+                      "Choose and preview the appropriate guide/email content, then Prepare invitation review. Resolve exceptions and select the intended recipients before Send invitations.",
+                    ),
+                    _bullet(
+                      "Leave Resend invitations to previously invited members unchecked unless a deliberate resend is needed. Previously accepted invitations are skipped by default.",
+                    ),
+                    _bullet(
+                      "Review the sending results. If sending stops after a rejected or uncertain result, prepare a new review before retrying; do not blindly resend the entire batch.",
+                    ),
+                    _bullet(
+                      "Accepted for sending means the email service accepted the request, not that the invitation reached the inbox. Check delivery information and contact details when investigating a missing invitation.",
+                    ),
+                    _bullet(
+                      "Members change login email and password through Options → Account and Security. Changing a directory contact value is not the same as changing the sign-in email.",
+                    ),
+                    _bullet(
+                      "Membership directory contact visibility follows members’ sharing choices and your access. Use appropriate permissions rather than sharing administrator credentials.",
+                    ),
+                  ],
+                ),
+
+                _buildSection(
+                  key: _topic12Key,
+                  title: "12. Communication and Volunteer Lists",
+                  children: [
+                    _bullet(
+                      "Use Options → Notifications to review in-app messages. Member and captain messages depend on the action performed and the club’s communications settings.",
+                    ),
+                    _bullet(
+                      "Published selections, confirmed composition changes, reserves, response changes, cancellations and rescheduling can generate notifications and email. Check the review/results rather than assuming every edit sends a message.",
+                    ),
+                    _bullet(
+                      "Members use Options → Volunteer Lists to join or leave available lists. Club mailing-list administration is a separate responsibility.",
+                    ),
+                    _bullet(
+                      "Check recipient selection and message content before sending. Review failures or uncertain outcomes before retrying to avoid duplicate communications.",
+                    ),
+                    _bullet(
+                      "Do not promise mobile push alerts, automatic reminders or inbox delivery solely because a message was queued. Ask members to check the app’s current fixture details and notifications.",
+                    ),
+                  ],
+                ),
+
+                _buildSection(
+                  key: _topic13Key,
+                  title:
+                      "13. Supporting Members: Diary, Filters and Starting Screens",
                   children: [
                     _p(
-                      'Captains and vice-captains allow responsibility for a fixture to be shared without giving every user full admin rights.',
-                    ),
-                    _subHeading('Fixture captain'),
-                    _bullet('Acts as the main organiser for that fixture.'),
-                    _bullet('Can monitor player responses.'),
-                    _bullet(
-                      'May manage operational details depending on permissions.',
+                      "The Dashboard is personal and action-focused. Month, List, Day and Rinks are diary views. A member who wants general club activity can choose Monthly Diary or Diary List as their starting screen.",
                     ),
                     _bullet(
-                      'Receives important notifications about that fixture.',
+                      "The Dashboard protects acceptance requests, accepted upcoming fixtures and managed fixtures from its filters. Diary List applies filters strictly to every entry, including those commitments.",
                     ),
-                    _subHeading('Vice-captain'),
-                    _bullet('Can support the captain.'),
-                    _bullet('May help manage player or fixture changes.'),
-                    _bullet('Provides a second point of contact.'),
-                    _p(
-                      'Captaincy is fixture-specific. A member can be captain for one fixture without becoming a club admin.',
+                    _bullet(
+                      "Type tags select groups using OR between selected types. Section, period and the Diary’s home/team/search controls further narrow the results. None is a deliberate empty selection.",
+                    ),
+                    _bullet(
+                      "Next calendar month excludes this month. Next 3 months is a rolling range from today, not this month plus three complete months. Diary All dates also supports browsing backwards.",
+                    ),
+                    _bullet(
+                      "Diary filters are separate from Dashboard filters. Diary filters and starting-screen choices are saved per account and club on the device; they do not automatically follow a member to a second device.",
+                    ),
+                    _bullet(
+                      "Diary List counts cover its displayed loaded-date range. Use Earlier dates, Later dates, Choose date, Today and Refresh diary when investigating missing activity.",
+                    ),
+                    _bullet(
+                      "Diary involvement badges distinguish playing, reserve, pending acceptance and managing/organising. Draft selections are not shown as published involvement.",
+                    ),
+                    _bullet(
+                      "Next match finds the next upcoming accepted selection, including reserves, and excludes cancelled fixtures. If filters/search hide it, members can open details without the filters being changed.",
+                    ),
+                    _bullet(
+                      "Ask which view, date range, filters and account the member is using before changing a fixture. Check type/section/tag settings, membership access and publication status if the entry is still missing.",
+                    ),
+                    _bullet(
+                      "In staging, the orange footer identifies the test environment. Confirm which environment is being used before investigating or making administrative changes.",
                     ),
                   ],
                 ),

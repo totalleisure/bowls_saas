@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/utils/date_format.dart';
 import 'email_queue_processor.dart';
 
 class QueueAdminScreen extends StatefulWidget {
@@ -32,12 +33,21 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
   bool _emailCronActive = false;
   bool _busyEmailCron = false;
 
+  bool _loadingReceiptCron = true;
+  bool _receiptCronActive = false;
+  bool _busyReceiptCron = false;
+  bool _busyReceiptCheck = false;
+  String? _receiptMailbox;
+  String? _receiptLastSuccess;
+  String? _receiptLastError;
+
   @override
   void initState() {
     super.initState();
     _loadStats();
     _loadNotificationCronStatus();
     _loadEmailCronStatus();
+    _loadReceiptCronStatus();
   }
 
   Future<bool> _isSuperuser() async {
@@ -113,6 +123,94 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
           content: Text('Could not load automatic email processing status: $e'),
         ),
       );
+    }
+  }
+
+  Future<void> _loadReceiptCronStatus() async {
+    setState(() => _loadingReceiptCron = true);
+    try {
+      final result = await Supabase.instance.client.rpc(
+        'get_email_responses_cron_status',
+      );
+      final status = result is Map
+          ? Map<String, dynamic>.from(result)
+          : <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _receiptCronActive = status['active'] == true;
+        _receiptMailbox = status['mailbox']?.toString();
+        _receiptLastSuccess = status['last_success_at']?.toString();
+        _receiptLastError = status['last_error']?.toString();
+        _loadingReceiptCron = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingReceiptCron = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load email receipt status: $e')),
+      );
+    }
+  }
+
+  Future<void> _setReceiptCronEnabled(bool enabled) async {
+    if (!await _isSuperuser()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Superuser access required.')),
+      );
+      return;
+    }
+    setState(() => _busyReceiptCron = true);
+    try {
+      await Supabase.instance.client.rpc(
+        'set_email_responses_cron_enabled',
+        params: {'p_enabled': enabled},
+      );
+      if (!mounted) return;
+      setState(() => _receiptCronActive = enabled);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Automatic email receipt checking resumed.'
+                : 'Automatic email receipt checking paused.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update email receipt checking: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _busyReceiptCron = false);
+    }
+  }
+
+  Future<void> _runReceiptCheck() async {
+    if (!await _isSuperuser()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Superuser access required.')),
+      );
+      return;
+    }
+    setState(() => _busyReceiptCheck = true);
+    try {
+      await Supabase.instance.client.rpc('run_email_responses_now');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Email receipt check started.')),
+      );
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (mounted) await _loadReceiptCronStatus();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not check email receipts: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _busyReceiptCheck = false);
     }
   }
 
@@ -362,6 +460,34 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
     );
   }
 
+  Widget _buildQueueActions({
+    required Widget primaryAction,
+    required Widget automaticAction,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 480) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              primaryAction,
+              const SizedBox(height: 10),
+              automaticAction,
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: primaryAction),
+            const SizedBox(width: 12),
+            Expanded(flex: 2, child: automaticAction),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildNotificationQueueCard() {
     return Card(
       child: Padding(
@@ -432,46 +558,40 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
 
             const SizedBox(height: 14),
 
-            Wrap(
-              spacing: 12,
-              runSpacing: 10,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _busyNotifications ? null : _processNotifications,
-                  icon: _busyNotifications
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.play_arrow),
-                  label: const Text('Process now'),
+            _buildQueueActions(
+              primaryAction: ElevatedButton.icon(
+                onPressed: _busyNotifications ? null : _processNotifications,
+                icon: _busyNotifications
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.play_arrow),
+                label: const Text('Process now'),
+              ),
+              automaticAction: OutlinedButton.icon(
+                onPressed: _loadingNotificationCron || _busyNotificationCron
+                    ? null
+                    : () =>
+                          _setNotificationCronEnabled(!_notificationCronActive),
+                icon: _busyNotificationCron
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _notificationCronActive
+                            ? Icons.pause
+                            : Icons.play_arrow,
+                      ),
+                label: Text(
+                  _notificationCronActive
+                      ? 'Pause automatic processing'
+                      : 'Resume automatic processing',
                 ),
-
-                OutlinedButton.icon(
-                  onPressed: _loadingNotificationCron || _busyNotificationCron
-                      ? null
-                      : () => _setNotificationCronEnabled(
-                          !_notificationCronActive,
-                        ),
-                  icon: _busyNotificationCron
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          _notificationCronActive
-                              ? Icons.pause
-                              : Icons.play_arrow,
-                        ),
-                  label: Text(
-                    _notificationCronActive
-                        ? 'Pause automatic processing'
-                        : 'Resume automatic processing',
-                  ),
-                ),
-              ],
+              ),
             ),
           ],
         ),
@@ -548,40 +668,135 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
 
             const SizedBox(height: 14),
 
-            Wrap(
-              spacing: 12,
-              runSpacing: 10,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _busyEmails ? null : _processEmails,
-                  icon: _busyEmails
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.play_arrow),
-                  label: const Text('Process now'),
+            _buildQueueActions(
+              primaryAction: ElevatedButton.icon(
+                onPressed: _busyEmails ? null : _processEmails,
+                icon: _busyEmails
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.play_arrow),
+                label: const Text('Process now'),
+              ),
+              automaticAction: OutlinedButton.icon(
+                onPressed: _loadingEmailCron || _busyEmailCron
+                    ? null
+                    : () => _setEmailCronEnabled(!_emailCronActive),
+                icon: _busyEmailCron
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(_emailCronActive ? Icons.pause : Icons.play_arrow),
+                label: Text(
+                  _emailCronActive
+                      ? 'Pause automatic processing'
+                      : 'Resume automatic processing',
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-                OutlinedButton.icon(
-                  onPressed: _loadingEmailCron || _busyEmailCron
-                      ? null
-                      : () => _setEmailCronEnabled(!_emailCronActive),
-                  icon: _busyEmailCron
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(_emailCronActive ? Icons.pause : Icons.play_arrow),
-                  label: Text(
-                    _emailCronActive
-                        ? 'Pause automatic processing'
-                        : 'Resume automatic processing',
+  Widget _buildEmailReceiptCard() {
+    final lastSuccess = _receiptLastSuccess == null
+        ? 'No successful check recorded'
+        : 'Last successful check: ${formatWhenLocal(_receiptLastSuccess!)}';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.mark_email_read_outlined),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Email Receipt Checker',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '${_receiptMailbox ?? 'Staging mailbox'}\n$lastSuccess'
+                        '${_receiptLastError == null ? '' : '\nLast error: $_receiptLastError'}',
+                      ),
+                    ],
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 14),
+            const Divider(),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  _receiptCronActive
+                      ? Icons.play_circle_outline
+                      : Icons.pause_circle_outline,
+                  color: _receiptCronActive ? Colors.green : Colors.orange,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _loadingReceiptCron
+                        ? 'Checking automatic processing...'
+                        : _receiptCronActive
+                        ? 'Automatic processing: Running every 2 minutes'
+                        : 'Automatic processing: Paused',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: _receiptCronActive ? Colors.green : Colors.orange,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _buildQueueActions(
+              primaryAction: ElevatedButton.icon(
+                onPressed: _busyReceiptCheck ? null : _runReceiptCheck,
+                icon: _busyReceiptCheck
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.play_arrow),
+                label: const Text('Check now'),
+              ),
+              automaticAction: OutlinedButton.icon(
+                onPressed: _loadingReceiptCron || _busyReceiptCron
+                    ? null
+                    : () => _setReceiptCronEnabled(!_receiptCronActive),
+                icon: _busyReceiptCron
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(_receiptCronActive ? Icons.pause : Icons.play_arrow),
+                label: Text(
+                  _receiptCronActive
+                      ? 'Pause automatic processing'
+                      : 'Resume automatic processing',
+                ),
+              ),
             ),
           ],
         ),
@@ -617,6 +832,8 @@ class _QueueAdminScreenState extends State<QueueAdminScreen> {
                     _buildNotificationQueueCard(),
                     const SizedBox(height: 12),
                     _buildEmailQueueCard(),
+                    const SizedBox(height: 12),
+                    _buildEmailReceiptCard(),
                   ],
                 ),
         );

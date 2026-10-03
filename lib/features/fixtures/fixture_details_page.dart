@@ -1,6 +1,7 @@
 // Fixture team refresh integration: 20260730-v2.
 // PageStorage collision fix: 20260730-event-attendance-key.
 import '../../core/widgets/app_badge.dart';
+import '../../core/widgets/action_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +11,9 @@ import 'set_captain_section.dart';
 import 'fixture_display.dart';
 import 'open_session_communications.dart';
 import 'fixture_message_screen.dart';
+import 'repeat_existing_fixture_service.dart';
+import 'repeat_fixture_planner_page.dart';
+import 'fixture_team_structure_service.dart';
 import '../team/team_section.dart';
 import '../team/manage_team_screen.dart';
 import '../rinks/rinks_setup_screen.dart';
@@ -51,6 +55,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   int _loadCount = 0;
 
   String? _currentMemberId;
+  String _currentMemberName = '';
 
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
@@ -80,6 +85,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Map<String, dynamic>? _rescheduledFromFixture;
 
   bool _didChangeFixture = false;
+  bool _repeatingFixture = false;
   bool _loadingReadiness = false;
   FixtureReadinessResult? _readiness;
 
@@ -119,6 +125,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   bool _preselectDirty = false;
   bool _savingPreselect = false;
+  bool _changingPreselectStructure = false;
 
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _rinksSectionKey = GlobalKey();
@@ -192,6 +199,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   String get _fixtureMessageSenderName {
+    final role = _fixtureMessageSenderRole;
+    return _currentMemberName.isEmpty ? role : '$_currentMemberName — $role';
+  }
+
+  String get _fixtureMessageSenderRole {
     if (_isEventStyleFixture) {
       if (_isFixtureCaptain) return 'Organiser';
       if (_isFixtureViceCaptain) return 'Deputy Organiser';
@@ -245,6 +257,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canEditAdminFixtureDetails =>
       _canWrite &&
       (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator);
+
+  bool get _canRepeatFixture =>
+      _canWrite && (_isSuperuser || _isClubAdmin || _isSuper || _isAdmin);
 
   bool get _canEditFixtureOperationalDetails {
     final isCancelled = _fixture?['cancelled_at'] != null;
@@ -780,33 +795,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
-  Map<String, dynamic>? _venueMap(dynamic value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) {
-      return value.map((key, item) => MapEntry(key.toString(), item));
-    }
-    return null;
-  }
-
-  bool _hasVenueIdentity(Map<String, dynamic>? venue) {
-    if (venue == null) return false;
-    return VenueActionsService.text(venue['id']).isNotEmpty ||
-        VenueActionsService.text(venue['name']).isNotEmpty ||
-        VenueActionsService.hasAddress(venue) ||
-        VenueActionsService.canNavigate(venue);
-  }
-
-  Map<String, dynamic>? get _fixtureVenueForActions {
-    final homeVenue = _venueMap(_fixture?['venue']);
-    final opponentVenue = _venueMap(_fixture?['opponent_venue']);
-
-    if (_isEventStyleFixture || _isHome) {
-      return _hasVenueIdentity(homeVenue) ? homeVenue : null;
-    }
-
-    if (_hasVenueIdentity(opponentVenue)) return opponentVenue;
-    return _hasVenueIdentity(homeVenue) ? homeVenue : null;
-  }
+  Map<String, dynamic>? get _fixtureVenueForActions =>
+      VenueActionsService.fixtureVenue(_fixture);
 
   String get _fixtureVenueHeading {
     if (_isEventStyleFixture) return 'Event venue';
@@ -1246,10 +1236,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     });
   }
 
-  Future<void> _editExternalOpponentSlot({
+  Future<void> _editExternalPreselectSlot({
     required String fixtureRinkId,
     required int position,
     required String title,
+    required String roleLabel,
   }) async {
     final existing = _assignmentFor(
       fixtureRinkId: fixtureRinkId,
@@ -1268,9 +1259,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           controller: controller,
           autofocus: true,
           textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(
-            labelText: 'Opponent name',
-            hintText: 'Enter an external opponent name',
+          decoration: InputDecoration(
+            labelText: '$roleLabel name',
+            hintText: 'Enter an external ${roleLabel.toLowerCase()} name',
             border: OutlineInputBorder(),
           ),
         ),
@@ -1372,10 +1363,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         break;
 
       case 'external':
-        await _editExternalOpponentSlot(
+        await _editExternalPreselectSlot(
           fixtureRinkId: fixtureRinkId,
           position: position,
           title: 'Opponent $opponentNo',
+          roleLabel: 'Opponent',
         );
         break;
 
@@ -1385,6 +1377,72 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           position: position,
         );
         break;
+    }
+  }
+
+  Future<void> _editPlayerPreselectSlot({
+    required BuildContext context,
+    required String fixtureRinkId,
+    required int position,
+    required int playerNo,
+  }) async {
+    final assignment = _assignmentFor(
+      fixtureRinkId: fixtureRinkId,
+      position: position,
+    );
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.person_search),
+              title: const Text('Select club member'),
+              onTap: () => Navigator.pop(sheetContext, 'member'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Enter external player name'),
+              onTap: () => Navigator.pop(sheetContext, 'external'),
+            ),
+            if (assignment != null)
+              ListTile(
+                leading: const Icon(Icons.clear),
+                title: const Text('Clear player'),
+                onTap: () => Navigator.pop(sheetContext, 'clear'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('Cancel'),
+              onTap: () => Navigator.pop(sheetContext),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+
+    if (action == 'member') {
+      await _selectMemberPreselectSlot(
+        context: context,
+        fixtureRinkId: fixtureRinkId,
+        position: position,
+        pickerTitle: 'Select Player $playerNo',
+        useFixtureSection: true,
+      );
+    } else if (action == 'external') {
+      await _editExternalPreselectSlot(
+        fixtureRinkId: fixtureRinkId,
+        position: position,
+        title: 'Player $playerNo',
+        roleLabel: 'Player',
+      );
+    } else if (action == 'clear') {
+      _clearDraftPreselectAssignment(
+        fixtureRinkId: fixtureRinkId,
+        position: position,
+      );
     }
   }
 
@@ -1406,7 +1464,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           payload.add({
             'fixture_rink_id': rinkId,
             'position': position,
-            'member_profile_id': assignment['member_profile_id'],
+            if (assignment['member_profile_id'] != null)
+              'member_profile_id': assignment['member_profile_id'],
+            if ((assignment['display_name'] ?? '').toString().trim().isNotEmpty)
+              'display_name': assignment['display_name'].toString().trim(),
           });
         }
       }
@@ -1961,11 +2022,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final profile = await supabase
         .from('member_profiles')
-        .select('sex_at_birth')
+        .select('sex_at_birth, display_name, first_name, last_name')
         .eq('id', myProfileId)
         .maybeSingle();
 
     _mySexAtBirth = profile?['sex_at_birth']?.toString().trim().toLowerCase();
+    final displayName = (profile?['display_name'] ?? '').toString().trim();
+    final fullName = [profile?['first_name'], profile?['last_name']]
+        .map((value) => (value ?? '').toString().trim())
+        .where((value) => value.isNotEmpty)
+        .join(' ');
+    _currentMemberName = displayName.isNotEmpty ? displayName : fullName;
 
     // 1) Global superuser
     final superuserRow = await supabase
@@ -2075,7 +2142,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final f = await _client
         .from('fixtures')
         .select(
-          'id, club_id, venue_id, opponent_venue_id, green_area_id, '
+          'id, club_id, created_by_user_id, venue_id, opponent_venue_id, green_area_id, '
           'start_at, end_at, cancelled_at, cancelled_by_member_profile_id, cancellation_reason, '
           'rescheduled_to_fixture_id, rescheduled_from_fixture_id, rescheduled_at, '
           'is_home, section, rinks_required, players_per_rink, orientation, '
@@ -2459,7 +2526,27 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       final canAdminManage = access.canAdminManageFixtures;
 
       final canEditFixture = access.canWrite && canAdminManage;
-      final canDeleteFixture = access.canWrite && canAdminManage;
+      final isCreator =
+          _fixture?['created_by_user_id'] == _client.auth.currentUser?.id;
+      final canManageFixture =
+          canAdminManage || isFixtureCaptain || isFixtureVice || isCreator;
+      var canDeleteFixture = false;
+      if (access.canWrite && (access.isSuperuser || canManageFixture)) {
+        try {
+          final preview = Map<String, dynamic>.from(
+            await _client.rpc(
+                  'fixture_deletion_preview',
+                  params: {'p_fixture_id': widget.fixtureId},
+                )
+                as Map,
+          );
+          canDeleteFixture =
+              preview['can_delete'] == true ||
+              preview['can_force_delete'] == true;
+        } catch (e) {
+          debugPrint('Fixture deletion preview failed: $e');
+        }
+      }
 
       final isCancelled = _fixture?['cancelled_at'] != null;
 
@@ -2514,166 +2601,132 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _confirmAndDelete() async {
     if (!_canDeleteFixture) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete fixture?'),
-        content: const Text(
-          'This will delete the fixture and all associated data '
-          '(RSVPs, rinks, assignments, selections).\n\n'
-          'You cannot delete a fixture if any player has accepted selection.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() => _loading = true);
-
+    late final Map<String, dynamic> preview;
     try {
-      await _fixturesRepository.deleteFixture(widget.fixtureId);
-
-      if (!mounted) return;
-      Navigator.pop(context, true);
+      preview = Map<String, dynamic>.from(
+        await _client.rpc(
+              'fixture_deletion_preview',
+              params: {'p_fixture_id': widget.fixtureId},
+            )
+            as Map,
+      );
     } catch (e) {
       if (!mounted) return;
-
-      setState(() => _loading = false);
-
-      if (!_isSuperuser) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
-        return;
-      }
-
-      final forceConfirmed = await _confirmForceDeleteFixture(
-        originalError: e.toString(),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not check fixture deletion: $e')),
       );
-
-      if (forceConfirmed != true) return;
-
-      await _forceDeleteFixture();
+      return;
     }
-  }
-
-  Future<bool?> _confirmForceDeleteFixture({
-    required String originalError,
-  }) async {
-    final controller = TextEditingController();
-
-    return showDialog<bool>(
+    if (!mounted) return;
+    final canDelete = preview['can_delete'] == true;
+    final canForceDelete = preview['can_force_delete'] == true;
+    final rsvps = preview['rsvps'] ?? 0;
+    final selected = preview['selected_members'] ?? 0;
+    final emailRows = preview['email_queue'] ?? 0;
+    final notificationRows = preview['notification_queue'] ?? 0;
+    final reasonController = TextEditingController();
+    final confirmationController = TextEditingController();
+    final choice = await showDialog<String>(
       context: context,
-      builder: (ctx) {
-        var canForceDelete = false;
-
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return AlertDialog(
-              title: const Text('Force delete fixture?'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'The normal delete failed. As a superuser, you can force '
-                    'delete this fixture and all linked records.',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, updateDialog) => AlertDialog(
+          title: Text(
+            canForceDelete ? 'Force delete fixture?' : 'Delete fixture?',
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  canDelete
+                      ? 'No players are attached. This fixture can be deleted.'
+                      : 'Players are attached, so ordinary deletion is not allowed. You can cancel or reschedule it. As a superuser, you can Force Delete it.',
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Linked records: $rsvps RSVPs, $selected selected members, '
+                  '$emailRows email queue rows, $notificationRows notification queue rows.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Reason (optional)',
                   ),
+                ),
+                if (canForceDelete) ...[
                   const SizedBox(height: 12),
                   const Text(
-                    'This will permanently delete linked RSVPs, rinks, rink '
-                    'assignments, team selections, diary links, notifications '
-                    'and email logs where linked.',
+                    'Force Delete permanently removes linked records. The fixture snapshot and impact counts remain in the audit journal.',
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'This cannot be undone.',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Original error:\n$originalError',
-                    style: Theme.of(ctx).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Type DELETE FIXTURE to confirm:'),
-                  const SizedBox(height: 8),
                   TextField(
-                    controller: controller,
-                    autofocus: true,
+                    controller: confirmationController,
                     decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText: 'DELETE FIXTURE',
+                      labelText: 'Type DELETE FIXTURE to force delete',
                     ),
-                    onChanged: (value) {
-                      setDialogState(() {
-                        canForceDelete = value.trim() == 'DELETE FIXTURE';
-                      });
-                    },
+                    onChanged: (_) => updateDialog(() {}),
                   ),
                 ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: canForceDelete
-                      ? () => Navigator.pop(ctx, true)
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Force delete'),
-                ),
               ],
-            );
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Back'),
+            ),
+            if (canDelete)
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, 'delete'),
+                child: const Text('Delete'),
+              ),
+            if (canForceDelete)
+              TextButton(
+                onPressed:
+                    confirmationController.text.trim() == 'DELETE FIXTURE'
+                    ? () => Navigator.pop(ctx, 'force')
+                    : null,
+                child: const Text('Force Delete'),
+              ),
+          ],
+        ),
+      ),
+    );
+    final reason = reasonController.text.trim();
+
+    // Let the dialog route finish deactivating before its text controllers are
+    // disposed. The closing animation can otherwise rebuild a TextField with
+    // a controller that has already been disposed.
+    await WidgetsBinding.instance.endOfFrame;
+    reasonController.dispose();
+    confirmationController.dispose();
+    if (choice == null || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      if (choice == 'delete') {
+        await _client.rpc(
+          'delete_fixture',
+          params: {'p_fixture_id': widget.fixtureId, 'p_reason': reason},
+        );
+      } else {
+        await _client.rpc(
+          'admin_force_delete_fixture',
+          params: {
+            'p_fixture_id': widget.fixtureId,
+            'p_reason': reason,
+            'p_confirm': 'DELETE FIXTURE',
           },
         );
-      },
-    ).whenComplete(controller.dispose);
-  }
-
-  Future<void> _forceDeleteFixture() async {
-    setState(() => _loading = true);
-
-    try {
-      final result = await _client.rpc(
-        'admin_force_delete_fixture',
-        params: {
-          'p_fixture_id': widget.fixtureId,
-          'p_confirm': 'DELETE FIXTURE',
-        },
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Fixture force deleted')));
-
-      Navigator.pop(context, true);
+      }
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-
       setState(() => _loading = false);
-
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Force delete failed: $e')));
+      ).showSnackBar(SnackBar(content: Text('Could not remove fixture: $e')));
     }
   }
 
@@ -3092,6 +3145,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Widget _buildEventAttendanceSummary() {
+    if (_fixture?['requires_rsvp'] != true) return const SizedBox.shrink();
     if (!_canManageEventAttendance) return const SizedBox.shrink();
 
     int count(String status) => _eventRsvps
@@ -3193,6 +3247,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Widget _buildEventRsvpCard() {
+    if (_fixture?['requires_rsvp'] != true) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Open attendance - no RSVP required.'),
+        ),
+      );
+    }
     final canRespond =
         _canRsvpToFixture && _isEligibleForFixtureSection(_fixture!);
 
@@ -4198,6 +4260,135 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     );
   }
 
+  Future<void> _changePreselectTeamStructure([
+    Map<String, dynamic>? rink,
+  ]) async {
+    if (!_canMaintainMemberPreselectFixture ||
+        _preselectDirty ||
+        _changingPreselectStructure)
+      return;
+    final service = FixtureTeamStructureService(_client);
+    final labels = await service.availablePhysicalRinks(widget.fixtureId);
+    if (!mounted) return;
+    String format = (rink?['format'] ?? 'rinks').toString();
+    if (!FixtureTeamStructureService.formats.containsKey(format))
+      format = 'rinks';
+    String? physical = rink?['home_rink_label']?.toString();
+
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            rink == null ? 'Add team' : 'Edit team ${rink['fixture_rink_no']}',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: format,
+                decoration: const InputDecoration(labelText: 'Format'),
+                items: FixtureTeamStructureService.formats.entries
+                    .map(
+                      (entry) => DropdownMenuItem(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) =>
+                    setDialogState(() => format = value ?? format),
+              ),
+              if (_isHome) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  initialValue: physical?.isEmpty == true ? null : physical,
+                  decoration: const InputDecoration(
+                    labelText: 'Physical rink (optional)',
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Not assigned'),
+                    ),
+                    ...{
+                      ...labels,
+                      if (physical != null && physical!.isNotEmpty) physical!,
+                    }.map(
+                      (label) => DropdownMenuItem<String?>(
+                        value: label,
+                        child: Text(label),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) => setDialogState(() => physical = value),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            if (rink != null)
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, 'delete'),
+                child: const Text('Delete team'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'save'),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == 'delete') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete team?'),
+          content: const Text(
+            'Club members will remain in the selection but become unpositioned. External player and opponent names in this team will be removed.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    setState(() => _changingPreselectStructure = true);
+    try {
+      await service.change(
+        fixtureId: widget.fixtureId,
+        action: choice == 'delete'
+            ? 'delete'
+            : (rink == null ? 'add' : 'update'),
+        fixtureRinkId: rink?['id']?.toString(),
+        format: format,
+        homeRinkLabel: physical,
+      );
+      await _refreshFixtureRecord();
+      await _loadMemberPreselectData();
+      if (_isHome) await _loadRinkAvailability(showLoading: false);
+      _didChangeFixture = true;
+    } catch (error) {
+      if (mounted) await _showSaveErrorDialog(error.toString());
+    } finally {
+      if (mounted) setState(() => _changingPreselectStructure = false);
+    }
+  }
+
   Widget _buildMemberPreselectEditorPlaceholder() {
     debugPrint(
       'MEMBER PRESELECT EDITOR: '
@@ -4215,10 +4406,24 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Players, opponents and rinks',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Players, opponents and rinks',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+                  ),
+                ),
+                if (_canMaintainMemberPreselectFixture)
+                  ActionPill(
+                    label: 'Add team',
+                    tone: ActionPillTone.green,
+                    onPressed: _preselectDirty || _changingPreselectStructure
+                        ? null
+                        : _changePreselectTeamStructure,
+                  ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(
@@ -4271,10 +4476,28 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            'Team $teamNo',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Team $teamNo',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              if (_canMaintainMemberPreselectFixture)
+                                ActionPill(
+                                  label: 'Team setup',
+                                  onPressed:
+                                      _preselectDirty ||
+                                          _changingPreselectStructure
+                                      ? null
+                                      : () =>
+                                            _changePreselectTeamStructure(rink),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 10),
 
@@ -4324,14 +4547,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                                                   ),
                                             onPressed:
                                                 _canMaintainMemberPreselectFixture
-                                                ? () => _selectMemberPreselectSlot(
-                                                    context: context,
-                                                    fixtureRinkId: rinkId,
-                                                    position: playerNo,
-                                                    pickerTitle:
-                                                        'Select Player $playerNo',
-                                                    useFixtureSection: true,
-                                                  )
+                                                ? () =>
+                                                      _editPlayerPreselectSlot(
+                                                        context: context,
+                                                        fixtureRinkId: rinkId,
+                                                        position: playerNo,
+                                                        playerNo: playerNo,
+                                                      )
                                                 : null,
                                             child: Text(
                                               _memberLabelFromAssignment(
@@ -5203,6 +5425,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _confirmAndCancelFixture() async {
     final reasonController = TextEditingController();
+    final reasonKey = GlobalKey<FormFieldState<String>>();
 
     final choice = await showDialog<_CancelFixtureChoice>(
       context: context,
@@ -5229,11 +5452,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                   'forward its assignments and notifies people of the new date.',
                 ),
                 const SizedBox(height: 16),
-                TextField(
+                TextFormField(
+                  key: reasonKey,
+                  validator: (v) => (v ?? '').trim().length < 5
+                      ? 'Please give a reason (at least five characters)'
+                      : null,
                   controller: reasonController,
                   maxLines: 3,
                   decoration: const InputDecoration(
-                    labelText: 'Reason (optional)',
+                    labelText: 'Reason (required)',
                     hintText:
                         'Why is the fixture being cancelled or rescheduled?',
                     border: OutlineInputBorder(),
@@ -5254,17 +5481,22 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: Theme.of(dialogContext).colorScheme.error,
               ),
-              onPressed: () =>
-                  Navigator.pop(dialogContext, _CancelFixtureChoice.cancel),
+              onPressed: () {
+                if (reasonKey.currentState?.validate() == true)
+                  Navigator.pop(dialogContext, _CancelFixtureChoice.cancel);
+              },
               icon: const Icon(Icons.cancel_outlined),
               label: const Text('Cancel fixture'),
             ),
             FilledButton.icon(
               onPressed: _canCancelAndRescheduleFixture
-                  ? () => Navigator.pop(
-                      dialogContext,
-                      _CancelFixtureChoice.reschedule,
-                    )
+                  ? () {
+                      if (reasonKey.currentState?.validate() == true)
+                        Navigator.pop(
+                          dialogContext,
+                          _CancelFixtureChoice.reschedule,
+                        );
+                    }
                   : null,
               icon: const Icon(Icons.event_repeat),
               label: const Text('Reschedule fixture'),
@@ -5275,6 +5507,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     );
 
     final reason = reasonController.text.trim();
+
+    // Let the dialog route and its inherited widgets finish deactivating
+    // before disposing its controller or pushing the reschedule page. Pushing
+    // immediately can trip Flutter's `_dependents.isEmpty` assertion on
+    // desktop even though the database request later succeeds.
+    await WidgetsBinding.instance.endOfFrame;
     reasonController.dispose();
 
     if (choice == null || !mounted) return;
@@ -5618,6 +5856,175 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     );
   }
 
+  Future<List<Map<String, dynamic>>> _loadRepeatOpponentVenues() async {
+    final clubId = _fixture?['club_id']?.toString();
+    if (clubId == null || clubId.isEmpty) return const [];
+
+    final rows = await _client
+        .from('venues')
+        .select('id, name')
+        .eq('club_id', clubId)
+        .eq('is_home_venue', false)
+        .order('name');
+
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  Future<bool> _confirmRepeatFixtures(
+    List<RepeatFixtureDate> dates,
+    List<Map<String, dynamic>> opponentVenues,
+  ) async {
+    String? opponentName(String? id) {
+      if (id == null) return null;
+      for (final venue in opponentVenues) {
+        if (venue['id']?.toString() == id) return venue['name']?.toString();
+      }
+      return null;
+    }
+
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Create ${dates.length} fixtures?'),
+            content: SizedBox(
+              width: 520,
+              child: ListView(
+                shrinkWrap: true,
+                children: dates.map((date) {
+                  final venue = opponentName(date.opponentVenueId);
+                  return ListTile(
+                    title: Text(
+                      MaterialLocalizations.of(
+                        context,
+                      ).formatFullDate(date.date),
+                    ),
+                    subtitle: Text(
+                      venue == null
+                          ? (_isEventStyleFixture
+                                ? 'Club event'
+                                : 'Internal fixture')
+                          : '${date.isHome ? 'Home' : 'Away'} against $venue',
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Back'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Create fixtures'),
+              ),
+            ],
+          ),
+        ) ==
+        true;
+  }
+
+  Future<void> _showRepeatResults(
+    List<ExistingFixtureRepeatResult> results,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Repeat fixture results'),
+        content: SizedBox(
+          width: 520,
+          child: ListView(
+            shrinkWrap: true,
+            children: results.map((result) {
+              return ListTile(
+                leading: Icon(
+                  result.success ? Icons.check_circle : Icons.error,
+                  color: result.success ? Colors.green : Colors.red,
+                ),
+                title: Text(
+                  MaterialLocalizations.of(context).formatFullDate(result.date),
+                ),
+                subtitle: Text(result.message),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openRepeatFixturePlanner() async {
+    final start = _startAtLocal;
+    final end = _endAtLocal;
+    if (start == null || end == null || _repeatingFixture) return;
+
+    final requiresOpponent =
+        !_isEventStyleFixture && !_selectedCompetitionIsInternal;
+
+    try {
+      final opponentVenues = requiresOpponent
+          ? await _loadRepeatOpponentVenues()
+          : <Map<String, dynamic>>[];
+      if (!mounted) return;
+
+      final planned = await Navigator.of(context).push<List<RepeatFixtureDate>>(
+        MaterialPageRoute(
+          builder: (_) => RepeatFixturePlannerPage(
+            startDateTime: start,
+            requiresOpponent: requiresOpponent,
+            opponentVenues: opponentVenues,
+          ),
+        ),
+      );
+      if (!mounted || planned == null) return;
+
+      final dates = planned.where((date) => date.enabled).toList();
+      if (dates.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No repeat dates were selected.')),
+        );
+        return;
+      }
+
+      if (!await _confirmRepeatFixtures(dates, opponentVenues) || !mounted) {
+        return;
+      }
+
+      setState(() => _repeatingFixture = true);
+      final preferredRinkLabels = _memberPreselectRinks
+          .map((rink) => (rink['home_rink_label'] ?? '').toString().trim())
+          .where((label) => label.isNotEmpty)
+          .toList();
+
+      final results = await RepeatExistingFixtureService(_client).create(
+        sourceFixtureId: widget.fixtureId,
+        sourceStart: start,
+        duration: end.difference(start),
+        dates: dates,
+        preferredRinkLabels: preferredRinkLabels,
+      );
+      if (!mounted) return;
+
+      if (results.any((result) => result.success)) {
+        _didChangeFixture = true;
+      }
+      await _showRepeatResults(results);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not repeat fixture: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _repeatingFixture = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -5838,6 +6245,19 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ),
         title: Text(pageTitle),
         actions: [
+          if (_canRepeatFixture)
+            IconButton(
+              tooltip: 'Repeat fixture',
+              icon: _repeatingFixture
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.copy_all_outlined),
+              onPressed: _repeatingFixture ? null : _openRepeatFixturePlanner,
+            ),
+
           if (_canRescheduleFixture)
             IconButton(
               tooltip: 'Reschedule fixture',
@@ -6635,6 +7055,15 @@ class _RescheduleFixturePageState extends State<_RescheduleFixturePage> {
 
   Future<void> _reschedule() async {
     if (_saving) return;
+
+    if (_startAtLocal.isAtSameMomentAs(widget.initialStartAt) &&
+        _endAtLocal.isAtSameMomentAs(widget.initialEndAt)) {
+      setState(
+        () => _error =
+            'Choose a different start or end date/time before rescheduling.',
+      );
+      return;
+    }
 
     if (!_endAtLocal.isAfter(_startAtLocal)) {
       setState(() => _error = 'End date/time must be after start date/time.');

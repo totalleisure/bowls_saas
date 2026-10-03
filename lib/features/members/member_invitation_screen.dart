@@ -21,6 +21,7 @@ class MemberInvitationScreen extends StatefulWidget {
 class _MemberInvitationScreenState extends State<MemberInvitationScreen> {
   bool _busy = false, _resend = false;
   String? _error;
+  String? _batchSummary;
   List<dynamic> _guides = [], _recipients = [], _exceptions = [];
   final Set<String> _selected = {};
   final Map<String, String> _results = {};
@@ -127,6 +128,7 @@ class _MemberInvitationScreenState extends State<MemberInvitationScreen> {
         ..clear()
         ..addAll(_recipients.map((r) => r['id'] as String));
       _results.clear();
+      _batchSummary = null;
     });
   });
 
@@ -179,7 +181,7 @@ class _MemberInvitationScreenState extends State<MemberInvitationScreen> {
       builder: (context) => AlertDialog(
         title: Text('Send ${chosen.length} invitations now?'),
         content: const Text(
-          'Each selected member will receive their personalised email with both PDF guides attached. This will send real emails.',
+          'Each selected member will receive their personalised email with both PDF guides attached. This will send real emails at up to 20 invitations per minute. Keep this screen open until sending finishes.',
         ),
         actions: [
           TextButton(
@@ -194,6 +196,7 @@ class _MemberInvitationScreenState extends State<MemberInvitationScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    setState(() => _batchSummary = null);
     await _run(() async {
       for (final recipient in chosen) {
         if (!mounted) break;
@@ -205,6 +208,15 @@ class _MemberInvitationScreenState extends State<MemberInvitationScreen> {
             'confirm': true,
           });
           if (mounted) setState(() => _results[id] = '${result['status']}');
+          if (result['status'] != 'sent' && result['status'] != 'skipped') {
+            if (mounted) {
+              setState(() => _error = result['message'] as String? ??
+                  'Sending stopped. Prepare a new review with resend unchecked before retrying failed invitations. Check Sent Items for uncertain outcomes.');
+            }
+            break;
+          }
+          // Pace this batch; a provider rejection always stops it for review.
+          await Future<void>.delayed(const Duration(seconds: 3));
         } catch (_) {
           // A lost response may follow a successful send. Do not retry blindly.
           if (mounted) {
@@ -218,6 +230,37 @@ class _MemberInvitationScreenState extends State<MemberInvitationScreen> {
         }
       }
     });
+    if (!mounted) return;
+    final statuses = chosen.map((r) => _results[r['id']]).toList();
+    final sent = statuses.where((s) => s == 'sent').length;
+    final failed = statuses.where((s) => s == 'failed').length;
+    final uncertain = statuses.where((s) =>
+        s == 'unknown' || s == 'sending' || s == 'check').length;
+    final remaining = statuses.where((s) => s == null).length;
+    final other = chosen.length - sent - failed - uncertain - remaining;
+    final complete = sent == chosen.length;
+    final title = complete ? 'Invitations complete' : 'Invitations need attention';
+    final summary = 'Selected: ${chosen.length}\n'
+        'Accepted by email service: $sent\n'
+        'Failed: $failed\n'
+        'Outcome uncertain: $uncertain\n'
+        'Skipped or not sent: $other\n'
+        'Not attempted: $remaining\n\n'
+        '${complete ? 'All selected invitations were accepted for sending.' : 'Not all selected invitations were confirmed sent. Review the results before trying again. Leave resend unchecked to protect successful invitations.'}\n'
+        'Acceptance does not guarantee delivery to the inbox.'
+        '${_error == null ? '' : '\n\n$_error'}';
+    setState(() => _batchSummary = '$title\n$summary');
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(child: Text(summary)),
+        actions: [TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        )],
+      ),
+    );
   }
 
   String _status(String value) => switch (value) {
@@ -303,6 +346,11 @@ class _MemberInvitationScreenState extends State<MemberInvitationScreen> {
               const Padding(
                 padding: EdgeInsets.all(12),
                 child: LinearProgressIndicator(),
+              ),
+            if (_batchSummary != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: SelectableText(_batchSummary!),
               ),
             if (_error != null)
               Padding(

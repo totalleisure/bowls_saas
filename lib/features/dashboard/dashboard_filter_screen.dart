@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+import '../../core/utils/date_format.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/material.dart';
 import '../../models/dashboard_fixture_filter.dart';
@@ -5,11 +7,15 @@ import '../../models/dashboard_fixture_filter.dart';
 class DashboardFilterScreen extends StatefulWidget {
   final DashboardFixtureFilter initialFilter;
   final String clubId;
+  final bool diaryMode;
+  final Future<List<Map<String, dynamic>>> Function()? fixtureTypesLoader;
 
   const DashboardFilterScreen({
     super.key,
     required this.initialFilter,
     required this.clubId,
+    this.fixtureTypesLoader,
+    this.diaryMode = false,
   });
 
   @override
@@ -31,42 +37,7 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
   List<Map<String, dynamic>> _allTypes = [];
   bool _loadingTypes = true;
 
-  List<Map<String, dynamic>> get _visibleTypes {
-    return _allTypes.where((t) {
-      final section = (t['section'] ?? '').toString().toLowerCase().trim();
-      final isInternal = t['is_internal'] == true;
-
-      if (_draft.sections.isNotEmpty && !_draft.sections.contains(section)) {
-        return false;
-      }
-
-      if (_draft.categories.isNotEmpty) {
-        final tags = (t['tags'] as List<dynamic>? ?? const [])
-            .map((e) => e.toString().toLowerCase().trim())
-            .toSet();
-
-        bool matched = false;
-
-        for (final selected in _draft.categories) {
-          if (selected == 'internal') {
-            if (isInternal) {
-              matched = true;
-              break;
-            }
-          } else {
-            if (tags.contains(selected)) {
-              matched = true;
-              break;
-            }
-          }
-        }
-
-        if (!matched) return false;
-      }
-
-      return true;
-    }).toList();
-  }
+  String? _typesError;
 
   Color _colorFromHex(String? hex, {Color fallback = Colors.grey}) {
     if (hex == null || hex.trim().isEmpty) return fallback;
@@ -90,16 +61,13 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
     set.contains(value) ? set.remove(value) : set.add(value);
 
     setState(() {
-      _draft = _draft.copyWith(sections: set);
+      _draft = _draft.copyWith(sections: set, explicitSections: true);
     });
   }
 
   void _toggleCategory(String value) {
-    final set = Set<String>.from(_draft.categories);
-    set.contains(value) ? set.remove(value) : set.add(value);
-
     setState(() {
-      _draft = _draft.copyWith(categories: set);
+      _draft = _draft.toggleTag(value, _allTypes);
     });
   }
 
@@ -110,12 +78,8 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
   }
 
   void _toggleFixtureType(String id) {
-    final set = Set<String>.from(_draft.fixtureTypeIds);
-
-    set.contains(id) ? set.remove(id) : set.add(id);
-
     setState(() {
-      _draft = _draft.copyWith(fixtureTypeIds: set);
+      _draft = _draft.toggleType(id, _allTypes);
     });
   }
 
@@ -128,11 +92,20 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final types = _visibleTypes;
+    if (_typesError != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Could not load fixture types. Please try again.'),
+          TextButton(onPressed: _loadFixtureTypes, child: const Text('Retry')),
+        ],
+      );
+    }
+    final types = _allTypes;
 
     if (types.isEmpty) {
       return const Text(
-        'No fixture types match current filters',
+        'No fixture types have been set up for this club',
         style: TextStyle(color: Colors.grey),
       );
     }
@@ -142,7 +115,7 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
       children: types.map((t) {
         final id = t['id'].toString();
         final name = (t['name'] ?? '').toString();
-        final selected = _draft.fixtureTypeIds.contains(id);
+        final selected = _draft.includesType(id, t);
 
         final colourScheme = t['colour_scheme'] as Map<String, dynamic>?;
 
@@ -174,7 +147,7 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Filter fixtures'),
+        title: Text(widget.diaryMode ? 'Filter diary' : 'Filter fixtures'),
         actions: [
           TextButton(
             onPressed: () {
@@ -182,7 +155,7 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
                 _draft = const DashboardFixtureFilter();
               });
             },
-            child: const Text('Clear'),
+            child: const Text('Reset'),
           ),
         ],
       ),
@@ -191,25 +164,69 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
         backgroundColor: _changed ? Colors.red : Colors.grey,
         label: Text(_changed ? 'Save' : 'Return'),
         icon: Icon(_changed ? Icons.check : Icons.arrow_back),
-        onPressed: () {
-          Navigator.pop(context, _changed ? _draft : widget.initialFilter);
-        },
+        onPressed: _loadingTypes || _typesError != null
+            ? null
+            : () {
+                Navigator.pop(
+                  context,
+                  _changed ? _draft : widget.initialFilter,
+                );
+              },
       ),
 
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _buildSectionFilter(),
+          if (_draft.explicitSections && _draft.sections.isEmpty)
+            Text(
+              widget.diaryMode
+                  ? 'No sections selected. No diary entries will be shown.'
+                  : 'No sections selected. Only protected fixtures will be shown.',
+            ),
           const SizedBox(height: 24),
           _buildCategoryFilter(),
           const SizedBox(height: 24),
           _buildPeriodFilter(),
           const SizedBox(height: 24),
 
-          // placeholder for next phase
           const Divider(),
+          Text(
+            'Tick the fixture types you want to see. Tags select groups; '
+                    'you can then add or remove individual types. '
+                    'From All, a tag selects just that group. Counts show how many types in a group are selected. ' +
+                (widget.diaryMode
+                    ? 'Diary filters apply to every entry, with no exceptions. These filters are separate from your Dashboard.'
+                    : 'Filters never hide acceptance requests, accepted fixtures or fixtures you manage.'),
+          ),
+          Wrap(
+            spacing: 8,
+            children: [
+              FilterChip(
+                label: const Text('All types'),
+                selected: _draft.allTypesSelected,
+                onSelected: _loadingTypes || _typesError != null
+                    ? null
+                    : (_) => setState(() => _draft = _draft.selectAllTypes()),
+              ),
+              FilterChip(
+                label: const Text('None'),
+                selected: _draft.explicitTypes && _draft.fixtureTypeIds.isEmpty,
+                onSelected: _loadingTypes || _typesError != null
+                    ? null
+                    : (_) => setState(() => _draft = _draft.selectTypes({})),
+              ),
+            ],
+          ),
+          if (_draft.explicitTypes && _draft.fixtureTypeIds.isEmpty)
+            Text(
+              widget.diaryMode
+                  ? 'No fixture types selected. No diary entries will be shown.'
+                  : 'No fixture types selected. Only protected fixtures will be shown.',
+            ),
+          const SizedBox(height: 8),
           _buildFixtureTypes(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 96),
         ],
       ),
     );
@@ -221,8 +238,21 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
 
   Widget _buildSectionFilter() {
     return _buildBlock(
-      title: 'Section',
+      title: 'Section (applies to every selected type)',
       children: [
+        _chip(
+          label: 'All sections',
+          selected: _draft.allSectionsSelected,
+          onTap: () => setState(
+            () =>
+                _draft = _draft.copyWith(sections: {}, explicitSections: false),
+          ),
+        ),
+        _chip(
+          label: 'Open / everyone',
+          selected: _draft.sections.contains('open'),
+          onTap: () => _toggleSection('open'),
+        ),
         _chip(
           label: 'Men',
           selected: _draft.sections.contains('mens'),
@@ -247,69 +277,53 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
   // --------------------------
 
   Widget _buildCategoryFilter() {
+    const tags = {
+      'match': 'Matches',
+      'league': 'Leagues',
+      'competition': 'Competitions',
+      'drive': 'Drives',
+      'rollup': 'Roll-Ups',
+      'event': 'Events',
+      'open_session': 'Open sessions',
+      'friendly': 'Friendly',
+      'cup': 'Cup',
+      'social': 'Social',
+      'training': 'Training',
+      'meeting': 'Meetings',
+      'internal': 'Internal',
+    };
+    final selected = _draft.selectedIds(_allTypes);
     return _buildBlock(
-      title: 'Tags',
+      title: 'Tags — select groups of fixture types',
       children: [
-        _chip(
-          label: 'Matches',
-          selected: _draft.categories.contains('match'),
-          onTap: () => _toggleCategory('match'),
-        ),
-        _chip(
-          label: 'Leagues',
-          selected: _draft.categories.contains('league'),
-          onTap: () => _toggleCategory('league'),
-        ),
-        _chip(
-          label: 'Competitions',
-          selected: _draft.categories.contains('competition'),
-          onTap: () => _toggleCategory('competition'),
-        ),
-        _chip(
-          label: 'Drives',
-          selected: _draft.categories.contains('drive'),
-          onTap: () => _toggleCategory('drive'),
-        ),
-        _chip(
-          label: 'Roll-Ups',
-          selected: _draft.categories.contains('rollup'),
-          onTap: () => _toggleCategory('rollup'),
-        ),
-        _chip(
-          label: 'Events',
-          selected: _draft.categories.contains('event'),
-          onTap: () => _toggleCategory('event'),
-        ),
-        _chip(
-          label: 'Friendly',
-          selected: _draft.categories.contains('friendly'),
-          onTap: () => _toggleCategory('friendly'),
-        ),
-        _chip(
-          label: 'Cup',
-          selected: _draft.categories.contains('cup'),
-          onTap: () => _toggleCategory('cup'),
-        ),
-        _chip(
-          label: 'Social',
-          selected: _draft.categories.contains('social'),
-          onTap: () => _toggleCategory('social'),
-        ),
-        _chip(
-          label: 'Training',
-          selected: _draft.categories.contains('training'),
-          onTap: () => _toggleCategory('training'),
-        ),
-        _chip(
-          label: 'Meetings',
-          selected: _draft.categories.contains('meeting'),
-          onTap: () => _toggleCategory('meeting'),
-        ),
-        _chip(
-          label: 'Internal',
-          selected: _draft.categories.contains('internal'),
-          onTap: () => _toggleCategory('internal'),
-        ),
+        for (final entry in tags.entries)
+          Builder(
+            builder: (context) {
+              final ids = {
+                for (final type in _allTypes)
+                  if (DashboardFixtureFilter.matchesTag(type, entry.key))
+                    type['id'].toString(),
+              };
+              final count = ids.intersection(selected).length;
+              final full = ids.isNotEmpty && count == ids.length;
+              final partial = count > 0 && !full;
+              return FilterChip(
+                label: Text(
+                  partial
+                      ? '${entry.value} (${count} of ${ids.length})'
+                      : entry.value,
+                ),
+                tooltip: ids.isEmpty
+                    ? 'No matching fixture types'
+                    : '$count of ${ids.length} types selected',
+                selected: full && !_draft.allTypesSelected,
+
+                onSelected: _loadingTypes || _typesError != null || ids.isEmpty
+                    ? null
+                    : (_) => _toggleCategory(entry.key),
+              );
+            },
+          ),
       ],
     );
   }
@@ -319,12 +333,20 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
   // --------------------------
 
   Widget _buildPeriodFilter() {
+    final now = toClubTime(DateTime.now());
+    final end = _draft.periodEnd(now);
+    final range = end == null
+        ? (widget.diaryMode
+              ? 'All dates, including earlier diary entries'
+              : 'All upcoming dates')
+        : '${DateFormat('d MMM yyyy').format(_draft.periodStart(now))} – '
+              '${DateFormat('d MMM yyyy').format(end.subtract(const Duration(days: 1)))}';
     Widget tile(String value, String label, double width) {
       final selected = _draft.period == value;
 
       return SizedBox(
         width: width,
-        height: 34,
+        height: 52,
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
           onTap: () => _setPeriod(value),
@@ -341,7 +363,7 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
             ),
             child: Text(
               label,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -368,12 +390,18 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
               spacing: spacing,
               runSpacing: spacing,
               children: [
-                tile('all', 'All', itemWidth),
-                tile('this_month', 'This month', itemWidth),
-                tile('next_month', 'Next month', itemWidth),
+                tile(
+                  'all',
+                  widget.diaryMode ? 'All dates' : 'All upcoming',
+                  itemWidth,
+                ),
+                tile('this_month', 'Rest of this month', itemWidth),
+                tile('next_month', 'Next calendar month', itemWidth),
                 tile('three_months', 'Next 3 months', itemWidth),
               ],
             ),
+            const SizedBox(height: 8),
+            Text(range, style: Theme.of(context).textTheme.bodySmall),
           ],
         );
       },
@@ -408,17 +436,21 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
   }
 
   Future<void> _loadFixtureTypes() async {
-    final supabase = Supabase.instance.client;
-
+    setState(() {
+      _loadingTypes = true;
+      _typesError = null;
+    });
     try {
-      final res = await supabase
-          .from('competition_types')
-          .select(
-            'id, name, section, is_internal, tags, '
-            'colour_scheme:fixture_colour_schemes(name, background_hex, foreground_hex)',
-          )
-          .eq('club_id', widget.clubId)
-          .order('name');
+      final res = widget.fixtureTypesLoader != null
+          ? await widget.fixtureTypesLoader!()
+          : await Supabase.instance.client
+                .from('competition_types')
+                .select(
+                  'id, name, section, is_internal, tags, selection_mode, uses_rinks, '
+                  'colour_scheme:fixture_colour_schemes(name, background_hex, foreground_hex)',
+                )
+                .eq('club_id', widget.clubId)
+                .order('name');
 
       final rows = List<Map<String, dynamic>>.from(res);
 
@@ -437,6 +469,7 @@ class _DashboardFilterScreenState extends State<DashboardFilterScreen> {
           ),
         );
     } catch (e) {
+      _typesError = e.toString();
       debugPrint('Error loading fixture types: $e');
     }
 

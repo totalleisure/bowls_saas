@@ -1,14 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
-import 'package:share_plus/share_plus.dart';
 
-import 'club_home_screen.dart';
-import 'club_dashboard_screen.dart';
-import '../../core/utils/date_format.dart';
+import 'club_start_screen.dart';
 
 class MyClubsScreen extends StatefulWidget {
   const MyClubsScreen({super.key});
@@ -426,113 +420,17 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                               c['secondary_colour']?.toString() ?? '',
                             );
 
-                            final client = Supabase.instance.client;
-                            final myId = (await client.rpc(
-                              'my_member_profile_id',
-                            )).toString();
-
-                            // 1) RSVP / unpublished items
-                            final fixtures = await client
-                                .from('fixtures')
-                                .select(
-                                  'id, start_at, ts:team_selections(status)',
-                                )
-                                .eq('club_id', clubId)
-                                .gte(
-                                  'start_at',
-                                  DateTime.now().toUtc().toIso8601String(),
-                                );
-
-                            final fixturesList =
-                                List<Map<String, dynamic>>.from(fixtures);
-
-                            final hasRsvpItems = fixturesList.any((f) {
-                              final ts = f['ts'];
-                              if (ts == null) return true;
-                              if (ts is List && ts.isEmpty) return true;
-                              if (ts is List)
-                                return ts.first?['status']?.toString() !=
-                                    'published';
-                              return (ts as Map?)?['status']?.toString() !=
-                                  'published';
-                            });
-
-                            // 2) Pending acceptance items
-                            final needs = await client
-                                .from('team_selection_members')
-                                .select(
-                                  'team_selections(status, fixture:fixtures(club_id))',
-                                )
-                                .eq('member_profile_id', myId)
-                                .eq('acceptance', 'pending');
-
-                            final needsList = List<Map<String, dynamic>>.from(
-                              needs,
-                            );
-
-                            final hasAcceptanceItems = needsList.any((r) {
-                              final ts =
-                                  r['team_selections'] as Map<String, dynamic>?;
-                              if (ts?['status']?.toString() != 'published')
-                                return false;
-                              final fx =
-                                  ts?['fixture'] as Map<String, dynamic>?;
-                              return fx?['club_id']?.toString() == clubId;
-                            });
-
-                            // 3) Accepted & upcoming items  <-- this is the missing piece
-                            final accepted = await client
-                                .from('team_selection_members')
-                                .select(
-                                  'team_selections!inner('
-                                  '  status, '
-                                  '  fixture:fixtures!inner('
-                                  '    id, club_id, start_at'
-                                  '  )'
-                                  ')',
-                                )
-                                .eq('member_profile_id', myId)
-                                .eq('acceptance', 'accepted')
-                                .eq('team_selections.status', 'published')
-                                .eq('team_selections.fixture.club_id', clubId);
-
-                            final nowUtcIso = DateTime.now()
-                                .toUtc()
-                                .toIso8601String();
-
-                            final acceptedList =
-                                List<Map<String, dynamic>>.from(accepted);
-
-                            final hasAcceptedUpcomingItems = acceptedList.any((
-                              r,
-                            ) {
-                              final ts =
-                                  r['team_selections'] as Map<String, dynamic>?;
-                              final fx =
-                                  ts?['fixture'] as Map<String, dynamic>?;
-                              if (fx == null) return false;
-
-                              final startAt = fx['start_at']?.toString() ?? '';
-                              return startAt.compareTo(nowUtcIso) >= 0;
-                            });
-
-                            final shouldShowDashboard =
-                                hasRsvpItems ||
-                                hasAcceptanceItems ||
-                                hasAcceptedUpcomingItems;
-
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => shouldShowDashboard
-                                    ? ClubDashboardScreen(
-                                        clubId: clubId,
-                                        clubName: clubName,
-                                      )
-                                    : ClubHomeScreen(
-                                        clubId: clubId,
-                                        clubName: clubName,
-                                      ),
+                            if (!context.mounted) return;
+                            final userId =
+                                Supabase.instance.client.auth.currentUser?.id;
+                            if (userId == null) return;
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ClubStartScreen(
+                                  clubId: clubId,
+                                  clubName: clubName,
+                                  userId: userId,
+                                ),
                               ),
                             );
                           },

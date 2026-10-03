@@ -442,6 +442,10 @@ export async function handleInvitation(req: Request) {
       }
       // A timeout after submission is uncertain, not safe to retry automatically.
       let status = "unknown";
+      let providerStatus: number | null = null;
+      let providerCode: string | null = null;
+      let providerRequestId: string | null = null;
+      let retryAfterSeconds: number | null = null;
       try {
         const result = await fetch(
           `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/sendMail`,
@@ -460,6 +464,21 @@ export async function handleInvitation(req: Request) {
             }),
           },
         );
+        providerStatus = result.status;
+        const requestId = result.headers.get("request-id");
+        providerRequestId = requestId && /^[a-zA-Z0-9-]{1,100}$/.test(requestId)
+          ? requestId : null;
+        const retry = result.headers.get("retry-after");
+        if (retry && /^\d{1,8}$/.test(retry)) retryAfterSeconds = Number(retry);
+        if (!result.ok) {
+          try {
+            const error = await result.json();
+            const code = error?.error?.code;
+            // Retain diagnostic identifiers, never bodies, addresses or credentials.
+            providerCode = typeof code === "string" && /^[a-zA-Z0-9_.-]{1,100}$/.test(code)
+              ? code : null;
+          } catch { /* Status remains sufficient if the error body is not JSON. */ }
+        }
         status = result.status === 202
           ? "sent"
           : result.status >= 400 && result.status < 500 && result.status !== 408
@@ -469,10 +488,24 @@ export async function handleInvitation(req: Request) {
       requireData(
         await admin.from("member_invitation_attempts").update({
           status,
+          provider_status: providerStatus,
+          provider_code: providerCode,
+          provider_request_id: providerRequestId,
+          retry_after_seconds: retryAfterSeconds,
           updated_at: new Date().toISOString(),
         }).eq("id", attempt.id).eq("status", "sending"),
       );
-      return json({ status });
+      return json({
+        status,
+        retry_after_seconds: retryAfterSeconds,
+        message: status === "failed"
+          ? providerStatus === 429
+            ? `The email service asked us to pause. Wait at least ${retryAfterSeconds ?? 60} seconds before preparing a new review. Leave resend unchecked.`
+            : "The email service rejected this invitation. Sending has stopped. Review the recorded error before trying again."
+          : status === "unknown"
+          ? "The outcome could not be confirmed. Check Sent Items before attempting recovery."
+          : null,
+      });
     }
     return json({ error: "Unknown action." }, 400);
   } catch (e) {

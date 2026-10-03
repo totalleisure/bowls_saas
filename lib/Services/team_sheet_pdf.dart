@@ -6,6 +6,7 @@ import '../../core/utils/date_format.dart';
 /// Simple DTOs you can build from Supabase rows
 class TeamSheetRink {
   final int rinkNumber;
+  final int playersPerRink;
   final List<String> players;
   final List<String> opponents;
   final String? marker;
@@ -13,6 +14,7 @@ class TeamSheetRink {
 
   TeamSheetRink({
     required this.rinkNumber,
+    required this.playersPerRink,
     required this.players,
     this.opponents = const [],
     this.marker,
@@ -160,7 +162,15 @@ String? _selectionModeLabel(String? mode) {
   }
 }
 
+String _formatLabel(int size) => switch (size) {
+  1 => 'SINGLES',
+  2 => 'PAIRS',
+  3 => 'TRIPLES',
+  _ => 'RINKS',
+};
+
 String _positionLabel(int position, int playersPerRink) {
+  if (playersPerRink == 1) return 'Player';
   if (position == 1) return 'Lead';
   if (position == playersPerRink) return 'Skip';
 
@@ -262,10 +272,10 @@ pw.Widget _fixtureTypeBand(
 
 pw.Widget _rinkBox({
   required TeamSheetRink rink,
-  required int playersPerRink,
   required PdfColor primary,
   required PdfColor accent,
 }) {
+  final playersPerRink = rink.playersPerRink;
   final playerLines = List<String>.from(rink.players);
   while (playerLines.length < playersPerRink) {
     playerLines.add('');
@@ -387,7 +397,7 @@ pw.Widget _rinkBox({
             borderRadius: pw.BorderRadius.circular(8),
           ),
           child: pw.Text(
-            title,
+            '$title - ${_formatLabel(playersPerRink)}',
             style: pw.TextStyle(
               fontSize: 10,
               fontWeight: pw.FontWeight.bold,
@@ -521,6 +531,10 @@ pw.Widget _captainContactsBox(TeamSheetData data, PdfColor primary) {
 
 Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
   final pdf = pw.Document();
+  final formats = data.rinks.map((rink) => rink.playersPerRink).toSet();
+  final formatLabel = formats.length > 1
+      ? 'MIXED FORMATS'
+      : _formatLabel(formats.isEmpty ? data.playersPerRink : formats.single);
 
   final primary = PdfColor.fromInt(data.primaryColor);
   final clubBg = PdfColor.fromInt(data.primaryColor);
@@ -625,11 +639,7 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                             primary,
                           ),
                           _badge(
-                            data.playersPerRink == 2
-                                ? 'PAIRS'
-                                : data.playersPerRink == 3
-                                ? 'TRIPLES'
-                                : 'RINKS',
+                            formatLabel,
                             secondaryWash,
                             primary,
                           ),
@@ -715,7 +725,6 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                       width: 230,
                       child: _rinkBox(
                         rink: leftRink,
-                        playersPerRink: data.playersPerRink,
                         primary: primary,
                         accent: secondaryWash,
                       ),
@@ -727,7 +736,6 @@ Future<Uint8List> buildTeamSheetPdf(TeamSheetData data) async {
                           ? pw.SizedBox()
                           : _rinkBox(
                               rink: rightRink,
-                              playersPerRink: data.playersPerRink,
                               primary: primary,
                               accent: secondaryWash,
                             ),

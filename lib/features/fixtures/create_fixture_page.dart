@@ -15,7 +15,7 @@ import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
 import 'fixture_details_page.dart';
 import 'repeat_fixture_planner_page.dart';
-import 'widgets/venue_picker_header.dart';
+import 'repeat_fixture_setup.dart';
 import '../clubs/club_access.dart';
 
 enum FixtureLocationType { home, away }
@@ -118,6 +118,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   String? _opponentVenueId;
 
   String? _eventVenueId;
+  bool _eventRequestsRsvp = true;
 
   // Club Events reuse the fixture captain fields as organiser roles.
   String? _eventOrganiserMemberProfileId;
@@ -525,10 +526,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         'p_team_name': fixtureLabel?.trim().isEmpty == true
             ? null
             : fixtureLabel?.trim(),
-        // Every non-rink Club Event collects Yes / No / Maybe responses.
-        // Existing rink-based RSVP workflows retain their current behaviour.
-        'p_requires_rsvp':
-            !usesRinks || (!_isTeamFixture && !_isPreselectFixture),
+        'p_requires_rsvp': !usesRinks
+            ? _eventRequestsRsvp
+            : (!_isTeamFixture && !_isPreselectFixture),
         'p_venue_id': venueId,
         'p_opponent_venue_id': opponentVenueId,
         'p_green_area_id': usesRinks && isHome ? greenAreaId : null,
@@ -708,6 +708,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       }
     }
 
+    final repeatSelectionSetup = buildRepeatFixtureSelectionSetup(
+      isPreselect: _isPreselectFixture,
+      rinkCount: _rinksRequired,
+      markerRequiredForTeam: _markerRequiredForTeam,
+      markerRequestedForTeam: (teamNo) => _markerRequestByTeam[teamNo] == true,
+    );
+
     final fixtureId = await _createFixtureWithSetupRpc(
       startAtLocal: startAt,
       endAtLocal: endAt,
@@ -725,10 +732,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       fixtureLabel: fixtureLabel,
       captainMemberProfileId: null,
       viceCaptainMemberProfileId: null,
-      createTeamSelection: false,
+      createTeamSelection: repeatSelectionSetup.createTeamSelection,
       homeRinkLabels: homeRinkLabels,
-      rinkAssignments: const [],
-      teamSelectionMembers: const [],
+      rinkAssignments: repeatSelectionSetup.rinkAssignments,
+      teamSelectionMembers: repeatSelectionSetup.teamSelectionMembers,
     );
 
     final assignedCount = availablePreferredLabels.length.clamp(
@@ -966,11 +973,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   height: MediaQuery.of(context).size.height * 0.75,
                   child: Column(
                     children: [
-                      // Keep the heading on its own line when actions need
-                      // more width than the sheet can give them.
-                      VenuePickerHeader(
-                        title: title,
-                        actions: [
+                      // Heading + action buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+
                           if (canCreateVenue &&
                               creationType == VenueCreationType.external)
                             TextButton.icon(
@@ -1431,6 +1443,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       _hasUnsavedChanges = true;
 
       if (!usesRinks) {
+        _eventRequestsRsvp = !{
+          'open',
+          'opensession',
+          'open_session',
+          'open-session',
+          'no_players',
+        }.contains(selectionModeLower);
         _isHome = true;
         _fixtureLocation = FixtureLocationType.home;
         _workflowType = FixtureWorkflowType.rsvp;
@@ -2186,8 +2205,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   bool get _canUseRepeat {
-    if (_isPreselectFixture) return false;
-
     return _isClubAdmin || _isSelector || _isSuperuser;
   }
 
@@ -3376,7 +3393,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   void _defaultBookerIntoFirstPlayerSlot() {
-    if (_currentMemberId == null) return;
+    // A blank form or non-playing event has no player slots to default.
+    if (_currentMemberId == null ||
+        _selectedFixtureType == null ||
+        !_selectedFixtureUsesRinks ||
+        _rinksRequired == 0)
+      return;
 
     final key = _slotKey(1, 1);
     final currentValue = _playerSelections[key];
@@ -3547,7 +3569,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       for (var playerNo = 1; playerNo <= _playersPerRink; playerNo++) {
         if (!rinkWillBeRemoved && playerNo <= playersPerRink) continue;
         final key = _slotKey(teamNo, playerNo);
-        if ((_playerSelections[key]?.isNotEmpty ?? false) ||
+        final automaticBooker =
+            key == _slotKey(1, 1) &&
+            _bookerAutoPlacedInFirstPlayerSlot &&
+            _playerSelections[key] == _currentMemberId;
+        if ((!automaticBooker &&
+                (_playerSelections[key]?.isNotEmpty ?? false)) ||
             (_opponentSelections[key]?.isNotEmpty ?? false) ||
             (_opponentExternalNames[key]?.trim().isNotEmpty ?? false)) {
           return true;
@@ -3571,6 +3598,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         if (!rinkWillBeRemoved && playerNo <= playersPerRink) continue;
         final key = _slotKey(teamNo, playerNo);
         _playerSelections.remove(key);
+        if (key == _slotKey(1, 1)) _bookerAutoPlacedInFirstPlayerSlot = false;
         _opponentSelections.remove(key);
         _opponentExternalNames.remove(key);
       }
@@ -4083,6 +4111,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           const SizedBox(height: 3),
                           OutlinedButton(
                             onPressed: () async {
+                              if (teamNo == 1 && playerNo == 1) {
+                                _bookerAutoPlacedInFirstPlayerSlot = false;
+                              }
                               await pickFixtureSlotMember(
                                 context: context,
                                 clubId: widget.clubId,
@@ -4816,7 +4847,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                         _selectedFixtureTypeField(),
                         const SizedBox(height: 12),
 
-                        if (_isPreselectFixture && !_isEventStyleFixture) ...[
+                        if (!_isTeamFixture && !_isEventStyleFixture) ...[
                           TextField(
                             controller: _teamNameCtrl,
                             decoration: const InputDecoration(
@@ -4937,11 +4968,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             latestEndAt: widget.initialRinkBooking!.latestEndAt,
                           ),
 
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final narrow = constraints.maxWidth < 500;
-                            final fields = <Widget>[
-                              Column(
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text('Start'),
@@ -4952,7 +4982,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   ),
                                 ],
                               ),
-                              Column(
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text('End'),
@@ -4963,25 +4996,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   ),
                                 ],
                               ),
-                            ];
-                            if (narrow) {
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  fields.first,
-                                  const SizedBox(height: 8),
-                                  fields.last,
-                                ],
-                              );
-                            }
-                            return Row(
-                              children: [
-                                Expanded(child: fields.first),
-                                const SizedBox(width: 12),
-                                Expanded(child: fields.last),
-                              ],
-                            );
-                          },
+                            ),
+                          ],
                         ),
 
                         const SizedBox(height: 12),
@@ -5046,6 +5062,20 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           const SizedBox(height: 12),
 
                           _buildEventOrganisersSection(),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Request RSVPs'),
+                            subtitle: Text(
+                              _eventRequestsRsvp
+                                  ? 'Ask members for Yes, No or Maybe responses so organisers can plan numbers.'
+                                  : 'Open attendance. Members do not need to respond.',
+                            ),
+                            value: _eventRequestsRsvp,
+                            onChanged: (value) {
+                              setState(() => _eventRequestsRsvp = value);
+                              _markDirty();
+                            },
+                          ),
                           const SizedBox(height: 12),
 
                           TextFormField(
@@ -5112,21 +5142,6 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           ],
 
                           const SizedBox(height: 8),
-                        ],
-
-                        if (!_isTeamFixture &&
-                            !_isPreselectFixture &&
-                            !_simpleBookingMode &&
-                            !_isEventStyleFixture) ...[
-                          TextField(
-                            controller: _teamNameCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Fixture label (optional)',
-                              hintText: 'e.g. Mid-week National Team Selection',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
                         ],
 
                         if (!_isEventStyleFixture &&

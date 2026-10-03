@@ -1,0 +1,30 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {buildReminderHtml, correlate, responseTokenHash} from './written_reply.ts';
+import {parseResponse} from './response_parser.ts';
+import {processWrittenReply} from './handler.ts';
+const mailbox='bowls-staging@totalleisure.com';
+const code='BWL-123456ABCDEF',token='RSP-'+'B'.repeat(48);
+const html=buildReminderHtml(mailbox,code,token,2);
+for (const [i,command] of ['ACCEPT','DECLINE'].entries()) test(command+' reminder button opens valid unchanged response',()=>{
+ const href=[...html.matchAll(/href="([^"]+)"/g)][i][1].replaceAll('&amp;','&');
+ const url=new URL(href);
+ assert.equal(url.protocol,'mailto:');assert.equal(url.pathname,mailbox);
+ assert.deepEqual(parseResponse({subject:url.searchParams.get('subject')!,bodyText:url.searchParams.get('body')!}),{kind:'match',command,responseCode:code,responseToken:token});
+});
+test('friendly HTML has green/red buttons and send-unchanged instruction',()=>{assert(html.includes('#18794e'));assert(html.includes('#b3261e'));assert(html.includes('send it without changing'));assert(!/fail(?:ed|ure)/i.test(html));});
+test('plain fallback contains the same original credential',()=>{assert(html.includes('ACCEPT '+code+' '+token));assert(html.includes('DECLINE '+code+' '+token));});
+test('quoted reminder commands never authorize a response',()=>assert.equal(parseResponse({bodyText:'Thank you\n> ACCEPT '+code+' '+token}),null));
+test('quoted-only reminder never authorizes a response',()=>assert.equal(parseResponse({bodyText:'> ACCEPT '+code+' '+token}),null));
+test('legacy renderer keeps code-only protocol',()=>{const legacy=buildReminderHtml(mailbox,code,null,1);assert(!legacy.includes('RSP-'));assert(legacy.includes('ACCEPT '+code));});
+for(const [name,c,t,p] of [['missing v2 token',code,null,2],['malformed token',code,'RSP-bad',2],['bad code','invalid',token,2],['unsupported protocol',code,token,3],['unexpected legacy token',code,token,1]] as const) test('reject '+name,()=>assert.throws(()=>buildReminderHtml(mailbox,c,t,p)));
+const original={internetMessageId:'<original@test>',subject:'Selection',sentDateTime:'2026-10-01T11:00:00Z',from:{emailAddress:{address:mailbox}},toRecipients:[{emailAddress:{address:'member@example.test'}}],body:{content:'ACCEPT DECLINE '+code+' '+token}};
+const message={id:'graph',internetMessageId:'<reply@test>',subject:'Re: Selection',receivedDateTime:'2026-10-01T12:00:00Z',from:{emailAddress:{address:'member@example.test'}},body:{content:'Thanks'},internetMessageHeaders:[{name:'In-Reply-To',value:'<original@test>'}]};
+test('extracts only the original sent credential',()=>assert.equal(correlate({...message,body:{content:'Thanks RSP-'+'C'.repeat(48)}},original,mailbox)?.responseToken,token));
+test('conflicting original tokens bypass reminders',()=>assert.equal(correlate(message,{...original,body:{content:original.body.content+' RSP-'+'C'.repeat(48)}},mailbox),null));
+for(const status of ['no_current_request','selection_not_pending','invalid_response_credentials','duplicate']) test('no actionable email for '+status,async()=>{
+ let sends=0;
+ const db={rpc:async(_name:string,args:any)=>{assert.equal(args.p_response_token_hash,await responseTokenHash(token));return {data:{status}}}};
+ const fetchMock=async(_url:any,opts:any)=>{if(opts?.method==='POST'){sends++;throw new Error('Must not send');}return new Response(JSON.stringify({value:[original]}));};
+ await processWrittenReply(message,mailbox,'graph-test',db,fetchMock as typeof fetch);assert.equal(sends,0);
+});

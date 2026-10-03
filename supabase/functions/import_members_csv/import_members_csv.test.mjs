@@ -23,9 +23,10 @@ function setup({ role = 'admin', active = true, callerClub = club, superuser = f
     member_profiles: [{ id: 'caller-profile', user_id: 'caller', display_name: 'Caller' }],
     club_memberships: [{ id: 'caller-membership', club_id: callerClub, member_profile_id: 'caller-profile', role, is_active: active }],
   };
-  const calls = { downloads: 0, lists: 0, creations: 0, writes: 0, auth: 0 };
+  const calls = { downloads: 0, lists: 0, creations: 0, writes: 0, auth: 0, audits: [] };
   let text = '', handler, nextId = 1;
   const admin = {
+    rpc: async (name, args) => { assert.equal(name, 'audit_member_import'); calls.audits.push(args); return { data: 'audit-run' }; },
     auth: {
       getUser: async token => { calls.auth++; return validToken && token === 'valid-token' ? { data: { user: { id: 'caller', user_metadata: { role: 'admin' } } } } : { data: { user: null }, error: new Error('Invalid token') }; },
       admin: {
@@ -278,3 +279,11 @@ test('re-import preserves a populated sex-at-birth value for blank or conflictin
     assert.equal(profile.gender, 'female');
   }
 });
+
+ test('import audit records verified caller, counts and no passwords', async () => {
+  const app = setup(); await app.run(csv(row(1)));
+  assert.equal(app.calls.audits.length, 2);
+  assert.equal(app.calls.audits[0].p_actor, 'caller');
+  assert.equal(app.calls.audits[1].p_summary.created, 1);
+  assert.ok(!JSON.stringify(app.calls.audits).includes('test-pass-123'));
+ });

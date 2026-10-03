@@ -1,3 +1,5 @@
+import '../communications/club_options_button.dart';
+import 'diary_view_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -264,6 +266,12 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 44,
+        bottom: DiaryViewBar(
+          selected: DiaryView.day,
+          clubId: widget.clubId,
+          clubName: widget.clubName,
+          date: _date,
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
@@ -290,6 +298,7 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: _load,
           ),
+          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
         ],
       ),
 

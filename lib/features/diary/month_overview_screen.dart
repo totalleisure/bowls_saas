@@ -1,3 +1,5 @@
+import '../communications/club_options_button.dart';
+import 'diary_view_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -239,12 +241,25 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Monthly Diary'),
+          actions: [
+            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+          ],
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (_loadError != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Monthly Overview')),
+        appBar: AppBar(
+          title: const Text('Monthly Diary'),
+          actions: [
+            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+          ],
+        ),
         body: Padding(
           padding: const EdgeInsets.all(16),
           child: Text(_loadError!),
@@ -255,6 +270,15 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 44,
+        actions: [
+          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+        ],
+        bottom: DiaryViewBar(
+          selected: DiaryView.month,
+          clubId: widget.clubId,
+          clubName: widget.clubName,
+          date: _selectedDate,
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),

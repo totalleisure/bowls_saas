@@ -38,6 +38,33 @@ String formatWhenLocal(String isoUtc) {
   ).format(dt).replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.');
 }
 
+/// Formats the time at which a journal action occurred in natural UK wording.
+String formatAuditTimestamp(String isoUtc) {
+  final dt = parseClubTime(isoUtc);
+
+  return DateFormat(
+    "EEEE d MMMM yyyy 'at' h:mm a",
+  ).format(dt).replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.');
+}
+
+/// Replaces a raw Postgres timestamp at the end of an audit record label.
+String formatAuditRecordLabel(String label) {
+  final timestamp = RegExp(
+    r'(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?))$',
+  ).firstMatch(label);
+  if (timestamp == null) return label;
+
+  try {
+    return label.replaceRange(
+      timestamp.start,
+      timestamp.end,
+      formatAuditTimestamp(timestamp.group(1)!),
+    );
+  } on FormatException {
+    return label;
+  }
+}
+
 DateTime clubTimeToUtc(DateTime clubTime) {
   final year = clubTime.year;
 
