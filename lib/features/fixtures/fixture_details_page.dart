@@ -267,6 +267,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return _canWrite &&
         !isCancelled &&
         (_canEditAdminFixtureDetails ||
+            _ownsFixture ||
             _isFixtureCaptain ||
             _isFixtureViceCaptain);
   }
@@ -548,9 +549,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return _canWrite &&
         !isCancelled &&
         (_canEditAdminFixtureDetails ||
+            _ownsFixture ||
             _isFixtureCaptain ||
             _isFixtureViceCaptain);
   }
+
+  bool get _ownsFixture =>
+      _client.auth.currentUser != null &&
+      _fixture?['created_by_user_id'] == _client.auth.currentUser!.id;
 
   bool get _canRescheduleFixture {
     final isCancelled = _fixture?['cancelled_at'] != null;
@@ -559,7 +565,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return _canWrite &&
         isCancelled &&
         (replacementId == null || replacementId.isEmpty) &&
-        (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper);
+        (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper || _ownsFixture);
   }
 
   bool get _canCancelAndRescheduleFixture {
@@ -567,7 +573,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     return _canWrite &&
         !isCancelled &&
-        (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper);
+        (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper || _ownsFixture);
   }
 
   void _handleRinkTap(Map<String, dynamic> rink) {
@@ -2456,9 +2462,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     });
 
     try {
-      await _fixturesRepository.updateFixtureStartAt(
-        fixtureId: widget.fixtureId,
-        startAtUtc: clubTimeToUtc(newLocal),
+      await _changeFixtureTime(
+        newLocal,
+        newLocal.add(
+          (_endAtLocal ?? currentLocal.add(const Duration(hours: 2)))
+              .difference(currentLocal),
+        ),
       );
 
       _didChangeFixture = true;
@@ -3363,26 +3372,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     if (confirmed != true || !mounted) return;
 
     try {
-      await Supabase.instance.client
-          .from('fixtures')
-          .update({
-            'start_at': clubTimeToUtc(newStart).toIso8601String(),
-            'end_at': clubTimeToUtc(newEnd).toIso8601String(),
-          })
-          .eq('id', widget.fixtureId);
-
-      await Supabase.instance.client.rpc(
-        'queue_fixture_moved_notifications',
-        params: {
-          'p_fixture_id': widget.fixtureId,
-          'p_old_start_at': clubTimeToUtc(startLocal).toIso8601String(),
-          'p_old_end_at': clubTimeToUtc(endLocal).toIso8601String(),
-        },
-      );
-
-      if (!_isEventStyleFixture) {
-        await _clearPhysicalRinkAssignments();
-      }
+      await _changeFixtureTime(newStart, newEnd);
 
       _didChangeFixture = true;
 
@@ -3614,14 +3604,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     if (confirmed != true || !mounted) return;
 
     try {
-      await _fixturesRepository.updateFixtureEndAt(
-        fixtureId: widget.fixtureId,
-        endAtUtc: clubTimeToUtc(newEnd),
-      );
-
-      if (!_isEventStyleFixture) {
-        await _clearPhysicalRinkAssignments();
-      }
+      await _changeFixtureTime(startLocal, newEnd);
 
       _didChangeFixture = true;
 
@@ -3661,11 +3644,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
-  Future<void> _clearPhysicalRinkAssignments() async {
-    await Supabase.instance.client
-        .from('fixture_rinks')
-        .update({'home_rink_label': null})
-        .eq('fixture_id', widget.fixtureId);
+  Future<void> _changeFixtureTime(DateTime start, DateTime end) async {
+    await _client.rpc(
+      'change_fixture_time_safe',
+      params: {
+        'p_fixture_id': widget.fixtureId,
+        'p_new_start_at': clubTimeToUtc(start).toIso8601String(),
+        'p_new_end_at': clubTimeToUtc(end).toIso8601String(),
+        'p_expected_start_at': _fixture!['start_at'],
+        'p_expected_end_at': _fixture!['end_at'],
+      },
+    );
   }
 
   Widget _rsvpChoiceButton(String status, String label) {
@@ -5425,7 +5414,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _confirmAndCancelFixture() async {
     final reasonController = TextEditingController();
-    final reasonKey = GlobalKey<FormFieldState<String>>();
 
     final choice = await showDialog<_CancelFixtureChoice>(
       context: context,
@@ -5453,14 +5441,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
-                  key: reasonKey,
-                  validator: (v) => (v ?? '').trim().length < 5
-                      ? 'Please give a reason (at least five characters)'
-                      : null,
                   controller: reasonController,
                   maxLines: 3,
                   decoration: const InputDecoration(
-                    labelText: 'Reason (required)',
+                    labelText: 'Reason (optional)',
                     hintText:
                         'Why is the fixture being cancelled or rescheduled?',
                     border: OutlineInputBorder(),
@@ -5482,8 +5466,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 foregroundColor: Theme.of(dialogContext).colorScheme.error,
               ),
               onPressed: () {
-                if (reasonKey.currentState?.validate() == true)
-                  Navigator.pop(dialogContext, _CancelFixtureChoice.cancel);
+                Navigator.pop(dialogContext, _CancelFixtureChoice.cancel);
               },
               icon: const Icon(Icons.cancel_outlined),
               label: const Text('Cancel fixture'),
@@ -5491,11 +5474,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             FilledButton.icon(
               onPressed: _canCancelAndRescheduleFixture
                   ? () {
-                      if (reasonKey.currentState?.validate() == true)
-                        Navigator.pop(
-                          dialogContext,
-                          _CancelFixtureChoice.reschedule,
-                        );
+                      Navigator.pop(
+                        dialogContext,
+                        _CancelFixtureChoice.reschedule,
+                      );
                     }
                   : null,
               icon: const Icon(Icons.event_repeat),

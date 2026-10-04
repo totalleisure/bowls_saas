@@ -34,6 +34,7 @@ Future<void> showMemberOptionsMenu({
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (sheetContext) {
       final theme = Theme.of(sheetContext);
       final dark = theme.brightness == Brightness.dark;
@@ -50,12 +51,7 @@ Future<void> showMemberOptionsMenu({
         MemberOptionsAction.guide => Colors.purple,
         MemberOptionsAction.admin => Colors.deepOrange,
       };
-      Widget item(
-        MemberOptionsAction action,
-        IconData icon,
-        String title, [
-        String? subtitle,
-      ]) {
+      Widget item(MemberOptionsAction action, IconData icon, String title) {
         final colour = palette(action);
         final accent = dark ? colour.shade200 : colour.shade800;
         final background = Color.alphaBlend(
@@ -63,30 +59,32 @@ Future<void> showMemberOptionsMenu({
           theme.colorScheme.surface,
         );
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           child: Material(
             color: background,
             borderRadius: BorderRadius.circular(12),
             clipBehavior: Clip.antiAlias,
             child: ListTile(
+              minTileHeight: 48,
+              minVerticalPadding: 4,
+              horizontalTitleGap: 12,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
-                vertical: 2,
+                vertical: 0,
               ),
               leading: Container(
-                width: 38,
-                height: 38,
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                   color: colour.withValues(alpha: dark ? .22 : .13),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: accent, size: 23),
+                child: Icon(icon, color: accent, size: 21),
               ),
               title: Text(
                 title,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              subtitle: subtitle == null ? null : Text(subtitle),
               trailing: Icon(Icons.chevron_right, color: accent, size: 20),
               onTap: () => Navigator.of(sheetContext).pop(action),
             ),
@@ -97,13 +95,14 @@ Future<void> showMemberOptionsMenu({
       return SafeArea(
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(sheetContext).height * .8,
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * .85,
           ),
           child: ListView(
             shrinkWrap: true,
+            padding: const EdgeInsets.only(bottom: 8),
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
                 child: Row(
                   children: [
                     Icon(
@@ -143,27 +142,23 @@ Future<void> showMemberOptionsMenu({
                 MemberOptionsAction.startingScreen,
                 Icons.home_outlined,
                 'Starting screen',
-                'Choose which view opens when you enter this club',
               ),
-              const Divider(height: 12, indent: 16, endIndent: 16),
+              const Divider(height: 8, indent: 16, endIndent: 16),
               item(
                 MemberOptionsAction.membershipDetails,
                 Icons.badge_outlined,
                 'Membership Details',
-                'View and update your personal membership information',
               ),
               item(
                 MemberOptionsAction.accountSecurity,
                 Icons.security_outlined,
                 'Account and Security',
-                'Change your login email or request a password reset',
               ),
               if (allowVolunteerLists)
                 item(
                   MemberOptionsAction.volunteerLists,
                   Icons.groups_outlined,
                   'Volunteer Lists',
-                  'Join or leave club mailing and volunteer lists',
                 ),
               if (allowVolunteerLists)
                 item(

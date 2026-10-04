@@ -1949,7 +1949,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       ),
       appBar: AppBar(
         title: Text(widget.clubName),
-        actions: [
+        actions: _dashboardAppBarActions(context, [
           IconButton(
             tooltip: 'User Guide',
             icon: const Icon(Icons.fiber_manual_record_outlined),
@@ -2071,7 +2071,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             tooltip: 'Options',
             onPressed: _openMemberOptions,
           ),
-        ],
+        ]),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -2365,4 +2365,32 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             ),
     );
   }
+}
+
+List<Widget> _dashboardAppBarActions(
+  BuildContext context,
+  List<IconButton> actions,
+) {
+  if (MediaQuery.sizeOf(context).width >= 600) return actions;
+  return [
+    actions.first,
+    PopupMenuButton<VoidCallback>(
+      tooltip: 'More dashboard actions',
+      icon: const Icon(Icons.more_vert),
+      onSelected: (action) => action(),
+      itemBuilder: (context) => [
+        for (final action in actions.skip(1))
+          PopupMenuItem<VoidCallback>(
+            value: action.onPressed!,
+            child: Row(
+              children: [
+                action.icon,
+                const SizedBox(width: 12),
+                Flexible(child: Text(action.tooltip ?? 'Action')),
+              ],
+            ),
+          ),
+      ],
+    ),
+  ];
 }

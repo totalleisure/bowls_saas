@@ -15,6 +15,7 @@ import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
 import 'fixture_details_page.dart';
 import 'repeat_fixture_planner_page.dart';
+import 'widgets/venue_picker_header.dart';
 import 'repeat_fixture_setup.dart';
 import '../clubs/club_access.dart';
 
@@ -973,16 +974,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   height: MediaQuery.of(context).size.height * 0.75,
                   child: Column(
                     children: [
-                      // Heading + action buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              title,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                          ),
-
+                      // Keep heading and actions usable on narrow screens.
+                      VenuePickerHeader(
+                        title: title,
+                        actions: [
                           if (canCreateVenue &&
                               creationType == VenueCreationType.external)
                             TextButton.icon(
@@ -4968,10 +4963,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             latestEndAt: widget.initialRinkBooking!.latestEndAt,
                           ),
 
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final narrow = constraints.maxWidth < 500;
+                            final fields = <Widget>[
+                              Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text('Start'),
@@ -4982,10 +4978,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
+                              Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text('End'),
@@ -4996,8 +4989,25 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   ),
                                 ],
                               ),
-                            ),
-                          ],
+                            ];
+                            if (narrow) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  fields.first,
+                                  const SizedBox(height: 8),
+                                  fields.last,
+                                ],
+                              );
+                            }
+                            return Row(
+                              children: [
+                                Expanded(child: fields.first),
+                                const SizedBox(width: 12),
+                                Expanded(child: fields.last),
+                              ],
+                            );
+                          },
                         ),
 
                         const SizedBox(height: 12),

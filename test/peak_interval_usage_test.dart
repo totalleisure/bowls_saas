@@ -18,6 +18,12 @@ void main() {
       expect(peakIntervalUsage(bookings, at(10), at(13)), 5);
     },
   );
+  test('member booking spanning successive sessions peaks at six', () {
+    final withMember = [...bookings, (start: at(9, 30), end: at(12, 30))];
+    expect(peakIntervalUsage(withMember, at(9, 30), at(12, 30)), 6);
+    expect(peakIntervalUsage(withMember, at(11), at(12)), 6);
+    expect(peakIntervalUsage(withMember, at(13), at(14)), 6);
+  });
   test('genuine overlaps are counted without clamping to rink count', () {
     expect(
       peakIntervalUsage(
