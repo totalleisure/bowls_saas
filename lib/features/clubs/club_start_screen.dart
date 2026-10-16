@@ -64,11 +64,13 @@ Widget clubStartPage(
       clubId: clubId,
       clubName: clubName,
       initialDate: today,
+      showNextMatchOnOpen: true,
     ),
     ClubStartView.list => DiaryListScreen(
       clubId: clubId,
       clubName: clubName,
       initialDate: today,
+      showNextMatchOnOpen: true,
     ),
   };
 }

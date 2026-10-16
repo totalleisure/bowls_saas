@@ -178,6 +178,8 @@ class TeamSheetBuilderService implements TeamSheetDataSource {
       rinksRequired: sheetRinks.length,
       playersPerRink: playersPerRink,
       dress: dress.isEmpty ? 'Open dress' : dress,
+      matchFeePence: fixture['match_fee_pence'] == null
+          ? null : intValue(fixture['match_fee_pence']),
       notes: fixture['notes']?.toString(),
       captainName: profileName(captain),
       captainEmail: captain['email_address']?.toString().trim() ?? '',
@@ -196,6 +198,7 @@ class TeamSheetBuilderService implements TeamSheetDataSource {
       isInternal: isInternal,
       selectionMode: selectionMode,
       compositionVersion: compositionVersion,
+      selectionStatus: selection['status']?.toString() ?? 'draft',
     );
 
     return TeamSheetBuildResult(

@@ -1,3 +1,4 @@
+import 'password_recovery_progress.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,6 +13,17 @@ class ForgotPasswordScreen extends StatefulWidget {
 }
 
 enum _RecoveryStep { requestCode, verifyCode, choosePassword }
+
+String recoveryRateLimitMessage(String code) {
+  if (code == 'over_email_send_rate_limit') {
+    return 'The email service has reached its hourly sending limit. '
+        'Please try again later; it may take up to an hour for capacity to become available.';
+  }
+  if (code == 'over_request_rate_limit') {
+    return 'A code was requested too recently. Please wait at least a minute before trying again.';
+  }
+  return 'Too many requests have been made. Please wait and try again later.';
+}
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   late final TextEditingController _email;
@@ -28,6 +40,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   void initState() {
     super.initState();
     _email = TextEditingController(text: widget.initialEmail.trim());
+    _restoreProgress();
+  }
+
+  Future<void> _restoreProgress() async {
+    final progress = await PasswordRecoveryProgress.read();
+    if (!mounted || progress == null || _working) return;
+    setState(() {
+      _requestedEmail = progress['email'] as String;
+      _email.text = _requestedEmail;
+      _step = _RecoveryStep.verifyCode;
+    });
   }
 
   @override
@@ -63,9 +86,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           'Please check your internet connection and try again.';
     }
 
+    final code = error is AuthException ? error.code : null;
+    if (code == 'over_email_send_rate_limit' ||
+        text.contains('over_email_send_rate_limit') ||
+        text.contains('email rate limit exceeded')) {
+      return recoveryRateLimitMessage('over_email_send_rate_limit');
+    }
+    if (code == 'over_request_rate_limit' ||
+        text.contains('over_request_rate_limit')) {
+      return recoveryRateLimitMessage('over_request_rate_limit');
+    }
     if (text.contains('rate limit') ||
-        text.contains('over_email_send_rate_limit')) {
-      return 'A code was requested too recently. Please wait a minute and try again.';
+        (error is AuthException && error.statusCode == '429')) {
+      return recoveryRateLimitMessage('unknown');
     }
 
     if (text.contains('expired') ||
@@ -93,6 +126,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       // No redirect URL is supplied. The recovery email contains a numeric
       // code, so there is no browser, deep-link or email-scanner dependency.
       await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      await PasswordRecoveryProgress.save(email);
 
       if (!mounted) return;
 
@@ -130,6 +164,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => _working = true);
 
     try {
+      // OTP verification emits an auth event before this future completes.
+      // Mark the flow first so that event cannot skip password choice.
+      await PasswordRecoveryProgress.save(_requestedEmail, verified: true);
       final response = await Supabase.instance.client.auth.verifyOTP(
         email: _requestedEmail,
         token: code,
@@ -181,6 +218,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
       if (!mounted) return;
 
+      await PasswordRecoveryProgress.clear();
+      if (!mounted) return;
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -217,6 +256,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   void _startAgain() {
+    PasswordRecoveryProgress.clear();
     setState(() {
       _step = _RecoveryStep.requestCode;
       _requestedEmail = '';
@@ -422,18 +462,26 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         break;
     }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Reset password')),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: contents,
+    return PopScope(
+      canPop: !_working,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) PasswordRecoveryProgress.clear();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Reset password · Step ${_step.index + 1} of 3'),
+        ),
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: contents,
+                  ),
                 ),
               ),
             ),

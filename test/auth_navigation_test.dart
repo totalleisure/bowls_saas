@@ -2,18 +2,21 @@ import 'dart:async';
 
 import 'package:bowls_saas/features/auth/app_entry_access_service.dart';
 import 'package:bowls_saas/features/auth/auth_gate.dart';
+import 'package:bowls_saas/features/auth/password_recovery_progress.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
 
 const allowed = AppEntryAccess(isSuperuser: false, hasActiveMembership: true);
 const denied = AppEntryAccess(isSuperuser: false, hasActiveMembership: false);
 
-Session session({String user = 'member-a', int seconds = 3600}) => Session(
+Session session({String user = 'member-a', int seconds = 3600, String? email}) => Session(
   accessToken: 'test-token',
   tokenType: 'bearer',
   user: User(
     id: user,
+    email: email,
     appMetadata: const {},
     userMetadata: const {},
     aud: 'authenticated',
@@ -22,6 +25,7 @@ Session session({String user = 'member-a', int seconds = 3600}) => Session(
 )..expiresAt = DateTime.now().millisecondsSinceEpoch ~/ 1000 + seconds;
 
 class Harness {
+  Future<String?> Function()? readRecoveryEmail;
   Session? current;
   final changes = StreamController<AuthState>.broadcast();
   Future<AppEntryAccess> Function() load = () async => allowed;
@@ -33,6 +37,7 @@ class Harness {
 
   Widget build() => AuthNavigationHost(
     readSession: () => current,
+    readRecoveryEmail: readRecoveryEmail,
     authChanges: changes.stream,
     loadAccess: () => load(),
     onSignOut: () async => emit(AuthChangeEvent.signedOut, null),
@@ -97,8 +102,41 @@ class _Home extends StatelessWidget {
 
 void main() {
   late Harness h;
-  setUp(() => h = Harness());
+  setUp(() {
+    h = Harness();
+    PasswordRecoveryProgress.verifyingEmail = null;
+  });
   tearDown(() => h.changes.close());
+
+  testWidgets('restart after verifying code restores password choice, not member home', (t) async {
+    h.current = session(email: 'member@example.invalid');
+    h.readRecoveryEmail = () async => 'member@example.invalid';
+    await t.pumpWidget(h.build());
+    await t.pumpAndSettle();
+    expect(find.text('Recovery only'), findsOneWidget);
+    expect(find.text('Member home'), findsNothing);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('pending recovery never switches a different account into recovery', (t) async {
+    h.current = session(email: 'different@example.invalid');
+    h.readRecoveryEmail = () async => 'member@example.invalid';
+    await t.pumpWidget(h.build());
+    await t.pumpAndSettle();
+    expect(find.text('Member home'), findsOneWidget);
+    expect(find.text('Recovery only'), findsNothing);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('OTP signed-in event cannot bypass new password choice', (t) async {
+    await t.pumpWidget(h.build());
+    PasswordRecoveryProgress.verifyingEmail = 'member@example.invalid';
+    h.emit(AuthChangeEvent.signedIn, session(email: 'member@example.invalid'));
+    await t.pumpAndSettle();
+    expect(find.text('Recovery only'), findsOneWidget);
+    expect(find.text('Member home'), findsNothing);
+    await t.pumpWidget(const SizedBox());
+  });
 
   testWidgets('public and recovery forms survive returning from email', (
     t,
@@ -223,6 +261,28 @@ void main() {
     await t.pumpWidget(const SizedBox());
   });
 
+  testWidgets('network membership check explains connection and retries without sign-out', (t) async {
+    h.current = session();
+    h.load = () async => throw http.ClientException('Failed host lookup');
+    await t.pumpWidget(h.build());
+    await t.pumpAndSettle();
+    expect(find.text('Unable to connect'), findsOneWidget);
+    expect(find.textContaining('Check your Wi-Fi or mobile data'), findsOneWidget);
+    expect(find.byIcon(Icons.wifi_off_rounded), findsOneWidget);
+    expect(find.text('Member home'), findsNothing);
+    h.load = () async => allowed;
+    await t.tap(find.text('Try again'));
+    await t.pumpAndSettle();
+    expect(find.text('Member home'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  test('network classification leaves ordinary membership/server errors distinct', () {
+    expect(membershipConnectionFailed(TimeoutException('timeout')), isTrue);
+    expect(membershipConnectionFailed(Exception('SocketException: Network is unreachable')), isTrue);
+    expect(membershipConnectionFailed(const PostgrestException(message:'permission denied',code:'42501')), isFalse);
+  });
+
   testWidgets('membership failures fail closed and allow sign-out', (t) async {
     h.current = session();
     h.load = () async => throw StateError('offline');
@@ -307,6 +367,54 @@ void main() {
       await t.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('network retries restore the route, dialog and unsaved edits', (t) async {
+    h.current = session();
+    await t.pumpWidget(h.build());
+    await t.pumpAndSettle();
+    await t.tap(find.text('Open fixture'));
+    await t.pumpAndSettle();
+    await t.enterText(find.byKey(const ValueKey('fixture-edit')), 'unsaved edit');
+    await t.tap(find.text('Open dialog'));
+    await t.pumpAndSettle();
+    h.load = () async => throw http.ClientException('Failed host lookup');
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pumpAndSettle();
+    expect(find.text('Unable to connect'), findsOneWidget);
+    expect(find.text('Private dialog'), findsNothing);
+    expect(find.text('unsaved edit', skipOffstage: false), findsOneWidget);
+    await t.tap(find.text('Try again'));
+    await t.pumpAndSettle();
+    expect(find.text('Unable to connect'), findsOneWidget);
+    h.load = () async => allowed;
+    await t.tap(find.text('Try again'));
+    await t.pumpAndSettle();
+    expect(find.text('Private dialog'), findsOneWidget);
+    await t.tapAt(const Offset(5, 5));
+    await t.pumpAndSettle();
+    expect(find.text('Private fixture'), findsOneWidget);
+    expect(find.text('unsaved edit'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('denial after a network failure clears retained edits', (t) async {
+    h.current = session();
+    await t.pumpWidget(h.build());
+    await t.pumpAndSettle();
+    await t.tap(find.text('Open fixture'));
+    await t.pumpAndSettle();
+    h.load = () async => throw TimeoutException('offline');
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await t.pumpAndSettle();
+    h.load = () async => denied;
+    await t.tap(find.text('Try again'));
+    await t.pumpAndSettle();
+    expect(find.text('Membership inactive'), findsOneWidget);
+    expect(find.text('Private fixture', skipOffstage: false), findsNothing);
+    await t.pumpWidget(const SizedBox());
+  });
 
   testWidgets('failed resume check removes routes and retry starts fresh', (
     t,

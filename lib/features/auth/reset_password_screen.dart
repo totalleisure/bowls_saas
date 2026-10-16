@@ -1,3 +1,4 @@
+import 'password_recovery_progress.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -51,6 +52,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         UserAttributes(password: password),
       );
 
+      await PasswordRecoveryProgress.clear();
       if (!mounted) return;
 
       await showDialog<void>(

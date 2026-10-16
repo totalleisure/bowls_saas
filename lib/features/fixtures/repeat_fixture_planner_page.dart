@@ -22,9 +22,12 @@ class RepeatFixturePlannerPage extends StatefulWidget {
     required this.startDateTime,
     required this.requiresOpponent,
     required this.opponentVenues,
+    this.excludedDate,
   });
 
   final DateTime startDateTime;
+  /// Existing fixture date; absent when planning a brand-new series.
+  final DateTime? excludedDate;
   final bool requiresOpponent;
   final List<Map<String, dynamic>> opponentVenues;
 
@@ -49,10 +52,14 @@ class _RepeatFixturePlannerPageState extends State<RepeatFixturePlannerPage> {
 
   int get _enabledCount => _allDates.where((d) => d.enabled).length;
 
+  bool _dateAllowed(DateTime date) => widget.excludedDate == null ||
+      !DateUtils.isSameDay(date, widget.excludedDate);
+
   List<RepeatFixtureDate> get _allDates {
     final byKey = <String, RepeatFixtureDate>{};
 
     for (final d in [..._dates, ..._manualDates]) {
+      if (!_dateAllowed(d.date)) continue;
       byKey[_dateKey(d.date)] = d;
     }
 
@@ -83,7 +90,7 @@ class _RepeatFixturePlannerPageState extends State<RepeatFixturePlannerPage> {
 
     var cursor = _fromDate!;
     while (!cursor.isAfter(_toDate!)) {
-      if (_weekdays.contains(cursor.weekday)) {
+      if (_weekdays.contains(cursor.weekday) && _dateAllowed(cursor)) {
         result.add(RepeatFixtureDate(date: cursor));
       }
       cursor = cursor.add(const Duration(days: 1));
@@ -156,9 +163,12 @@ class _RepeatFixturePlannerPageState extends State<RepeatFixturePlannerPage> {
   Future<void> _pickSingleDateToAdd() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _fromDate ?? widget.startDateTime,
+      initialDate: _dateAllowed(_fromDate ?? widget.startDateTime)
+          ? (_fromDate ?? widget.startDateTime)
+          : DateUtils.addDaysToDate(widget.startDateTime, 1),
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
+      selectableDayPredicate: _dateAllowed,
     );
 
     if (picked == null) return;

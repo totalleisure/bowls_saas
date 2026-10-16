@@ -25,6 +25,7 @@ class _RefreshFailureSource implements TeamSheetDataSource {
         rinks: [
           TeamSheetRink(
             rinkNumber: 1,
+            playersPerRink: 2,
             players: const ['Player One', 'Player Two'],
           ),
         ],

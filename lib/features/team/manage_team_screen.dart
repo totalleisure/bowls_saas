@@ -85,7 +85,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   bool get effectiveReadOnly => widget.readOnly || !_canEditSelection || _confirmingTeamChanges;
 
   bool get _canModifySelection => !widget.readOnly && _canEditSelection && !_confirmingTeamChanges;
-  bool get _canSendReminders => !widget.readOnly && _canEditSelection && !_confirmingTeamChanges;
+  bool get _canSendReminders => !widget.readOnly && _canEditSelection &&
+      _status == 'published' && !_hasStagedChanges && !_confirmingTeamChanges;
   bool get _canPublishTeam => !widget.readOnly && _canPublish && !_hasStagedChanges && !_confirmingTeamChanges;
   bool get _canForceAcceptSelection => !widget.readOnly && _canForceAccept && !_hasStagedChanges && !_confirmingTeamChanges;
   bool get _usesPublishedCompositionStaging =>
@@ -1163,6 +1164,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .maybeSingle();
 
       if (existing == null) {
+        // Viewing a new fixture must never create its draft selection.
+        if (effectiveReadOnly) {
+          setState(() {
+            _selectionId = null;
+            _status = 'draft';
+            _pool = [];
+            _selected = [];
+            _loading = false;
+          });
+          return;
+        }
         final created = await client
             .from('team_selections')
             .insert({'fixture_id': fixtureId})
@@ -1198,7 +1210,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             .select(
               'member_profile_id, member_profiles(id, display_name, first_name, last_name, phone, preferred_position)',
             )
-            .eq('team_id', teamId!) // 👈 THIS
+            .eq('team_id', teamId!)
             .eq('is_active', true);
 
         candidates = List<Map<String, dynamic>>.from(rows);
@@ -1322,7 +1334,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .from('team_selection_members')
           .select(
             'member_profile_id, role, acceptance, responded_at, acceptance_by, is_selected, '
-            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, first_name, last_name, phone, preferred_position), '
+            'member_profiles!team_selection_members_member_profile_id_fkey(display_name, first_name, last_name, phone, preferred_position, is_captain_managed), '
             'accepted_by_profile:member_profiles!team_selection_members_acceptance_by_fkey(display_name)',
           )
           .eq('team_selection_id', _selectionId!)
@@ -1719,7 +1731,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Failed to add players: $e')));
+      ).showSnackBar(SnackBar(content: Text(e is PostgrestException
+          ? e.message : 'Could not add players. Please refresh and try again.')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1768,29 +1781,43 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         inserted.add({'member_profile_id': id});
       }
     } else {
-      final payload = selectedIds
-          .map(
-            (id) => {
-              'fixture_id': fixtureId,
-              'member_profile_id': id,
-              'status': 'maybe',
-            },
-          )
-          .toList();
-
-      inserted = List<Map<String, dynamic>>.from(
-        await _client
-            .from('fixture_rsvps')
-            .insert(payload)
-            .select('id, fixture_id, member_profile_id, status'),
-      );
+      final existing = await _client.from('fixture_rsvps')
+          .select('member_profile_id, status, member_profiles(display_name)')
+          .eq('fixture_id', fixtureId)
+          .inFilter('member_profile_id', selectedIds.toList());
+      final unavailable = existing.where((row) => row['status'] == 'no').toList();
+      var overrideUnavailable = false;
+      if (unavailable.isNotEmpty) {
+        if (!(_isClubAdmin || _isSuperuser)) {
+          throw const PostgrestException(message:
+              'A selected member previously answered Not available. Ask a club admin to confirm an override.');
+        }
+        if (!mounted) return;
+        final names = unavailable.map((row) =>
+            row['member_profiles']?['display_name'] ?? 'Selected member').join(', ');
+        overrideUnavailable = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+          title: const Text('Override Not available?'),
+          content: Text('$names previously answered Not available.\n\n'
+              'Add them to the pool as Maybe? This replaces that answer but does not select them for the team. Confirm their availability first.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Override and add to pool')),
+          ],
+        )) ?? false;
+        if (!overrideUnavailable || !mounted) return;
+      }
+      await _client.rpc('add_fixture_members_to_pool', params: {
+        'p_fixture_id': fixtureId,
+        'p_member_profile_ids': selectedIds.toList(),
+        'p_override_unavailable': overrideUnavailable,
+      });
     }
 
     await _load();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Inserted rows: ${inserted.length}')),
+        const SnackBar(content: Text('Player pool updated.')),
       );
     }
   }
@@ -2479,6 +2506,12 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _sendAcceptanceReminders(List<Map<String, dynamic>> rows) async {
+    if (_status != 'published') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Publish the team before sending acceptance reminders.')),
+      );
+      return;
+    }
     if (!_canSendReminders) return;
     if (_selectionId == null) return;
 
@@ -2487,6 +2520,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     final targetIds = rows
         .where((r) {
+          if (r['member_profiles']?['is_captain_managed'] == true) return false;
           final acceptance = (r['acceptance'] ?? 'pending')
               .toString()
               .toLowerCase();
@@ -2502,7 +2536,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     if (targetIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No pending players to remind.')),
+        const SnackBar(content: Text('No pending players eligible for email reminders. Contact captain-managed members by telephone.')),
       );
       return;
     }
@@ -2567,7 +2601,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   }
 
   Future<void> _changeTeamStructure([Map<String, dynamic>? rink]) async {
-    if (!_canEditRinkSetup || _changingStructure || _confirmingTeamChanges) return;
+    if (effectiveReadOnly || !_canEditRinkSetup || _changingStructure || _confirmingTeamChanges) return;
     final fixtureId = widget.fixture['id'].toString();
     final service = FixtureTeamStructureService(_client);
     final labels = await service.availablePhysicalRinks(fixtureId);
@@ -2590,7 +2624,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             children: [
               const Icon(Icons.edit_outlined, color: Color(0xFF244B86)),
               const SizedBox(width: 12),
-              Expanded(child: Text(rink == null ? 'Add team' : 'Edit team ${rink['fixture_rink_no']}')),
+              Expanded(child: Text(rink == null ? 'Add Rink/Team' : 'Edit Rink/Team ${rink['fixture_rink_no']}')),
             ],
           ),
           content: SizedBox(
@@ -2793,11 +2827,11 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                 'No teams have been created for this fixture yet.',
                 textAlign: TextAlign.center,
               ),
-              if (_canEditRinkSetup)
+              if (!effectiveReadOnly && _canEditRinkSetup)
                 TextButton.icon(
                   onPressed: _changingStructure ? null : _changeTeamStructure,
                   icon: const Icon(Icons.add),
-                  label: const Text('Add team'),
+                  label: const Text('Add Rink/Team'),
                 ),
             ],
           ),
@@ -2829,9 +2863,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-                if (_canEditRinkSetup)
+                if (!effectiveReadOnly && _canEditRinkSetup)
                   ActionPill(
-                    label: 'Add team',
+                    label: 'Add Rink/Team',
                     tone: ActionPillTone.green,
                     onPressed: _changingStructure || _confirmingTeamChanges ? null : _changeTeamStructure,
                   ),
@@ -2898,9 +2932,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                 Expanded(
                   child: Text(teamHeading, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700)),
                 ),
-                if (_canEditRinkSetup)
+                if (!effectiveReadOnly && _canEditRinkSetup)
                   ActionPill(
-                    label: 'Edit team',
+                    label: 'Edit Rink/Team',
                     onPressed: _changingStructure || _confirmingTeamChanges ? null : () => _changeTeamStructure(rink),
                   ),
               ],
@@ -2948,7 +2982,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                   ? null
                   : BorderSide(color: _assignmentBorderColor(assignment)!),
             ),
-            onPressed: _canAssignRinks && !_savingAssignments
+            onPressed: !effectiveReadOnly && _canAssignRinks && !_savingAssignments
                 ? () => _selectAssignmentSlot(
                     context: context,
                     rinkId: rinkId,
@@ -2965,7 +2999,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             ),
           ),
         ),
-        if (hasAssignment && _canAssignRinks && !_savingAssignments) ...[
+        if (hasAssignment && !effectiveReadOnly && _canAssignRinks && !_savingAssignments) ...[
           const SizedBox(width: 6),
           IconButton(
             tooltip: 'Clear',
@@ -2994,7 +3028,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         ? 'Pre-Select'
         : (widget.fixture['team_id'] != null ? 'Team' : 'RSVP');
 
-    final pageTitle = '${isHome ? 'Home' : 'Away'} $modeLabel Management';
+    final pageTitle = effectiveReadOnly
+        ? 'View Team'
+        : '${isHome ? 'Home' : 'Away'} $modeLabel Management';
 
     final selectedIds = _selected
         .map((r) => r['member_profile_id']?.toString())
@@ -3084,18 +3120,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             ),
           ],
         ),
-        floatingActionButton:
-            (_canAddPeople && !effectiveReadOnly && !_hasStagedChanges)
-            ? FloatingActionButton.extended(
-                onPressed: _openAddPlayersPicker,
-                icon: const Icon(Icons.person_add),
-                label: const Text('Add players'),
-              )
-            : null,
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
             ? Center(child: Text('Error: $_error'))
+            : effectiveReadOnly && _selectionId == null
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('No team has been selected yet.'),
+                ),
+              )
             : ListView(
                 controller: _pageScrollController,
                 padding: const EdgeInsets.all(16),
@@ -3109,7 +3144,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                           // Team position assignment is now integrated below.
                           if (!isPublished)
                             ElevatedButton(
-                              onPressed: _canPublish ? _publish : null,
+                              onPressed: _canPublishTeam ? _publish : null,
                               child: const Text('Publish Team'),
                             )
                           else
@@ -3200,7 +3235,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                   const SizedBox(height: 8),
 
-                  Wrap(
+                  if (!effectiveReadOnly) Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
@@ -3266,7 +3301,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                   const SizedBox(height: 8),
 
-                  if (_canEditSelection)
+                  if (_canModifySelection)
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -3274,13 +3309,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                         OutlinedButton.icon(
                           icon: const Icon(Icons.notifications_active_outlined),
                           label: const Text('Remind pending'),
-                          onPressed: () => _sendAcceptanceReminders(_selected),
+                          onPressed: _canSendReminders ? () => _sendAcceptanceReminders(_selected) : null,
                         ),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.filter_alt_outlined),
                           label: const Text('Remind filtered'),
-                          onPressed: () =>
-                              _sendAcceptanceReminders(_filteredSelected),
+                          onPressed: _canSendReminders ? () =>
+                              _sendAcceptanceReminders(_filteredSelected) : null,
                         ),
                       ],
                     ),
@@ -3290,7 +3325,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                   if (_selected.isEmpty)
                     const Text('No one selected yet.')
                   else
-                    ..._filteredSelected.map((s) {
+                    ...(effectiveReadOnly ? _selected : _filteredSelected).map((s) {
                       final memberId = s['member_profile_id'] as String;
                       final mp = s['member_profiles'] as Map<String, dynamic>?;
                       final name = _displayNameWithPreferredPosition(mp);
@@ -3334,15 +3369,10 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                       return SelectedMemberInteractionCard(
                         color: bgColor,
-                        title: Row(
+                        title: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
+                            Text(name),
                             if (role == 'reserve') AppBadge(text: 'RESERVE'),
                             if (isPositionedPlayer) AppBadge(text: 'PLAYER'),
                             if (isSelectedUnpositioned)
@@ -3378,6 +3408,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                 'Accepted by $acceptedByName',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
+                            if (mp?['is_captain_managed'] == true)
+                              const Text('Captain-managed · Contact by telephone'),
                             if (phone.isNotEmpty)
                               Text(
                                 phone,
@@ -3388,8 +3420,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                         trailing:
                             !_canModifySelection && !_canForceAcceptSelection
                             ? null
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
+                            : Wrap(
+                                spacing: 8,
                                 children: [
                                   if (!isAllocated && _canModifySelection)
                                     TextButton.icon(
@@ -3418,26 +3450,26 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                       }
                                     },
                                     itemBuilder: (_) => [
-                                      if (_canEditSelection)
+                                      if (_canModifySelection)
                                         const PopupMenuItem(
                                           value: 'player',
                                           child: Text('Make player'),
                                         ),
-                                      if (_canEditSelection &&
+                                      if (_canModifySelection &&
                                           _isInternalFixture &&
                                           _isPreselectFixture)
                                         const PopupMenuItem(
                                           value: 'opponent',
                                           child: Text('Make opponent'),
                                         ),
-                                      if (_canEditSelection &&
+                                      if (_canModifySelection &&
                                           _isInternalFixture &&
                                           _isPreselectFixture)
                                         const PopupMenuItem(
                                           value: 'marker',
                                           child: Text('Make marker'),
                                         ),
-                                      if (_canEditSelection &&
+                                      if (_canModifySelection &&
                                           !(_isInternalFixture &&
                                               _isPreselectFixture))
                                         const PopupMenuItem(
@@ -3457,7 +3489,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                           value: 'accept',
                                           child: Text('Accept'),
                                         ),
-                                      if (_canEditSelection &&
+                                      if (_canSendReminders && mp?['is_captain_managed'] != true && acceptance == 'pending' &&
                                           (!_usesPublishedCompositionStaging ||
                                               isPositionedPlayer))
                                         const PopupMenuItem(
@@ -3472,7 +3504,18 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                     }),
                   const SizedBox(height: 16),
 
-                  if (_isPreselectFixture) ...[
+                  if (_canAddPeople && !effectiveReadOnly && !_hasStagedChanges) ...[
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton.icon(
+                        onPressed: _openAddPlayersPicker,
+                        icon: const Icon(Icons.person_add),
+                        label: const Text('Add players'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (!effectiveReadOnly && _isPreselectFixture) ...[
                     Text(
                       'Additional players',
                       style: Theme.of(context).textTheme.titleMedium,
@@ -3481,7 +3524,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                     const Text(
                       'Use the Add players button to search the club list and add more players.',
                     ),
-                  ] else ...[
+                  ] else if (!effectiveReadOnly) ...[
                     Card(
                       key: _teamPoolHeaderKey,
                       margin: EdgeInsets.zero,

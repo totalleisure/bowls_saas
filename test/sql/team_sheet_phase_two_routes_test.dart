@@ -1,8 +1,8 @@
-import 'dart:io';
+import 'release_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
-String source(String path) => File(path).readAsStringSync();
+String source(String path) => releaseSource(path);
 
 void main() {
   test('confirmed composition persists selected reserves', () {
@@ -91,7 +91,10 @@ void main() {
   );
 
   test('Graph transport sends only Microsoft Graph attachment fields', () {
-    final graph = source('supabase/functions/send-graph-email/index.ts');
+    final entry = source('supabase/functions/send-graph-email/index.ts');
+    expect(entry, contains('import { handleRequest } from "./handler.ts"'));
+    expect(entry, contains('handleRequest(req,'));
+    final graph = source('supabase/functions/send-graph-email/handler.ts');
 
     expect(graph, contains('name: a.name'));
     expect(graph, contains('contentType: a.contentType'));

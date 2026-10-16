@@ -1,3 +1,4 @@
+import '../../core/utils/fixture_reminders.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/date_format.dart';
 import 'diary_list_repository.dart';
@@ -135,10 +136,74 @@ class DiaryInvolvementRepository {
     if (fixtures.isEmpty) return null;
     return await client
         .from('fixtures')
-        .select(diaryFixtureSelection)
+        .select(
+          diaryFixtureSelection.replaceFirst(
+            'venue:venues!fixtures_venue_id_fkey(id,name)',
+            'venue:venues!fixtures_venue_id_fkey(id,name,address_line1,address_line2,town_city,postcode,latitude,longitude,directions_url,google_maps_url)',
+          ),
+        )
         .eq('club_id', clubId)
         .eq('id', fixtures.first['id'])
         .isFilter('cancelled_at', null)
         .maybeSingle();
+  }
+
+  /// Personal reminders are independent of diary browsing dates and filters.
+  Future<List<Map<String, dynamic>>> reminders(DateTime nowUtc) async {
+    final member = await _memberId();
+    if (member == null) return [];
+    final rows = await loadDiaryPages(
+      (offset) => client
+          .from('team_selection_members')
+          .select(_personalSelection)
+          .eq('member_profile_id', member)
+          .eq('is_selected', true)
+          .inFilter('acceptance', ['accepted', 'pending'])
+          .eq('team_selections.status', 'published')
+          .eq('team_selections.fixture.club_id', clubId)
+          .isFilter('team_selections.fixture.cancelled_at', null)
+          .gte(
+            'team_selections.fixture.start_at',
+            nowUtc.toUtc().toIso8601String(),
+          )
+          .order('id', ascending: true)
+          .range(offset, offset + 499)
+          .count(CountOption.exact),
+    );
+    final candidates = fixtureReminders([
+      for (final row in rows)
+        {
+          ...Map<String, dynamic>.from(
+            (row['team_selections'] as Map)['fixture'] as Map,
+          ),
+          '_reminderAcceptance': row['acceptance'],
+        },
+    ], now: nowUtc);
+    if (candidates.isEmpty) return [];
+    final details = await loadDiaryPages(
+      (offset) => client
+          .from('fixtures')
+          .select(
+            diaryFixtureSelection.replaceFirst(
+              'venue:venues!fixtures_venue_id_fkey(id,name)',
+              'venue:venues!fixtures_venue_id_fkey(id,name,address_line1,address_line2,town_city,postcode,latitude,longitude,directions_url,google_maps_url)',
+            ),
+          )
+          .eq('club_id', clubId)
+          .inFilter('id', candidates.map((f) => f['id']).toList())
+          .isFilter('cancelled_at', null)
+          .order('id', ascending: true)
+          .range(offset, offset + 499)
+          .count(CountOption.exact),
+    );
+    final byId = {for (final row in details) row['id']: row};
+    return fixtureReminders([
+      for (final candidate in candidates)
+        if (byId[candidate['id']] != null)
+          {
+            ...byId[candidate['id']]!,
+            '_reminderAcceptance': candidate['_reminderAcceptance'],
+          },
+    ], now: nowUtc);
   }
 }

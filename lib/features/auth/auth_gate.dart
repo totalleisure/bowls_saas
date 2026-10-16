@@ -2,11 +2,24 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
 
 import 'auth_screen.dart';
+import 'password_recovery_progress.dart';
 import 'reset_password_screen.dart';
 import '../clubs/my_clubs_screen.dart';
 import 'app_entry_access_service.dart';
+
+bool membershipConnectionFailed(Object? error) {
+  if (error is http.ClientException || error is TimeoutException) return true;
+  final message = error.toString().toLowerCase();
+  return message.contains('socketexception') ||
+      message.contains('failed host lookup') ||
+      message.contains('network is unreachable') ||
+      message.contains('connection refused') ||
+      message.contains('connection timed out') ||
+      message.contains('failed to fetch');
+}
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -14,16 +27,32 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final client = Supabase.instance.client;
-    return AuthNavigationHost(
+    final host = AuthNavigationHost(
       readSession: () => client.auth.currentSession,
+      readRecoveryEmail: () async {
+        final progress = await PasswordRecoveryProgress.read();
+        return progress?['verified'] == true
+            ? progress!['email'] as String
+            : null;
+      },
       authChanges: client.auth.onAuthStateChange,
-      loadAccess: AppEntryAccessService(client).load,
+      loadAccess: () async {
+        final assurance = client.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (assurance.nextLevel == AuthenticatorAssuranceLevels.aal2 &&
+            assurance.currentLevel != AuthenticatorAssuranceLevels.aal2) {
+          throw const AuthException(
+            'Additional account verification is required.',
+          );
+        }
+        return AppEntryAccessService(client).load();
+      },
       onSignOut: client.auth.signOut,
       signedOutBuilder: (_) => const AuthScreen(),
       signedInBuilder: (_) => const MyClubsScreen(),
       recoveryBuilder: (_, complete) =>
           ResetPasswordScreen(onComplete: complete),
     );
+    return host;
   }
 }
 
@@ -39,9 +68,11 @@ class AuthNavigationHost extends StatefulWidget {
     required this.signedOutBuilder,
     required this.signedInBuilder,
     required this.recoveryBuilder,
+    this.readRecoveryEmail,
   });
 
   final Session? Function() readSession;
+  final Future<String?> Function()? readRecoveryEmail;
   final Stream<AuthState> authChanges;
   final Future<AppEntryAccess> Function() loadAccess;
   final Future<void> Function() onSignOut;
@@ -62,6 +93,7 @@ class _AuthNavigationHostState extends State<AuthNavigationHost>
   bool _recovering = false;
   int _navigationGeneration = 0;
   int _membershipRevision = 0;
+  bool _restoringRecovery = false;
 
   String get _identity => _session == null || _expired
       ? 'signed-out'
@@ -72,6 +104,10 @@ class _AuthNavigationHostState extends State<AuthNavigationHost>
     super.initState();
     _session = widget.readSession();
     _scheduleExpiry();
+    if (widget.readRecoveryEmail != null) {
+      _restoringRecovery = true;
+      _restoreRecovery();
+    }
     WidgetsBinding.instance.addObserver(this);
     _subscription = widget.authChanges.listen(
       _onAuthChange,
@@ -121,7 +157,12 @@ class _AuthNavigationHostState extends State<AuthNavigationHost>
           state.event == AuthChangeEvent.signedIn) {
         _recovering = false;
       }
-      if (state.event == AuthChangeEvent.passwordRecovery) _recovering = true;
+      if (state.event == AuthChangeEvent.passwordRecovery ||
+          (_session?.user.email != null &&
+              _session!.user.email ==
+                  PasswordRecoveryProgress.verifyingEmail)) {
+        _recovering = true;
+      }
       _scheduleExpiry();
       if (previous != _identity) _navigationGeneration++;
     });
@@ -132,6 +173,19 @@ class _AuthNavigationHostState extends State<AuthNavigationHost>
       _recovering = false;
       _navigationGeneration++;
     });
+  }
+
+  Future<void> _restoreRecovery() async {
+    try {
+      final email = await widget.readRecoveryEmail!();
+      if (!mounted) return;
+      setState(() {
+        if (email != null && email == _session?.user.email) _recovering = true;
+        _restoringRecovery = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _restoringRecovery = false);
+    }
   }
 
   @override
@@ -161,6 +215,11 @@ class _AuthNavigationHostState extends State<AuthNavigationHost>
 
   @override
   Widget build(BuildContext context) {
+    if (_restoringRecovery) {
+      return const MaterialApp(
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
+    }
     final authenticated = _session != null && !_expired;
     final protected = authenticated && !_recovering;
     return MaterialApp(
@@ -233,6 +292,9 @@ class _AuthenticatedMembershipBoundaryState
   void _retry() {
     setState(() {
       _access = widget.loadAccess();
+      // A fast failure can arrive before FutureBuilder subscribes next frame.
+      // Keep its error available to the builder without an unhandled error.
+      _access.ignore();
     });
   }
 
@@ -244,11 +306,15 @@ class _AuthenticatedMembershipBoundaryState
         final pending = snapshot.connectionState != ConnectionState.done;
         final allowed =
             !pending && !snapshot.hasError && snapshot.data?.allowed == true;
-        if (!pending) _retainNavigation = allowed;
+        if (!pending &&
+            !(snapshot.hasError && membershipConnectionFailed(snapshot.error))) {
+          _retainNavigation = allowed;
+        }
 
         // Keep the Navigator mounted while checking the same identity. Hide
-        // its content and disable focus until access is confirmed. Denial or
-        // failure disposes it; identity changes reset it in the parent host.
+        // its content and disable focus until access is confirmed. A network
+        // failure preserves prior edits; denial and other failures dispose it.
+        // Identity changes reset it in the parent host.
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -266,9 +332,14 @@ class _AuthenticatedMembershipBoundaryState
               const Scaffold(body: Center(child: CircularProgressIndicator()))
             else if (snapshot.hasError)
               _AccessMessagePage(
-                title: 'Unable to verify membership',
+                title: membershipConnectionFailed(snapshot.error)
+                    ? 'Unable to connect' : 'Unable to verify membership',
                 message:
-                    'Your membership could not be checked. Please try again.',
+                    membershipConnectionFailed(snapshot.error)
+                        ? 'The app could not reach the Bowls Club service. Check your Wi-Fi or mobile data connection, then tap Try again. You do not need to sign out.'
+                        : 'Your membership could not be checked. Please try again.',
+                icon: membershipConnectionFailed(snapshot.error)
+                    ? Icons.wifi_off_rounded : Icons.lock_outline,
                 onRetry: _retry,
                 onSignOut: widget.onSignOut,
               )
@@ -288,12 +359,14 @@ class _AuthenticatedMembershipBoundaryState
 }
 
 class _AccessMessagePage extends StatelessWidget {
+  final IconData icon;
   final String title;
   final String message;
   final VoidCallback onRetry;
   final Future<void> Function() onSignOut;
 
   const _AccessMessagePage({
+    this.icon = Icons.lock_outline,
     required this.title,
     required this.message,
     required this.onRetry,
@@ -309,7 +382,7 @@ class _AccessMessagePage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.lock_outline, size: 56),
+              Icon(icon, size: 56),
               const SizedBox(height: 16),
               Text(title, style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 12),

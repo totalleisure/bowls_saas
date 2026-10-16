@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'account_username_card.dart';
+import 'account_username_service.dart';
 
 class AccountSecurityScreen extends StatefulWidget {
   const AccountSecurityScreen({super.key});
@@ -481,6 +483,7 @@ class _AccountSecurityScreenState extends State<AccountSecurityScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (AccountUsernameService.enabled) const AccountUsernameCard(),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),

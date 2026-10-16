@@ -8,6 +8,7 @@ import 'member_edit_screen.dart';
 import 'member_directory_loader.dart';
 import 'member_import_options_dialog.dart';
 import 'member_invitation_screen.dart';
+import 'captain_managed_member_dialog.dart';
 
 class MembersScreen extends StatefulWidget {
   final String clubId;
@@ -462,6 +463,26 @@ class _MembersScreenState extends State<MembersScreen> {
     );
   }
 
+  Future<void> _addCaptainManagedMember() async {
+    final added = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => CaptainManagedMemberDialog(clubId: widget.clubId),
+    );
+    if (added == true && mounted) {
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Captain-managed member added. No email or login created.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -487,6 +508,18 @@ class _MembersScreenState extends State<MembersScreen> {
           ? Center(child: Text(_error!))
           : Column(
               children: [
+                if (_canManageMembers)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FilledButton.icon(
+                        onPressed: _addCaptainManagedMember,
+                        icon: const Icon(Icons.person_add),
+                        label: const Text('Add captain-managed member'),
+                      ),
+                    ),
+                  ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                   child: TextField(
@@ -654,6 +687,10 @@ class _MembersScreenState extends State<MembersScreen> {
                                   children: [
                                     if (_canManageMembers)
                                       Text(_roleLabel(role)),
+                                    if (mp['is_captain_managed'] == true)
+                                      const Text(
+                                        'Captain-managed · Contact by telephone',
+                                      ),
                                     if (showPhone && phone.isNotEmpty)
                                       Text(phone),
                                     if (showEmail && email.isNotEmpty)

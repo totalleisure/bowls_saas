@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/account_security_screen.dart';
+import 'profile_photo_avatar.dart';
+import 'profile_photo_service.dart';
+import 'admin_password_reset_dialog.dart';
 
 class MemberEditScreen extends StatefulWidget {
   final String memberProfileId;
@@ -74,6 +77,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
   bool _hasUnsavedChanges = false;
 
   bool get _canEditMobile => widget.canManageMembers || widget.isOwnRecord;
+  bool get _captainManaged => widget.initial['is_captain_managed'] == true;
 
   bool get _canSeeAdminFields => widget.canManageMembers;
   String? _originalRole;
@@ -168,6 +172,20 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
   Future<void> _save() async {
     if (_saving) return;
+    if (_captainManaged &&
+        (_firstName.text.trim().isEmpty ||
+            _lastName.text.trim().isEmpty ||
+            _phone.text.replaceAll(RegExp(r'[^0-9]'), '').length < 7 ||
+            _phone.text.replaceAll(RegExp(r'[^0-9]'), '').length > 15)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Captain-managed members need first name, last name and a valid telephone number.',
+          ),
+        ),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     try {
@@ -351,7 +369,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           focusedBorder: const OutlineInputBorder(
             borderSide: BorderSide(color: Colors.black, width: 2),
           ),
-          isDense: true,
+          isDense: !widget.isOwnRecord,
         ),
       ),
     );
@@ -368,11 +386,12 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       padding: const EdgeInsets.only(bottom: 10),
       child: DropdownButtonFormField<String>(
         initialValue: value,
+        isExpanded: true,
         items: items,
         onChanged: onChanged,
         decoration: InputDecoration(
           border: const OutlineInputBorder(),
-          isDense: true,
+          isDense: !widget.isOwnRecord,
           labelText: label,
           helperText: helperText,
         ),
@@ -410,6 +429,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Checkbox(
+                  semanticLabel: 'Show $label in the club directory',
                   value: showInDirectory,
                   onChanged: (v) {
                     if (v == null) return;
@@ -462,6 +482,459 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     );
   }
 
+  Widget _resetPasswordButton() => Align(
+    alignment: Alignment.centerLeft,
+    child: OutlinedButton.icon(
+      onPressed: () => showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AdminPasswordResetDialog(
+          clubId: widget.clubId,
+          memberProfileId: widget.memberProfileId,
+          memberName: '${_firstName.text} ${_lastName.text}'.trim(),
+        ),
+      ),
+      icon: const Icon(Icons.lock_reset),
+      label: const Text('Reset member password'),
+    ),
+  );
+
+  Widget _profileCard(
+    String title,
+    IconData icon,
+    MaterialColor colour,
+    List<Widget> children,
+  ) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 20),
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: colour.shade100),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: colour.shade50,
+                  foregroundColor: colour.shade800,
+                  child: Icon(icon),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: colour.shade900,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _profileBody(BuildContext context) {
+    final name = [
+      _firstName.text.trim(),
+      _lastName.text.trim(),
+    ].where((part) => part.isNotEmpty).join(' ');
+    final initials = [_firstName.text.trim(), _lastName.text.trim()]
+        .where((part) => part.isNotEmpty)
+        .map((part) => part.characters.first.toUpperCase())
+        .join();
+    final cards = <Widget>[
+      _profileCard('Personal details', Icons.person_outline, Colors.teal, [
+        _field('Title (optional)', _title),
+        _field('First name', _firstName),
+        _field('Last name (surname)', _lastName),
+
+        _dropdownField(
+          label: 'Gender (optional)',
+          value: _gender ?? '',
+          items: const [
+            DropdownMenuItem(value: '', child: Text('Not supplied')),
+            DropdownMenuItem(value: 'male', child: Text('Male')),
+            DropdownMenuItem(value: 'female', child: Text('Female')),
+            DropdownMenuItem(value: 'non_binary', child: Text('Non-binary')),
+            DropdownMenuItem(
+              value: 'prefer_to_self_describe',
+              child: Text('Prefer to self-describe'),
+            ),
+            DropdownMenuItem(
+              value: 'prefer_not_to_say',
+              child: Text('Prefer not to say'),
+            ),
+          ],
+          onChanged: (value) {
+            setState(() {
+              _gender = value == null || value.isEmpty ? null : value;
+              if (_gender != 'prefer_to_self_describe') {
+                _genderSelfDescribed.clear();
+              }
+            });
+            _markDirty();
+          },
+        ),
+
+        if (_gender == 'prefer_to_self_describe')
+          _field('Please describe your gender', _genderSelfDescribed),
+
+        _dropdownField(
+          label: 'Sex at birth',
+          value: _sexAtBirth,
+          helperText: 'Optional',
+          items: const [
+            DropdownMenuItem(value: 'male', child: Text('Male')),
+            DropdownMenuItem(value: 'female', child: Text('Female')),
+            DropdownMenuItem(value: 'intersex', child: Text('Intersex')),
+            DropdownMenuItem(
+              value: 'prefer_not_to_say',
+              child: Text('Prefer not to say'),
+            ),
+          ],
+          onChanged: (value) {
+            setState(() {
+              _sexAtBirth = value;
+            });
+            _markDirty();
+          },
+        ),
+      ]),
+      _profileCard(
+        'Contact & directory',
+        Icons.contact_phone_outlined,
+        Colors.blue,
+        [
+          Row(
+            children: [
+              Icon(Icons.groups, size: 20, color: Colors.green.shade700),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Club Member Directory: Tick the boxes to control which details are visible to other club members.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          if (_captainManaged)
+            const Text(
+              'Captain-managed member — contact by telephone. No login or email.',
+            )
+          else ...[
+            _fieldWithDirectoryOption(
+              label: 'Login email (read only)',
+              controller: _email,
+              type: TextInputType.emailAddress,
+              readOnly: true,
+              showInDirectory: _showEmailInDirectory,
+              onDirectoryChanged: (v) {
+                setState(() => _showEmailInDirectory = v);
+                _markDirty();
+              },
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _openEmailAction,
+                icon: const Icon(Icons.alternate_email),
+                label: Text(
+                  widget.isOwnRecord
+                      ? 'Change login email'
+                      : 'Assist with email change',
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+
+          _fieldWithDirectoryOption(
+            label: 'Mobile phone',
+            controller: _phone,
+            type: TextInputType.phone,
+            enabled: _canEditMobile,
+            showInDirectory: _showMobileInDirectory,
+            onDirectoryChanged: (v) {
+              setState(() => _showMobileInDirectory = v);
+              _markDirty();
+            },
+          ),
+
+          _fieldWithDirectoryOption(
+            label: 'Home phone',
+            controller: _homePhone,
+            type: TextInputType.phone,
+            showInDirectory: _showHomePhoneInDirectory,
+            onDirectoryChanged: (v) {
+              setState(() => _showHomePhoneInDirectory = v);
+              _markDirty();
+            },
+          ),
+
+          _fieldWithDirectoryOption(
+            label: 'Office phone',
+            controller: _officePhone,
+            type: TextInputType.phone,
+            showInDirectory: _showOfficePhoneInDirectory,
+            onDirectoryChanged: (v) {
+              setState(() => _showOfficePhoneInDirectory = v);
+              _markDirty();
+            },
+          ),
+        ],
+      ),
+      _profileCard('Address', Icons.home_outlined, Colors.deepPurple, [
+        Row(
+          children: [
+            Text('Address', style: Theme.of(context).textTheme.titleMedium),
+            const Spacer(),
+            Checkbox(
+              value: _showAddressInDirectory,
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => _showAddressInDirectory = v);
+                _markDirty();
+              },
+            ),
+            Icon(Icons.groups, size: 18, color: Colors.green.shade700),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        _field('Address line 1', _a1),
+        _field('Address line 2', _a2),
+        _field('Town / City', _town),
+        _field('County', _county),
+        _field('Postcode', _postcode),
+      ]),
+      _profileCard(
+        'Player & membership',
+        Icons.sports_outlined,
+        Colors.orange,
+        [
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Active member'),
+            value: _active,
+            onChanged: widget.canManageMembers
+                ? (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _active = value;
+                    });
+                    _markDirty();
+                  }
+                : null,
+          ),
+          Text('Basic details', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          const SizedBox(height: 12),
+          Text(
+            'Player details',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+
+          const SizedBox(height: 8),
+          _field('Outdoor club (optional)', _outdoorClub),
+          _dropdownField(
+            label: 'Preferred Player Position',
+            value: _preferredPosition,
+            items: const [
+              DropdownMenuItem(value: 'lead', child: Text('Lead')),
+              DropdownMenuItem(value: 'third', child: Text('Third')),
+              DropdownMenuItem(value: 'skip', child: Text('Skip')),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _preferredPosition = value;
+              });
+              _markDirty();
+            },
+          ),
+
+          if (_canSeeAdminFields) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Admin details',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            _dropdownField(
+              label: 'Role',
+              value: _role,
+              items: const [
+                DropdownMenuItem(value: 'guest', child: Text('Guest')),
+                DropdownMenuItem(value: 'member', child: Text('Member')),
+                DropdownMenuItem(value: 'captain', child: Text('Captain')),
+                DropdownMenuItem(value: 'selector', child: Text('Selector')),
+                DropdownMenuItem(value: 'admin', child: Text('Admin')),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _role = value;
+                });
+                _markDirty();
+              },
+            ),
+
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Coach'),
+              subtitle: const Text('This member can act as a club coach.'),
+              value: _isCoach,
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _isCoach = value;
+                });
+                _markDirty();
+              },
+            ),
+
+            if (_isCoach) _field('Coaching award', _coachingAward),
+          ],
+        ],
+      ),
+
+      if (!_captainManaged)
+        _profileCard('Login & Security', Icons.shield_outlined, Colors.indigo, [
+          const Text(
+            'Manage your login email and password securely. These settings apply to every club connected to your account.',
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: _openEmailAction,
+            icon: const Icon(Icons.lock_outline),
+            label: const Text('Manage login & security'),
+          ),
+          if (widget.canManageMembers) ...[
+            const SizedBox(height: 8),
+            _resetPasswordButton(),
+          ],
+        ]),
+    ];
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 104),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1080),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF14532D), Color(0xFF237A52)],
+                  ),
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (ProfilePhotoService.enabled)
+                          ProfilePhotoAvatar(initials: initials)
+                        else
+                          Semantics(
+                            label: 'Profile initials',
+                            child: CircleAvatar(
+                              radius: 32,
+                              backgroundColor: const Color(0xFFDCFCE7),
+                              foregroundColor: const Color(0xFF14532D),
+                              child: Text(
+                                initials.isEmpty ? '?' : initials,
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'MY PROFILE',
+                                style: TextStyle(
+                                  color: Color(0xFFDCFCE7),
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                name.isEmpty ? 'Your profile' : name,
+                                style: Theme.of(context).textTheme.headlineSmall
+                                    ?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Your details, your directory preferences.',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Edit your details below, then save your changes.',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 850 ||
+                      MediaQuery.textScalerOf(context).scale(1) > 1.3) {
+                    return Column(children: cards);
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(children: [cards[0], cards[1], cards[2]]),
+                      ),
+                      const SizedBox(width: 24),
+                      Expanded(child: Column(children: [cards[4], cards[3]])),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -500,10 +973,14 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
         ),
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: AppBar(title: const Text('Edit member')),
+          appBar: AppBar(
+            title: Text(widget.isOwnRecord ? 'My Profile' : 'Edit member'),
+          ),
           floatingActionButton: _hasUnsavedChanges
               ? FloatingActionButton.extended(
-                  backgroundColor: Colors.red,
+                  backgroundColor: widget.isOwnRecord
+                      ? const Color(0xFF14532D)
+                      : Colors.red,
                   foregroundColor: Colors.white,
                   onPressed: _saving ? null : _save,
                   icon: _saving
@@ -516,314 +993,342 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                   label: const Text('Save'),
                 )
               : null,
-          body: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Material(
-              color: Colors.white.withValues(alpha: 0.88),
-              borderRadius: BorderRadius.circular(20),
-              clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: ListView(
+          body: widget.isOwnRecord
+              ? _profileBody(context)
+              : Padding(
                   padding: const EdgeInsets.all(12),
-                  children: [
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Active member'),
-                      value: _active,
-                      onChanged: widget.canManageMembers
-                          ? (value) {
-                              if (value == null) return;
+                  child: Material(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    borderRadius: BorderRadius.circular(20),
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Active member'),
+                            value: _active,
+                            onChanged: widget.canManageMembers
+                                ? (value) {
+                                    if (value == null) return;
+                                    setState(() {
+                                      _active = value;
+                                    });
+                                    _markDirty();
+                                  }
+                                : null,
+                          ),
+                          Text(
+                            'Basic details',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          _field('Title (optional)', _title),
+                          _field('First name', _firstName),
+                          _field('Last name (surname)', _lastName),
+
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.groups,
+                                size: 20,
+                                color: Colors.green.shade700,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Club Member Directory: Tick the boxes to control which details are visible to other club members.',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+
+                          if (_captainManaged)
+                            const Text(
+                              'Captain-managed member — contact by telephone. No login or email.',
+                            )
+                          else ...[
+                            _fieldWithDirectoryOption(
+                              label: 'Login email (read only)',
+                              controller: _email,
+                              type: TextInputType.emailAddress,
+                              readOnly: true,
+                              showInDirectory: _showEmailInDirectory,
+                              onDirectoryChanged: (v) {
+                                setState(() => _showEmailInDirectory = v);
+                                _markDirty();
+                              },
+                            ),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: OutlinedButton.icon(
+                                onPressed: _openEmailAction,
+                                icon: const Icon(Icons.alternate_email),
+                                label: Text(
+                                  widget.isOwnRecord
+                                      ? 'Change login email'
+                                      : 'Assist with email change',
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+
+                          if (widget.canManageMembers && !_captainManaged)
+                            _resetPasswordButton(),
+                          const SizedBox(height: 8),
+
+                          _fieldWithDirectoryOption(
+                            label: 'Mobile phone',
+                            controller: _phone,
+                            type: TextInputType.phone,
+                            enabled: _canEditMobile,
+                            showInDirectory: _showMobileInDirectory,
+                            onDirectoryChanged: (v) {
+                              setState(() => _showMobileInDirectory = v);
+                              _markDirty();
+                            },
+                          ),
+
+                          _fieldWithDirectoryOption(
+                            label: 'Home phone',
+                            controller: _homePhone,
+                            type: TextInputType.phone,
+                            showInDirectory: _showHomePhoneInDirectory,
+                            onDirectoryChanged: (v) {
+                              setState(() => _showHomePhoneInDirectory = v);
+                              _markDirty();
+                            },
+                          ),
+
+                          _fieldWithDirectoryOption(
+                            label: 'Office phone',
+                            controller: _officePhone,
+                            type: TextInputType.phone,
+                            showInDirectory: _showOfficePhoneInDirectory,
+                            onDirectoryChanged: (v) {
+                              setState(() => _showOfficePhoneInDirectory = v);
+                              _markDirty();
+                            },
+                          ),
+
+                          Text(
+                            'Personal details',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+
+                          _dropdownField(
+                            label: 'Gender (optional)',
+                            value: _gender ?? '',
+                            items: const [
+                              DropdownMenuItem(
+                                value: '',
+                                child: Text('Not supplied'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'male',
+                                child: Text('Male'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'female',
+                                child: Text('Female'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'non_binary',
+                                child: Text('Non-binary'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'prefer_to_self_describe',
+                                child: Text('Prefer to self-describe'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'prefer_not_to_say',
+                                child: Text('Prefer not to say'),
+                              ),
+                            ],
+                            onChanged: (value) {
                               setState(() {
-                                _active = value;
+                                _gender = value == null || value.isEmpty
+                                    ? null
+                                    : value;
+                                if (_gender != 'prefer_to_self_describe') {
+                                  _genderSelfDescribed.clear();
+                                }
                               });
                               _markDirty();
-                            }
-                          : null,
-                    ),
-                    Text(
-                      'Basic details',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    _field('Title (optional)', _title),
-                    _field('First name', _firstName),
-                    _field('Last name (surname)', _lastName),
-
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.groups,
-                          size: 20,
-                          color: Colors.green.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Club Member Directory: Tick the boxes to control which details are visible to other club members.',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                            },
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
 
-                    _fieldWithDirectoryOption(
-                      label: 'Login email (read only)',
-                      controller: _email,
-                      type: TextInputType.emailAddress,
-                      readOnly: true,
-                      showInDirectory: _showEmailInDirectory,
-                      onDirectoryChanged: (v) {
-                        setState(() => _showEmailInDirectory = v);
-                        _markDirty();
-                      },
-                    ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: OutlinedButton.icon(
-                        onPressed: _openEmailAction,
-                        icon: const Icon(Icons.alternate_email),
-                        label: Text(
-                          widget.isOwnRecord
-                              ? 'Change login email'
-                              : 'Assist with email change',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
+                          if (_gender == 'prefer_to_self_describe')
+                            _field(
+                              'Please describe your gender',
+                              _genderSelfDescribed,
+                            ),
 
-                    _fieldWithDirectoryOption(
-                      label: 'Mobile phone',
-                      controller: _phone,
-                      type: TextInputType.phone,
-                      enabled: _canEditMobile,
-                      showInDirectory: _showMobileInDirectory,
-                      onDirectoryChanged: (v) {
-                        setState(() => _showMobileInDirectory = v);
-                        _markDirty();
-                      },
-                    ),
-
-                    _fieldWithDirectoryOption(
-                      label: 'Home phone',
-                      controller: _homePhone,
-                      type: TextInputType.phone,
-                      showInDirectory: _showHomePhoneInDirectory,
-                      onDirectoryChanged: (v) {
-                        setState(() => _showHomePhoneInDirectory = v);
-                        _markDirty();
-                      },
-                    ),
-
-                    _fieldWithDirectoryOption(
-                      label: 'Office phone',
-                      controller: _officePhone,
-                      type: TextInputType.phone,
-                      showInDirectory: _showOfficePhoneInDirectory,
-                      onDirectoryChanged: (v) {
-                        setState(() => _showOfficePhoneInDirectory = v);
-                        _markDirty();
-                      },
-                    ),
-
-                    Text(
-                      'Personal details',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-
-                    _dropdownField(
-                      label: 'Gender (optional)',
-                      value: _gender ?? '',
-                      items: const [
-                        DropdownMenuItem(
-                          value: '',
-                          child: Text('Not supplied'),
-                        ),
-                        DropdownMenuItem(value: 'male', child: Text('Male')),
-                        DropdownMenuItem(
-                          value: 'female',
-                          child: Text('Female'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'non_binary',
-                          child: Text('Non-binary'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'prefer_to_self_describe',
-                          child: Text('Prefer to self-describe'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'prefer_not_to_say',
-                          child: Text('Prefer not to say'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _gender = value == null || value.isEmpty
-                              ? null
-                              : value;
-                          if (_gender != 'prefer_to_self_describe') {
-                            _genderSelfDescribed.clear();
-                          }
-                        });
-                        _markDirty();
-                      },
-                    ),
-
-                    if (_gender == 'prefer_to_self_describe')
-                      _field(
-                        'Please describe your gender',
-                        _genderSelfDescribed,
-                      ),
-
-                    _dropdownField(
-                      label: 'Sex at birth',
-                      value: _sexAtBirth,
-                      helperText: 'Optional',
-                      items: const [
-                        DropdownMenuItem(value: 'male', child: Text('Male')),
-                        DropdownMenuItem(
-                          value: 'female',
-                          child: Text('Female'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'intersex',
-                          child: Text('Intersex'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'prefer_not_to_say',
-                          child: Text('Prefer not to say'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _sexAtBirth = value;
-                        });
-                        _markDirty();
-                      },
-                    ),
-
-                    Row(
-                      children: [
-                        Text(
-                          'Address',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const Spacer(),
-                        Checkbox(
-                          value: _showAddressInDirectory,
-                          onChanged: (v) {
-                            if (v == null) return;
-                            setState(() => _showAddressInDirectory = v);
-                            _markDirty();
-                          },
-                        ),
-                        Icon(
-                          Icons.groups,
-                          size: 18,
-                          color: Colors.green.shade700,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-
-                    _field('Address line 1', _a1),
-                    _field('Address line 2', _a2),
-                    _field('Town / City', _town),
-                    _field('County', _county),
-                    _field('Postcode', _postcode),
-
-                    const SizedBox(height: 12),
-                    Text(
-                      'Player details',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-
-                    const SizedBox(height: 8),
-                    _field('Outdoor club (optional)', _outdoorClub),
-                    _dropdownField(
-                      label: 'Preferred Player Position',
-                      value: _preferredPosition,
-                      items: const [
-                        DropdownMenuItem(value: 'lead', child: Text('Lead')),
-                        DropdownMenuItem(value: 'third', child: Text('Third')),
-                        DropdownMenuItem(value: 'skip', child: Text('Skip')),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() {
-                          _preferredPosition = value;
-                        });
-                        _markDirty();
-                      },
-                    ),
-
-                    if (_canSeeAdminFields) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'Admin details',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      _dropdownField(
-                        label: 'Role',
-                        value: _role,
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'guest',
-                            child: Text('Guest'),
+                          _dropdownField(
+                            label: 'Sex at birth',
+                            value: _sexAtBirth,
+                            helperText: 'Optional',
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'male',
+                                child: Text('Male'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'female',
+                                child: Text('Female'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'intersex',
+                                child: Text('Intersex'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'prefer_not_to_say',
+                                child: Text('Prefer not to say'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              setState(() {
+                                _sexAtBirth = value;
+                              });
+                              _markDirty();
+                            },
                           ),
-                          DropdownMenuItem(
-                            value: 'member',
-                            child: Text('Member'),
+
+                          Row(
+                            children: [
+                              Text(
+                                'Address',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const Spacer(),
+                              Checkbox(
+                                value: _showAddressInDirectory,
+                                onChanged: (v) {
+                                  if (v == null) return;
+                                  setState(() => _showAddressInDirectory = v);
+                                  _markDirty();
+                                },
+                              ),
+                              Icon(
+                                Icons.groups,
+                                size: 18,
+                                color: Colors.green.shade700,
+                              ),
+                            ],
                           ),
-                          DropdownMenuItem(
-                            value: 'captain',
-                            child: Text('Captain'),
+                          const SizedBox(height: 8),
+
+                          _field('Address line 1', _a1),
+                          _field('Address line 2', _a2),
+                          _field('Town / City', _town),
+                          _field('County', _county),
+                          _field('Postcode', _postcode),
+
+                          const SizedBox(height: 12),
+                          Text(
+                            'Player details',
+                            style: Theme.of(context).textTheme.titleMedium,
                           ),
-                          DropdownMenuItem(
-                            value: 'selector',
-                            child: Text('Selector'),
+
+                          const SizedBox(height: 8),
+                          _field('Outdoor club (optional)', _outdoorClub),
+                          _dropdownField(
+                            label: 'Preferred Player Position',
+                            value: _preferredPosition,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'lead',
+                                child: Text('Lead'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'third',
+                                child: Text('Third'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'skip',
+                                child: Text('Skip'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value == null) return;
+                              setState(() {
+                                _preferredPosition = value;
+                              });
+                              _markDirty();
+                            },
                           ),
-                          DropdownMenuItem(
-                            value: 'admin',
-                            child: Text('Admin'),
-                          ),
+
+                          if (_canSeeAdminFields) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'Admin details',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            _dropdownField(
+                              label: 'Role',
+                              value: _role,
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'guest',
+                                  child: Text('Guest'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'member',
+                                  child: Text('Member'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'captain',
+                                  child: Text('Captain'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'selector',
+                                  child: Text('Selector'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'admin',
+                                  child: Text('Admin'),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _role = value;
+                                });
+                                _markDirty();
+                              },
+                            ),
+
+                            CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Coach'),
+                              subtitle: const Text(
+                                'This member can act as a club coach.',
+                              ),
+                              value: _isCoach,
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _isCoach = value;
+                                });
+                                _markDirty();
+                              },
+                            ),
+
+                            if (_isCoach)
+                              _field('Coaching award', _coachingAward),
+                          ],
                         ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _role = value;
-                          });
-                          _markDirty();
-                        },
                       ),
-
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Coach'),
-                        subtitle: const Text(
-                          'This member can act as a club coach.',
-                        ),
-                        value: _isCoach,
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _isCoach = value;
-                          });
-                          _markDirty();
-                        },
-                      ),
-
-                      if (_isCoach) _field('Coaching award', _coachingAward),
-                    ],
-                  ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
         ),
       ),
     );

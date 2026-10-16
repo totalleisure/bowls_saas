@@ -7,6 +7,9 @@ $paths = @(@(Get-ChildItem -LiteralPath $prodRoot -Recurse -Filter *.dart | ForE
 $differences = @()
 foreach ($relative in $paths) {
  if ($relative -in $allowed) { continue }
+ # This helper isolates staging sessions and deliberately has no production copy.
+ if ($relative -eq 'features\auth\staging_session_storage.dart' -and
+     !(Test-Path -LiteralPath (Join-Path $prodRoot $relative))) { continue }
  $p = Join-Path $prodRoot $relative
  $s = Join-Path $stageRoot $relative
  if (!(Test-Path -LiteralPath $p) -or !(Test-Path -LiteralPath $s)) { $differences += $relative; continue }

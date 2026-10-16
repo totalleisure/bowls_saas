@@ -26,6 +26,50 @@ Map<String, dynamic> payload({bool vacant = false}) => {
 };
 
 void main() {
+  test('PDF data retains draft and published selection status', () {
+    for (final status in ['draft', 'published']) {
+      final input = payload();
+      (input['team_selection'] as Map<String, dynamic>)['status'] = status;
+      expect(TeamSheetBuilderService.buildFromAuthorizedPayload(input).data.selectionStatus, status);
+    }
+  });
+  test('team sheet retains blank, zero and GBP fees from its authorized payload', () {
+    for (final fee in [null, 0, 750]) {
+      final input = payload();
+      input['fixture'] = <String, dynamic>{
+        ...input['fixture'] as Map<String, dynamic>,
+        'match_fee_pence': fee,
+      };
+      expect(TeamSheetBuilderService.buildFromAuthorizedPayload(input).data.matchFeePence, fee);
+    }
+  });
+  test('six full teams and two reserve rows fit on the first A4 page', () async {
+    final data = TeamSheetData(
+      clubName: 'Lewisham and Crystal Palace Indoor Bowls Club',
+      opponentName: 'Bromley Town Bowling Club',
+      startAt: DateTime.utc(2026, 10, 30, 14),
+      isHome: true, venueName: 'Main Indoor Green', section: 'mixed',
+      rinksRequired: 6, playersPerRink: 4, dress: 'Club shirts and whites',
+      matchFeePence: 750,
+      captainName: 'Captain Full Name', captainEmail: 'captain@example.com',
+      captainPhone: '07700 900123', viceName: 'Vice Captain Full Name',
+      viceEmail: 'vice@example.com', vicePhone: '07700 900456',
+      fixtureTypeName: 'Friendly Weekend Fixture', selectionMode: 'selection',
+      notes: 'Please arrive thirty minutes before the match.',
+      primaryColor: 0xff345678, secondaryColor: 0xffddeeff,
+      rinks: List.generate(6, (i) => TeamSheetRink(
+        rinkNumber: i + 1, playersPerRink: 4,
+        players: List.generate(4, (j) => 'Player ${i + 1} ${j + 1} Full Name'),
+      )),
+      reserves: List.generate(6, (i) => 'Reserve ${i + 1} Full Name'),
+    );
+    final bytes = await buildTeamSheetPdf(data);
+    final text = String.fromCharCodes(bytes);
+    await Directory('outputs').create(recursive: true);
+    await File('outputs/six-team-sheet.pdf').writeAsBytes(bytes);
+    expect(RegExp(r'/Type\s*/Page\b').allMatches(text).length, 1);
+  });
+
   test('mixed formats retain each team size and all players', () async {
     final data = TeamSheetBuilderService.buildFromAuthorizedPayload(payload()).data;
     expect(data.rinks.map((r) => r.playersPerRink), [3, 2]);

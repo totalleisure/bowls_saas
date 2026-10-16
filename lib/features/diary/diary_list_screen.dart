@@ -1,3 +1,4 @@
+import '../fixtures/next_fixture_reminder_button.dart';
 import 'diary_involvement.dart';
 import '../communications/club_options_button.dart';
 import 'dart:convert';
@@ -19,6 +20,7 @@ class DiaryListScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
   final DateTime initialDate;
+  final bool showNextMatchOnOpen;
   // Injection points keep the date navigation and filtering testable offline.
   final Future<List<Map<String, dynamic>>> Function(DateTime, DateTime)?
   entriesLoader;
@@ -34,6 +36,7 @@ class DiaryListScreen extends StatefulWidget {
     required this.clubId,
     required this.clubName,
     required this.initialDate,
+    this.showNextMatchOnOpen = false,
     this.entriesLoader,
     this.typesLoader,
     this.teamsLoader,
@@ -471,6 +474,9 @@ class _DiaryListScreenState extends State<DiaryListScreen> {
             onPressed: _busy ? null : (_ready ? _reload : _initialise),
             icon: const Icon(Icons.refresh),
           ),
+          NextFixtureReminderButton(
+            clubId: widget.clubId, clubName: widget.clubName,
+            showOnOpen: widget.showNextMatchOnOpen),
           ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
         ],
         bottom: DiaryViewBar(

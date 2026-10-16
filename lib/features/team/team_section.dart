@@ -28,6 +28,7 @@ class TeamSection extends StatefulWidget {
 
 class _TeamSectionState extends State<TeamSection> {
   bool _loading = true;
+  bool _refreshing = false;
   String? _error;
 
   String? _selectionId;
@@ -56,11 +57,12 @@ class _TeamSectionState extends State<TeamSection> {
     _load();
   }
 
-  Future<void> _load() async {
-    if (!mounted) return;
+  Future<void> _load({bool showLoading = true}) async {
+    if (!mounted || _refreshing) return;
 
     setState(() {
-      _loading = true;
+      if (showLoading) _loading = true;
+      _refreshing = true;
       _error = null;
     });
 
@@ -188,9 +190,16 @@ class _TeamSectionState extends State<TeamSection> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        if (showLoading) _error = e.toString();
         _loading = false;
       });
+      if (!showLoading) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not refresh the team. Please try again.'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
     }
   }
 
@@ -209,7 +218,7 @@ class _TeamSectionState extends State<TeamSection> {
 
     // First update the local Team card. Then tell the parent fixture screen
     // to refresh all data derived from team selection and publication state.
-    await _load();
+    await _load(showLoading: false);
 
     if (!mounted) return;
     final onTeamChanged = widget.onTeamChanged;
@@ -366,13 +375,7 @@ class _TeamSectionState extends State<TeamSection> {
           subtitle: Text(_error!),
           trailing: IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () async {
-              await _load();
-              final onTeamChanged = widget.onTeamChanged;
-              if (mounted && onTeamChanged != null) {
-                await onTeamChanged();
-              }
-            },
+            onPressed: _refreshing ? null : () => _load(),
           ),
         ),
       );
@@ -417,13 +420,7 @@ class _TeamSectionState extends State<TeamSection> {
                       IconButton(
                         tooltip: 'Refresh team',
                         icon: const Icon(Icons.refresh),
-                        onPressed: () async {
-                          await _load();
-                          final onTeamChanged = widget.onTeamChanged;
-                          if (mounted && onTeamChanged != null) {
-                            await onTeamChanged();
-                          }
-                        },
+                        onPressed: _refreshing ? null : () => _load(showLoading: false),
                       ),
                       if (hasSelection)
                         IconButton(

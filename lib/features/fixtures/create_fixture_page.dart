@@ -16,6 +16,7 @@ import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 import 'fixture_details_page.dart';
 import 'repeat_fixture_planner_page.dart';
 import 'widgets/venue_picker_header.dart';
+import 'widgets/match_fee_field.dart';
 import 'repeat_fixture_setup.dart';
 import '../clubs/club_access.dart';
 
@@ -152,6 +153,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   // Defaults requested
   int _rinksRequired = 6;
+  final _matchFeeCtrl = TextEditingController();
   int _playersPerRink = 4;
   String _format = 'rinks';
   String _dressCode = 'open';
@@ -200,6 +202,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     _notesCtrl.removeListener(_markDirty);
     _teamNameCtrl.dispose();
     _notesCtrl.dispose();
+    _matchFeeCtrl.dispose();
     super.dispose();
   }
 
@@ -511,9 +514,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     required List<Map<String, dynamic>> teamSelectionMembers,
   }) async {
     final result = await _client.rpc(
-      'create_fixture_with_setup_v2',
+      'create_fixture_with_match_fee',
       params: {
         'p_club_id': widget.clubId,
+        'p_match_fee_pence': parseMatchFeePence(_matchFeeCtrl.text),
         'p_start_at': clubTimeToUtc(startAtLocal).toIso8601String(),
         'p_end_at': clubTimeToUtc(endAtLocal).toIso8601String(),
         'p_is_home': isHome,
@@ -5549,6 +5553,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
                               await _loadRinkAvailability();
                             },
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+
+                        if (!_isEventStyleFixture) ...[
+                          MatchFeeField(
+                            controller: _matchFeeCtrl,
+                            onChanged: (_) => _markDirty(),
                           ),
                           const SizedBox(height: 20),
                         ],

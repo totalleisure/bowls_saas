@@ -2,7 +2,6 @@ import { parseResponse } from "./response_parser.ts";
 import { candidate, correlate, automated, header, buildReminderHtml, responseTokenHash } from "./written_reply.ts";
 import type { Mail } from "./written_reply.ts";
 import type { ResponseMessage } from "./response_parser.ts";
-import { verifySentReminder } from "./verify_reminder.ts";
 
 type GraphMessage = ResponseMessage & Mail & {
   id?: string;
@@ -126,8 +125,8 @@ export async function handleRequest(req: Request, dependencies: {
 
   const authorization = req.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return json(401, { error: "Server authorization required" });
-  if (supabaseUrl !== "https://egxdkaotepgfjmszxlyn.supabase.co" || mailbox !== "bowls-staging@totalleisure.com") {
-    return json(403, { error: "Staging project and mailbox required" });
+  if (supabaseUrl !== "https://xfjelvvfoguzukgvxchh.supabase.co" || mailbox !== "bowls@totalleisure.com") {
+    return json(403, { error: "Production project and mailbox required" });
   }
   if (authorization !== `Bearer ${serviceRoleKey}`) {
     // Let PostgREST verify a rotated/legacy worker JWT cryptographically. This
@@ -140,6 +139,11 @@ export async function handleRequest(req: Request, dependencies: {
       if (!worker.ok) return json(401, { error: "Server authorization required" });
     } catch { return json(503, { error: "Worker authorization unavailable" }); }
   }
+  const input = await req.json().catch(() => ({}));
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+      (input.mode !== undefined && input.mode !== "verify")) {
+    return json(400, { error: "Unsupported worker mode" });
+  }
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   try {
@@ -148,7 +152,6 @@ export async function handleRequest(req: Request, dependencies: {
       .select("*").eq("mailbox",mailbox).maybeSingle();
     if (configError) throw new Error("Unable to read written reply settings");
     // A read-only deployment probe never scans or processes messages.
-    const input = await req.json().catch(() => ({}));
     if (input.mode === "verify") {
       const check = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/mailFolders/inbox?$select=id`,
         { headers: { Authorization: `Bearer ${graphToken}` } });
@@ -156,34 +159,6 @@ export async function handleRequest(req: Request, dependencies: {
       return json(200, { success:true, mailbox, written_replies_enabled:!!config?.enabled,
         allowed_recipients:config?.reminder_recipients?.length ?? 0, mode:"verify" });
     }
-    if (input.mode === "verify_test_reminder") {
-      try { return json(200, await verifySentReminder(input.request_id,mailbox,graphToken,supabase,fetch)); }
-      catch { return json(500, {error:"Unable to verify sent test reminder"}); }
-    }
-    if (!config?.enabled) return json(409, { error: "Staging receipt tests are disabled" });
-    if (input.mode === "send_test_selection") {
-      const { data: email, error } = await supabase.from("email_queue")
-        .select("id,recipient_email,subject,body,payload,status").eq("id", input.email_queue_id).maybeSingle();
-      if (error || email?.payload?.written_reply_test !== true ||
-          email?.recipient_email !== "wayne@totalleisure.com" || email?.status !== "pending") {
-        return json(400, { error:"A pending Wayne-only synthetic test email is required" });
-      }
-      const { data: claimed, error: claimError } = await supabase.from("email_queue")
-        .update({status:"processing",processing_started_at:new Date().toISOString()})
-        .eq("id",email.id).eq("status","pending").select("id");
-      if (claimError || claimed?.length !== 1) return json(409,{error:"Test email already claimed"});
-      const sent = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/sendMail`, {
-        method:"POST",headers:{Authorization:`Bearer ${graphToken}`,"Content-Type":"application/json"},
-        body:JSON.stringify({message:{subject:email.subject,body:{contentType:"HTML",content:email.body},
-          toRecipients:[{emailAddress:{address:"wayne@totalleisure.com"}}]},saveToSentItems:true})
-      });
-      if (sent.status !== 202) throw new Error(`Test email send failed (${sent.status}); do not automatically retry`);
-      const { error: saveError } = await supabase.from("email_queue")
-        .update({status:"sent",sent_at:new Date().toISOString()}).eq("id",email.id);
-      if (saveError) throw new Error("Test email accepted by Graph; delivery record needs review");
-      return json(200,{success:true,recipient:"wayne@totalleisure.com",mode:"send_test_selection"});
-    }
-
     const { data: state, error: stateError } = await supabase
       .from("email_inbox_sync_state")
       .select("*")
@@ -237,12 +212,11 @@ export async function handleRequest(req: Request, dependencies: {
           graphToken,
           fetch,
         );
-        // The staging pilot gates ALL actions, including explicit commands, so
-        // an old delta cursor can never replay historic member responses.
+        // Ordinary replies do not depend on written-reminder activation or its
+        // recipient list. The response RPC validates sender, credential, expiry
+        // and duplicates against the original request.
         const received = Date.parse(completeMessage.receivedDateTime ?? "");
-        if (!Number.isFinite(received) || received < Date.parse(config.enabled_at) ||
-            received > Date.now() + 300000 ||
-            !config.reminder_recipients.includes(String(completeMessage.from?.emailAddress?.address ?? "").trim().toLowerCase())) continue;
+        if (!Number.isFinite(received) || received > Date.now() + 300000) continue;
         if (automated(completeMessage, mailbox)) continue;
         const parsed = parseResponse(completeMessage);
         if (!parsed) {

@@ -1,8 +1,8 @@
-import 'dart:io';
+import 'release_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
-String source(String path) => File(path).readAsStringSync();
+String source(String path) => releaseSource(path);
 
 void main() {
   const migration =
@@ -39,9 +39,9 @@ void main() {
   test('unauthorised and event views skip diagnostics', () {
     final page = source('lib/features/fixtures/fixture_details_page.dart');
     expect(
-      page,
+      page.replaceAll(RegExp(r'\s+'), ' '),
       contains(
-        'if (_isEventStyleFixture || !_canViewFixtureMaintenanceStatus)',
+        "if (_isEventStyleFixture || _selectedCompetitionSelectionMode == 'open' || !_canViewFixtureMaintenanceStatus)",
       ),
     );
     expect(page, contains('_readiness = null'));

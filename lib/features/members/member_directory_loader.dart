@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 const memberSelection =
     'member_profile_id, role, is_active, is_coach, coaching_award, '
     'member_profiles('
-    'email_address, first_name, last_name, display_name, phone, home_phone, office_phone, '
+    'is_captain_managed, email_address, first_name, last_name, display_name, phone, home_phone, office_phone, '
     'address_line1, address_line2, town_city, county, postcode, '
     'title, outdoor_club, gender, gender_self_described, sex_at_birth, preferred_position, '
     'show_mobile_in_directory, show_home_phone_in_directory, show_office_phone_in_directory, '

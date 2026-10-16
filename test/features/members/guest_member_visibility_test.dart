@@ -61,6 +61,8 @@ void main() {
     ).readAsStringSync();
     expect(source, contains('final access = await loadClubAccess('));
     expect(source, contains("_isGuest = access.membershipRole == 'guest'"));
-    expect(source, contains(".eq('member_profile_id', myProfileId)"));
+    expect(source, contains('onlyMemberProfileId: _isGuest ? myProfileId : null'));
+    final loader = File('lib/features/members/member_directory_loader.dart').readAsStringSync();
+    expect(loader, contains("query.eq('member_profile_id', onlyMemberProfileId)"));
   });
 }

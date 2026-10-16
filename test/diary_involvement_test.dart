@@ -50,6 +50,41 @@ Map<String, dynamic> fixture(
 };
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('reminder lookup combines scoped pending and accepted fixtures by date', () async {
+    final client = SupabaseClient('https://example.supabase.co', 'test',
+      httpClient: MockClient((req) async {
+        final q = req.url.queryParameters;
+        final details = req.url.path.endsWith('/fixtures');
+        if (details) {
+          expect(q['club_id'], 'eq.club');
+          expect(q['id'], contains('pending'));
+          expect(q['id'], isNot(contains('distant-pending')));
+          expect(q['select'], contains('address_line1'));
+        } else {
+          expect(q['member_profile_id'], 'eq.me');
+          expect(q['is_selected'], 'eq.true');
+          expect(q['acceptance'], 'in.("accepted","pending")');
+          expect(q['team_selections.status'], 'eq.published');
+          expect(q['team_selections.fixture.club_id'], 'eq.club');
+          expect(q['team_selections.fixture.cancelled_at'], 'is.null');
+        }
+        final data = details ? [
+          fixture('accepted', date: '2026-10-16T12:00:00Z'),
+          fixture('pending', date: '2026-10-13T12:00:00Z'),
+        ] : [
+          selection('accepted', date: '2026-10-16T12:00:00Z'),
+          selection('pending', date: '2026-10-13T12:00:00Z', acceptance: 'pending'),
+          selection('distant-pending', date: '2026-10-20T12:00:00Z', acceptance: 'pending'),
+        ];
+        return http.Response(jsonEncode(data), 200, request: req,
+          headers: {'content-range': '0-${data.length - 1}/${data.length}'});
+      }));
+    addTearDown(client.dispose);
+    final rows = await DiaryInvolvementRepository(client, 'club', memberIdLoader: () async => 'me')
+      .reminders(DateTime.utc(2026, 10, 10, 12));
+    expect(rows.map((f) => f['id']), ['pending', 'accepted']);
+    expect(rows.first['_reminderAcceptance'], 'pending');
+  });
   test(
     'published involvement distinguishes player, reserve and acceptance; hides drafts, declined, unselected and cancelled',
     () {

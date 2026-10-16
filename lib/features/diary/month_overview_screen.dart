@@ -1,3 +1,4 @@
+import '../fixtures/next_fixture_reminder_button.dart';
 import '../communications/club_options_button.dart';
 import 'diary_view_bar.dart';
 import 'package:flutter/material.dart';
@@ -16,11 +17,13 @@ class MonthOverviewScreen extends StatefulWidget {
     required this.clubId,
     required this.clubName,
     required this.initialDate,
+    this.showNextMatchOnOpen = false,
   });
 
   final String clubId;
   final String clubName;
   final DateTime initialDate;
+  final bool showNextMatchOnOpen;
 
   @override
   State<MonthOverviewScreen> createState() => _MonthOverviewScreenState();
@@ -245,7 +248,10 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
         appBar: AppBar(
           title: const Text('Monthly Diary'),
           actions: [
-            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+            NextFixtureReminderButton(
+            clubId: widget.clubId, clubName: widget.clubName,
+            showOnOpen: widget.showNextMatchOnOpen),
+          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
           ],
         ),
         body: const Center(child: CircularProgressIndicator()),
@@ -257,7 +263,10 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
         appBar: AppBar(
           title: const Text('Monthly Diary'),
           actions: [
-            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+            NextFixtureReminderButton(
+            clubId: widget.clubId, clubName: widget.clubName,
+            showOnOpen: widget.showNextMatchOnOpen),
+          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
           ],
         ),
         body: Padding(
@@ -271,6 +280,9 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
       appBar: AppBar(
         toolbarHeight: 44,
         actions: [
+          NextFixtureReminderButton(
+            clubId: widget.clubId, clubName: widget.clubName,
+            showOnOpen: widget.showNextMatchOnOpen),
           ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
         ],
         bottom: DiaryViewBar(

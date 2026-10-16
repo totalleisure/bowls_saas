@@ -1,8 +1,8 @@
+import '../fixtures/widgets/fixture_response_panel.dart';
 import '../dashboard/dashboard_filter_store.dart';
 // Dashboard venue navigation + approximate distance: 20260730-phase2d2-distance.
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart';
 import 'dart:async';
 
 import 'club_home_screen.dart';
@@ -19,6 +19,7 @@ import '../dashboard/dashboard_filter_screen.dart';
 import '../fixtures/fixtures_screen.dart';
 import '../../core/utils/hex_color.dart';
 import '../../core/utils/date_format.dart';
+import '../fixtures/next_fixture_reminder.dart';
 import '../../models/dashboard_fixture_filter.dart';
 import '../../services/device_location_service.dart';
 import '../../services/venue_actions_service.dart';
@@ -78,6 +79,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   List<Map<String, dynamic>> _toRsvp = [];
   List<Map<String, dynamic>> _awaitingSelection = [];
   List<Map<String, dynamic>> _needsAcceptance = [];
+  List<Map<String, dynamic>> _pendingReminderFixtures = [];
   List<Map<String, dynamic>> _upcomingAccepted = [];
   List<Map<String, dynamic>> _fixturesManaging = [];
   List<Map<String, dynamic>> _openSessionsAndEvents = [];
@@ -150,20 +152,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         .toString()
         .toLowerCase()
         .trim();
-  }
-
-  String _timeUntilFixture(String isoUtc) {
-    final start = parseClubTime(isoUtc);
-    final diff = start.difference(DateTime.now());
-
-    if (diff.inDays >= 2) return '${diff.inDays} days time';
-    if (diff.inDays == 1) return '1 day time';
-
-    final hours = diff.inHours;
-    final mins = diff.inMinutes.remainder(60);
-
-    if (hours > 0) return '$hours hours $mins mins time';
-    return '$mins mins time';
   }
 
   bool _isOpenSessionFixture(Map<String, dynamic> fixture) {
@@ -351,45 +339,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     return labels;
   }
 
-  Map<String, dynamic>? _asVenueMap(dynamic value) {
-    if (value is Map<String, dynamic>) return value;
-    if (value is Map) return Map<String, dynamic>.from(value);
-    return null;
-  }
-
-  bool _fixtureIsHome(Map<String, dynamic> fixture) {
-    final raw = fixture['is_home'];
-
-    if (raw is bool) return raw;
-    if (raw is num) return raw != 0;
-
-    final value = (raw ?? '').toString().trim().toLowerCase();
-    if (value == 'true' || value == '1' || value == 'yes') return true;
-    if (value == 'false' || value == '0' || value == 'no') return false;
-
-    return true;
-  }
-
-  bool _venueHasIdentity(Map<String, dynamic>? venue) {
-    if (venue == null) return false;
-
-    return VenueActionsService.text(venue['id']).isNotEmpty ||
-        VenueActionsService.text(venue!['name']).isNotEmpty ||
-        VenueActionsService.hasAddress(venue) ||
-        VenueActionsService.canNavigate(venue);
-  }
-
-  Map<String, dynamic>? _physicalVenueForFixture(Map<String, dynamic> fixture) {
-    final homeVenue = _asVenueMap(fixture['venue']);
-    final opponentVenue = _asVenueMap(fixture['opponent_venue']);
-
-    if (_isEventStyleFixture(fixture) || _fixtureIsHome(fixture)) {
-      return _venueHasIdentity(homeVenue) ? homeVenue : null;
-    }
-
-    if (_venueHasIdentity(opponentVenue)) return opponentVenue;
-    return _venueHasIdentity(homeVenue) ? homeVenue : null;
-  }
+  Map<String, dynamic>? _physicalVenueForFixture(Map<String, dynamic> fixture) =>
+      VenueActionsService.fixtureVenue(fixture);
 
   bool _fixtureHasCoordinates(Map<String, dynamic> fixture) {
     final venue = _physicalVenueForFixture(fixture);
@@ -1033,7 +984,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         if (!_isEligibleForFixtureSection(f)) return false;
 
-        return matchesDashboardFilter(f);
+        return matchesDashboardFilter(f, protectedSection: !myAvailabilityByFixtureId.containsKey(f['id']));
       }).toList();
 
       final canManagePreselect = _isSuperuser || _isClubAdmin || _isSelector;
@@ -1267,6 +1218,13 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         _toRsvp = toRsvp;
         _awaitingSelection = awaitingSelection;
+        _pendingReminderFixtures = [
+          for (final row in rawNeeds)
+            if ((row['team_selections'] as Map?)?['status'] == 'published' &&
+                ((row['team_selections'] as Map?)?['fixture'] as Map?)?['club_id'] == widget.clubId)
+              {...Map<String, dynamic>.from((row['team_selections'] as Map)['fixture'] as Map),
+                '_reminderAcceptance': 'pending'},
+        ];
         _needsAcceptance = needsAcceptance;
         _upcomingAccepted = upcomingAccepted;
         _fixturesManaging = fixturesManaging;
@@ -1339,6 +1297,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         'fixture_id': fixtureId,
         'member_profile_id': myId,
         'status': status,
+        'responded_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'fixture_id,member_profile_id');
 
       await _load();
@@ -1378,315 +1337,18 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     }
   }
 
-  Future<void> _showNextFixturePopup() async {
-    if (!mounted) return;
-
-    final fixture = _nextMatch;
-
-    if (fixture == null) {
-      if (_toRsvp.isEmpty) return;
-
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          backgroundColor: Colors.lightBlue.shade50,
-          title: const Text('Fixtures available'),
-          content: Text(
-            _toRsvp.length == 1
-                ? 'You have 1 fixture available to Sign Up to (RSVP).\n\n'
-                      'If you wish to play, click the fixture and select your availability.'
-                : 'You have ${_toRsvp.length} fixtures available to Sign Up to (RSVP).\n\n'
-                      'If you wish to play, click a fixture and select your availability.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-
-      return;
-    }
-
-    final isCancelled = fixture['cancelled_at'] != null;
-
-    final bg = isCancelled
-        ? Colors.grey.shade300
-        : (_fixtureTypeBackgroundColor(fixture) ?? Colors.white);
-
-    final fg = isCancelled
-        ? Colors.grey.shade800
-        : (_fixtureTypeForegroundColor(fixture) ?? Colors.black87);
-
-    final title = fixtureTitleUnified(fixture, myClubName: _myClubName);
-
-    final startsIn = _timeUntilFixture(fixture['start_at'].toString());
-
-    final startAt = parseClubTime(fixture['start_at'].toString());
-
-    final formattedStart = DateFormat(
-      'EEEE d MMMM yyyy • HH:mm',
-    ).format(startAt);
-
-    final venue = _physicalVenueForFixture(fixture);
-    final venueName = VenueActionsService.text(venue?['name']);
-    final address = venue == null ? '' : VenueActionsService.address(venue);
-
-    final hasVenue = venueName.isNotEmpty || address.isNotEmpty;
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(18),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Material(
-                color: bg,
-                borderRadius: BorderRadius.circular(28),
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (isCancelled) ...[
-                        Text(
-                          'CANCELLED',
-                          style: TextStyle(
-                            color: Colors.grey.shade900,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 26,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'This fixture was due in $startsIn',
-                          style: TextStyle(
-                            color: fg,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ] else
-                        Text(
-                          'Your next match is in $startsIn',
-                          style: TextStyle(
-                            color: fg,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 26,
-                          ),
-                        ),
-
-                      const SizedBox(height: 18),
-
-                      Text(
-                        title,
-                        style: TextStyle(
-                          color: fg,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 18,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      Text(formattedStart, style: TextStyle(color: fg)),
-
-                      if (!isCancelled) ...[
-                        const SizedBox(height: 14),
-                        Text(
-                          'Special instructions: none at the moment',
-                          style: TextStyle(color: fg),
-                        ),
-                      ],
-
-                      if (hasVenue) ...[
-                        const SizedBox(height: 18),
-                        Text(
-                          'Location',
-                          style: TextStyle(
-                            color: fg,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-
-                        if (venueName.isNotEmpty)
-                          Text(
-                            venueName,
-                            style: TextStyle(
-                              color: fg,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-
-                        if (address.isNotEmpty) ...[
-                          const SizedBox(height: 3),
-                          Text(address, style: TextStyle(color: fg)),
-                        ],
-
-                        if (!isCancelled) ...[
-                          const SizedBox(height: 12),
-                          _buildFixtureTravelActions(
-                            fixture: fixture,
-                            foregroundColor: fg,
-                          ),
-                        ],
-                      ],
-
-                      const SizedBox(height: 18),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () async {
-                              Navigator.pop(dialogContext);
-
-                              await _openFixtureById(
-                                fixture['id']?.toString() ?? '',
-                              );
-                            },
-                            child: Text(
-                              'View fixture',
-                              style: TextStyle(
-                                color: fg,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          TextButton(
-                            onPressed: () => Navigator.pop(dialogContext),
-                            child: Text('OK', style: TextStyle(color: fg)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              if (_secondMatch != null)
-                _buildSecondMatchPopupCard(_secondMatch!),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSecondMatchPopupCard(Map<String, dynamic> fixture) {
-    final isCancelled = fixture['cancelled_at'] != null;
-
-    final bg = isCancelled
-        ? Colors.grey.shade300
-        : (_fixtureTypeBackgroundColor(fixture) ?? Colors.grey.shade100);
-
-    final fg = isCancelled
-        ? Colors.grey.shade800
-        : (_fixtureTypeForegroundColor(fixture) ?? Colors.black87);
-
-    final title = fixtureTitleUnified(fixture, myClubName: _myClubName);
-
-    final startsIn = _timeUntilFixture(fixture['start_at'].toString());
-
-    final startAt = parseClubTime(fixture['start_at'].toString());
-
-    final formattedStart = DateFormat(
-      'EEEE d MMMM yyyy • HH:mm',
-    ).format(startAt);
-
-    final venue = _physicalVenueForFixture(fixture);
-    final venueName = VenueActionsService.text(venue?['name']);
-
-    return SizedBox(
-      width: double.infinity,
-      child: Card(
-        color: bg,
-        elevation: 4,
-        margin: const EdgeInsets.only(top: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: () async {
-            Navigator.of(context).pop();
-
-            await _openFixtureById(fixture['id']?.toString() ?? '');
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (isCancelled) ...[
-                  Text(
-                    'CANCELLED',
-                    style: TextStyle(
-                      color: Colors.grey.shade900,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'This fixture was due in $startsIn',
-                    style: TextStyle(color: fg, fontWeight: FontWeight.w700),
-                  ),
-                ] else
-                  Text(
-                    'Also coming up in $startsIn',
-                    style: TextStyle(
-                      color: fg,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
-                  ),
-
-                const SizedBox(height: 8),
-
-                Text(
-                  title,
-                  style: TextStyle(color: fg, fontWeight: FontWeight.w700),
-                ),
-
-                const SizedBox(height: 6),
-
-                Text(formattedStart, style: TextStyle(color: fg)),
-
-                if (venueName.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(venueName, style: TextStyle(color: fg)),
-                ],
-
-                if (!isCancelled) ...[
-                  const SizedBox(height: 10),
-                  _buildFixtureTravelActions(
-                    fixture: fixture,
-                    foregroundColor: fg,
-                  ),
-                ],
-
-                if (isCancelled) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    'Tap to view cancellation details',
-                    style: TextStyle(color: fg, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Future<void> _showNextFixturePopup() => NextFixtureReminder(
+    context: context,
+    clubName: _myClubName,
+    nextMatch: _nextMatch,
+    secondMatch: _secondMatch,
+    fixtures: _pendingReminderFixtures,
+    rsvpCount: _toRsvp.length,
+    openFixture: _openFixtureById,
+    venueResolver: _physicalVenueForFixture,
+    travelBuilder: (fixture, colour) => _buildFixtureTravelActions(
+      fixture: fixture, foregroundColor: colour),
+  ).show();
 
   Widget _buildSectionHeader(String title) {
     return Padding(
@@ -1791,8 +1453,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                         Expanded(
                           child: Text(
                             title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            softWrap: true,
                             style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(
                                   color: foregroundColor,
@@ -1836,7 +1497,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                         ),
                       )
                     else
-                      Row(
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'Availability:',
@@ -1846,9 +1508,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                                   fontWeight: FontWeight.w600,
                                 ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Wrap(
+                          const SizedBox(height: 8),
+                          Wrap(
                               spacing: 8,
                               runSpacing: 8,
                               children: [
@@ -1865,7 +1526,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                                   onTap: onNotAvailableTap,
                                 ),
                               ],
-                            ),
                           ),
                         ],
                       ),
@@ -1873,11 +1533,6 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                 ),
               ),
             ),
-
-            if (trailing != null) ...[
-              const SizedBox(width: 8),
-              Center(child: trailing),
-            ],
           ],
         ),
       ),
@@ -2190,47 +1845,18 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                   _buildEmptyState('   No upcoming fixtures to RSVP.')
                 else
                   ..._toRsvp.map((f) {
-                    final title = fixtureTitleUnified(
-                      f,
-                      myClubName: _myClubName,
-                    );
-                    final subtitle = fixtureSubtitleUnified(f);
                     final fixtureId = f['id']?.toString() ?? '';
                     final myStatus = _myAvailabilityByFixtureId[fixtureId];
 
-                    Widget trailing;
-                    if (myStatus == 'yes') {
-                      trailing = _buildResponsePill(
-                        label: 'Yes',
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                      );
-                    } else if (myStatus == 'maybe') {
-                      trailing = _buildResponsePill(
-                        label: 'Maybe',
-                        backgroundColor: Colors.amber,
-                        foregroundColor: Colors.black87,
-                      );
-                    } else if (myStatus == 'no') {
-                      trailing = _buildResponsePill(
-                        label: 'No',
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                      );
-                    } else {
-                      trailing = _buildResponsePill(
-                        label: 'Pending',
-                        backgroundColor: Colors.grey.shade300,
-                        foregroundColor: Colors.black87,
-                      );
-                    }
-                    return _buildFixtureCard(
-                      fixture: f,
-                      title: title,
-                      subtitle: subtitle,
-                      actionHint: 'Tap to RSVP',
-                      trailing: trailing,
+                    return UnifiedFixtureCard(
+                      key: ValueKey('dashboard-rsvp-$fixtureId'),
+                      fixture: f, myClubName: _myClubName,
                       onTap: () => _openFixtureById(fixtureId),
+                      responseBuilder: (foreground) => FixtureResponsePanel(
+                        embedded: true, foregroundColor: foreground,
+                        status: myStatus,
+                        onResponse: (status) => _setTeamAvailability(fixtureId, status),
+                      ),
                     );
                   }),
 

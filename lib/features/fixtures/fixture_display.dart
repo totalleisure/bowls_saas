@@ -149,6 +149,7 @@ class UnifiedFixtureCard extends StatelessWidget {
     required this.onTap,
     this.actionHint,
     this.trailing,
+    this.responseBuilder,
     this.margin = const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
   });
 
@@ -157,6 +158,8 @@ class UnifiedFixtureCard extends StatelessWidget {
   final VoidCallback onTap;
   final String? actionHint;
   final Widget? trailing;
+  /// Supplied only when the caller determines a player response is permitted.
+  final Widget Function(Color foreground)? responseBuilder;
   final EdgeInsetsGeometry margin;
 
   Color _colourFromHex(String? hex, Color fallback) {
@@ -299,8 +302,7 @@ class UnifiedFixtureCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      softWrap: true,
                       style: TextStyle(
                         color: foreground,
                         fontWeight: FontWeight.w600,
@@ -362,6 +364,11 @@ class UnifiedFixtureCard extends StatelessWidget {
                   trailing ?? Icon(Icons.chevron_right, color: foreground),
                 ],
               ),
+
+              if (!isCancelled && responseBuilder != null) ...[
+                Divider(color: foreground.withValues(alpha: 0.25)),
+                responseBuilder!(foreground),
+              ],
 
               if (actionHint != null && actionHint!.trim().isNotEmpty) ...[
                 const SizedBox(height: 3),

@@ -1,3 +1,4 @@
+import 'mail_attachments.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -22,6 +23,8 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
   final _subjectController = TextEditingController();
   final _messageController = TextEditingController();
 
+  List<MailAttachment> _attachments = [];
+  bool _readingAttachments = false;
   bool _loading = true;
   bool _sending = false;
   bool _listIsActive = false;
@@ -179,6 +182,11 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                   Text('Active list members: $_activeMemberCount'),
                   Text('App messages to create: $appCount'),
                   Text('Emails to queue: $emailCount'),
+                  if (_attachments.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text('Attachments included with each email:'),
+                    for (final item in _attachments) Text(item.name),
+                  ],
                   if (_sendEmail && _membersWithoutEmail > 0) ...[
                     const SizedBox(height: 8),
                     Text(
@@ -212,7 +220,7 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
   }
 
   Future<void> _send() async {
-    if (_sending || _loading) return;
+    if (_sending || _loading || _readingAttachments) return;
 
     final subject = _subjectController.text.trim();
     final message = _messageController.text.trim();
@@ -259,8 +267,19 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
       return;
     }
 
+    if (_attachments.isNotEmpty && !_sendEmail) {
+      setState(
+        () => _error = 'Enable email or remove the attachments before sending.',
+      );
+      return;
+    }
+    setState(() => _sending = true);
     final confirmed = await _confirmSend();
-    if (!confirmed || !mounted) return;
+    if (!mounted) return;
+    if (!confirmed) {
+      setState(() => _sending = false);
+      return;
+    }
 
     setState(() {
       _sending = true;
@@ -269,13 +288,14 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
 
     try {
       final rawResult = await Supabase.instance.client.rpc(
-        'queue_mailing_list_message',
+        'queue_mailing_list_message_with_attachments',
         params: {
           'p_mailing_list_id': widget.mailingListId,
           'p_subject': subject,
           'p_message': message,
           'p_send_app': _sendApp,
           'p_send_email': _sendEmail,
+          'p_attachments': _attachments.map((a) => a.toJson()).toList(),
         },
       );
 
@@ -362,7 +382,11 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
   @override
   Widget build(BuildContext context) {
     final canSend =
-        !_loading && !_sending && _listIsActive && _activeMemberCount > 0;
+        !_loading &&
+        !_sending &&
+        !_readingAttachments &&
+        _listIsActive &&
+        _activeMemberCount > 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -370,7 +394,9 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
         actions: [
           IconButton(
             tooltip: 'Refresh recipients',
-            onPressed: _loading || _sending ? null : _loadRecipientSummary,
+            onPressed: _loading || _sending || _readingAttachments
+                ? null
+                : _loadRecipientSummary,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -399,6 +425,8 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                 const SizedBox(height: 16),
                 TextField(
                   controller: _subjectController,
+                  enabled: !_sending,
+                  maxLength: 255,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: const InputDecoration(
                     labelText: 'Subject',
@@ -408,6 +436,8 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _messageController,
+                  enabled: !_sending,
+                  maxLength: 50000,
                   minLines: 8,
                   maxLines: 16,
                   textCapitalization: TextCapitalization.sentences,
@@ -440,7 +470,10 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                         title: const Text('Send email'),
                         subtitle: Text(_emailSummary),
                         value: _sendEmail,
-                        onChanged: _sending || _emailRecipientCount == 0
+                        onChanged:
+                            _sending ||
+                                _readingAttachments ||
+                                _emailRecipientCount == 0
                             ? null
                             : (value) {
                                 setState(() {
@@ -451,6 +484,12 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                       ),
                     ],
                   ),
+                ),
+                MailAttachmentsField(
+                  attachments: _attachments,
+                  enabled: !_sending && (_sendEmail || _attachments.isNotEmpty),
+                  onChanged: (items) => setState(() => _attachments = items),
+                  onBusy: (busy) => setState(() => _readingAttachments = busy),
                 ),
                 const SizedBox(height: 20),
                 FilledButton.icon(

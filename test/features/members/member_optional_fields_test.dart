@@ -153,16 +153,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<CheckboxListTile>(active).value, isFalse);
       final coach = find.widgetWithText(CheckboxListTile, 'Coach');
-      await tester.scrollUntilVisible(
-        coach,
-        300,
-        scrollable: find
-            .descendant(
-              of: find.byType(ListView),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
+      await tester.ensureVisible(coach);
       await tester.tap(coach);
       await tester.pumpAndSettle();
       expect(tester.widget<CheckboxListTile>(coach).value, isTrue);

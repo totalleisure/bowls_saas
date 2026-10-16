@@ -1,10 +1,11 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { deepStrictEqual as assertEquals } from "node:assert";
+import { test } from "node:test";
 import { parseResponse } from "./response_parser.ts";
 
 const code = "BWL-3304DABC4A08";
 const token = `RSP-${"A".repeat(48)}`;
 
-Deno.test("parses one explicit v2 response", () => {
+test("parses one explicit v2 response", () => {
   assertEquals(
     parseResponse({
       subject: `Bowls response: ACCEPT ${code} ${token}`,
@@ -19,7 +20,7 @@ Deno.test("parses one explicit v2 response", () => {
   );
 });
 
-Deno.test("parses one explicit legacy response", () => {
+test("parses one explicit legacy response", () => {
   assertEquals(
     parseResponse({ bodyText: `DECLINE ${code}` }),
     {
@@ -31,7 +32,7 @@ Deno.test("parses one explicit legacy response", () => {
   );
 });
 
-Deno.test("ignores a token found only in quoted history", () => {
+test("ignores a token found only in quoted history", () => {
   assertEquals(
     parseResponse({
       subject: "Fwd: Team selection",
@@ -42,7 +43,7 @@ Deno.test("ignores a token found only in quoted history", () => {
   );
 });
 
-Deno.test("ignores a command-shaped subject without a new body command", () => {
+test("ignores a command-shaped subject without a new body command", () => {
   assertEquals(
     parseResponse({
       subject: `RE: Bowls response: ACCEPT ${code} ${token}`,
@@ -52,7 +53,7 @@ Deno.test("ignores a command-shaped subject without a new body command", () => {
   );
 });
 
-Deno.test("rejects multiple newly authored response commands", () => {
+test("rejects multiple newly authored response commands", () => {
   assertEquals(
     parseResponse({
       bodyText: `ACCEPT ${code} ${token}\nDECLINE ${code} ${token}`,
@@ -61,7 +62,7 @@ Deno.test("rejects multiple newly authored response commands", () => {
   );
 });
 
-Deno.test("rejects disagreement between subject and body", () => {
+test("rejects disagreement between subject and body", () => {
   assertEquals(
     parseResponse({
       subject: `Bowls response: DECLINE ${code} ${token}`,
@@ -71,7 +72,7 @@ Deno.test("rejects disagreement between subject and body", () => {
   );
 });
 
-Deno.test("requires the command to be the first authored non-empty line", () => {
+test("requires the command to be the first authored non-empty line", () => {
   assertEquals(
     parseResponse({
       bodyText: `Hello bowls\nACCEPT ${code} ${token}`,

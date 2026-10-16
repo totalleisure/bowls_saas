@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,7 +13,11 @@ import '../../core/utils/date_format.dart';
 
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
+import 'password_recovery_progress.dart';
 import 'auth_failure_policy.dart';
+import 'account_username_service.dart';
+import 'saved_login_service.dart';
+import 'login_autofill_group.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -30,6 +35,9 @@ class _AuthScreenState extends State<AuthScreen> {
   final _password = TextEditingController();
   bool _obscurePassword = true;
   bool _loading = false;
+  bool _selectingSavedLogin = false;
+  bool _selectedSavedLogin = false;
+  bool _saveAppleLoginOnDispose = false;
   String _version = '';
   String _buildNumber = '';
   int _brandingSetNo = 0;
@@ -84,6 +92,9 @@ class _AuthScreenState extends State<AuthScreen> {
     Widget? suffixIcon,
     TextInputType? keyboardType,
     double height = 50,
+    Iterable<String>? autofillHints,
+    TextInputAction? textInputAction,
+    ValueChanged<String>? onSubmitted,
   }) {
     return SizedBox(
       height: height,
@@ -91,6 +102,13 @@ class _AuthScreenState extends State<AuthScreen> {
         controller: controller,
         obscureText: obscureText,
         keyboardType: keyboardType,
+        autofillHints: autofillHints,
+        textInputAction: textInputAction,
+        onSubmitted: onSubmitted,
+        onChanged: (_) => _selectedSavedLogin = false,
+        autocorrect: false,
+        enableSuggestions: false,
+        enableIMEPersonalizedLearning: false,
         style: const TextStyle(
           color: Color(0xFF0D47A1),
           fontWeight: FontWeight.w600,
@@ -256,6 +274,7 @@ class _AuthScreenState extends State<AuthScreen> {
   void initState() {
     super.initState();
     _loadAppInfo();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _resumePasswordRecovery());
     _loadRememberedBranding();
     //    debugPrint('kDebugMode: $kDebugMode');
     //    debugPrint('kProfileMode: $kProfileMode');
@@ -474,21 +493,42 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  Future<void> _resumePasswordRecovery() async {
+    final progress = await PasswordRecoveryProgress.read();
+    if (!mounted || progress == null) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    await _openForgotPassword();
+  }
+
   Future<void> _openForgotPassword() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ForgotPasswordScreen(initialEmail: _email.text.trim()),
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: _email.text.contains('@') ? _email.text.trim() : '',
+        ),
       ),
     );
   }
 
   Future<void> _signIn() async {
+    if (_loading || _selectingSavedLogin) return;
+    final identifier = _email.text.trim();
+    final password = _password.text;
     setState(() => _loading = true);
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: _email.text.trim(),
-        password: _password.text,
-      );
+      await AccountUsernameService(
+        Supabase.instance.client,
+      ).signIn(identifier, password);
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        // The auth gate removes the login form after success. Finish its native
+        // AutoFill context once at disposal; an explicit save followed by the
+        // group's cancellation can clear the password while iOS presents it.
+        _saveAppleLoginOnDispose = !_selectedSavedLogin;
+      } else if (_selectedSavedLogin) {
+        TextInput.finishAutofillContext(shouldSave: false);
+      } else {
+        await SavedLoginService.saveVerified(identifier, password);
+      }
     } catch (e) {
       if (mounted) setState(() => _loading = false);
       await _showAuthFailure(error: e, signingUp: false, retry: _signIn);
@@ -496,6 +536,49 @@ class _AuthScreenState extends State<AuthScreen> {
     } finally {
       if (mounted && _loading) setState(() => _loading = false);
     }
+  }
+
+  void _appleAutofilled(Set<String> hints) {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS ||
+        !mounted || _loading || _selectingSavedLogin ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        !hints.contains(AutofillHints.username) ||
+        !hints.contains(AutofillHints.password) ||
+        _email.text.trim().isEmpty || _password.text.isEmpty) return;
+    _selectedSavedLogin = true;
+    FocusManager.instance.primaryFocus?.unfocus();
+    _signIn();
+  }
+
+  Future<void> _useSavedLogin() async {
+    if (_loading || _selectingSavedLogin) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _selectingSavedLogin = true);
+    var signInWithSelection = false;
+    try {
+      final login = await SavedLoginService.select();
+      if (login == null || !mounted) return;
+      setState(() {
+        _email.text = login.identifier;
+        _password.text = login.password;
+        _obscurePassword = true;
+        _selectedSavedLogin = true;
+      });
+      signInWithSelection = true;
+    } on PlatformException catch (error) {
+      if (mounted && error.code != 'cancelled') {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          error.code == 'no_credentials'
+              ? 'No saved login matched this app. Sign in manually, then save your login when offered.'
+              : 'Your password manager is unavailable. Enter your details manually.')));
+      }
+    } on MissingPluginException {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Update this app to use the saved-login button.')));
+    } finally {
+      if (mounted) setState(() => _selectingSavedLogin = false);
+    }
+    if (signInWithSelection && mounted) await _signIn();
   }
 
   Widget _buildDebugQuickLoginList() {
@@ -653,13 +736,21 @@ class _AuthScreenState extends State<AuthScreen> {
                       top: topOffset,
                       left: leftOffset,
                       width: contentWidth,
-                      child: Column(
+                      child: LoginAutofillGroup(
+                        onAutofilled: _appleAutofilled,
+                        shouldSaveOnDispose: () => _saveAppleLoginOnDispose,
+                        onDisposeAction: AutofillContextAction.cancel,
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           _buildOverlayField(
                             controller: _email,
-                            hintText: 'Email address',
+                            hintText: AccountUsernameService.enabled
+                                ? 'Email or username'
+                                : 'Email address',
                             keyboardType: TextInputType.emailAddress,
+                            autofillHints: const [AutofillHints.username, AutofillHints.email],
+                            textInputAction: TextInputAction.next,
                             height: fieldHeight,
                           ),
                           const SizedBox(height: 12),
@@ -667,6 +758,9 @@ class _AuthScreenState extends State<AuthScreen> {
                             controller: _password,
                             hintText: 'Password',
                             obscureText: _obscurePassword,
+                            autofillHints: const [AutofillHints.password],
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _signIn(),
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscurePassword
@@ -682,6 +776,14 @@ class _AuthScreenState extends State<AuthScreen> {
                             height: fieldHeight,
                           ),
                           const SizedBox(height: 14),
+                          if (SavedLoginService.supported) ...[
+                            FilledButton.icon(
+                              onPressed: _loading || _selectingSavedLogin ? null : _useSavedLogin,
+                              icon: const Icon(Icons.key),
+                              label: Text(_selectingSavedLogin ? 'Opening password manager…' : 'Use saved login'),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
                           Row(
                             children: [
                               Expanded(
@@ -776,6 +878,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             _buildDebugQuickLoginList(),
                           ],
                         ],
+                        ),
                       ),
                     ),
                   ],

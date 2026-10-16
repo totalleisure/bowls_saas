@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'release_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -18,7 +18,7 @@ const correctiveMigrationPath =
     'supabase/migrations/20260904024935_correct_preselect_reselection_acceptance.sql';
 
 String source(String path) =>
-    File(path).readAsStringSync().replaceAll('\r\n', '\n').trim();
+    releaseSource(path).replaceAll('\r\n', '\n').trim();
 
 bool supportsSelectionAction(String role, int position, int playersPerRink) {
   if (role == 'player') return position >= 1 && position <= playersPerRink;
@@ -98,13 +98,22 @@ void main() {
     expect(reconcile, contains('or not exists'));
   });
 
-  test('reselection migration contains both canonical definitions exactly', () {
-    final expected =
-        '${source(savePreselectPath)}\n\n${source(reconcilePreselectPath)}';
-    expect(source(reselectionMigrationPath), expected);
+  test('historical reselection migration preserves response reset and reconciliation', () {
+    final sql = source(reselectionMigrationPath);
+    expect(sql, contains('when existing.is_selected = false'));
+    expect(sql, contains("then 'pending'::acceptance_status"));
+    expect(sql, contains("'app.preselect_reselected_member_ids'"));
+    expect(sql, contains('function public.reconcile_preselect_communications'));
+    expect(sql, contains("nq.event_type = 'fixture_selected'"));
   });
 
-  test('corrective migration contains the canonical save function exactly', () {
-    expect(source(correctiveMigrationPath), source(savePreselectPath));
+  test('later canonical save retains the correction and adds Guest exclusion', () {
+    final canonical = source(savePreselectPath);
+    // Later Guest hardening deliberately extended this immutable migration.
+    expect(RegExp("and lower\\(cm.role::text\\) <> 'guest'").allMatches(canonical), hasLength(2));
+    final beforeGuestHardening = canonical
+        .replaceAll(RegExp(r"^ +and lower\(cm.role::text\) <> 'guest'\n", multiLine: true), '')
+        .replaceAll('active non-Guest members', 'active members');
+    expect(beforeGuestHardening, source(correctiveMigrationPath));
   });
 }

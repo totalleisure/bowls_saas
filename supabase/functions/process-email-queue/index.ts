@@ -1,3 +1,4 @@
+import { isVerifiedWorker } from "./worker_auth.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -197,7 +198,12 @@ serve(async (req) => {
   const bearer = authorization.startsWith("Bearer ")
     ? authorization.substring(7).trim()
     : "";
-  const isServiceRoleCall = bearer === serviceRoleKey;
+  let isServiceRoleCall: boolean;
+  try {
+    isServiceRoleCall = await isVerifiedWorker(bearer, serviceRoleKey, supabaseUrl);
+  } catch {
+    return json(503, { error: "Worker authorization unavailable" });
+  }
 
   if (!isServiceRoleCall) {
     if (!requestedEmailQueueId || !bearer) {

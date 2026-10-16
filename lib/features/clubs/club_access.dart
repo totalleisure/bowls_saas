@@ -24,6 +24,9 @@ class ClubAccess {
 
   bool get canAdminManageFixtures => isSuperuser || isClubAdmin || isSelector;
 
+  bool get canViewTeams =>
+      isSuperuser || (hasActiveMembership && membershipRole != 'guest');
+
   bool get canCreateFixtures => canAdminManageFixtures;
 }
 
