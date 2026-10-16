@@ -527,7 +527,12 @@ class _AuthScreenState extends State<AuthScreen> {
       } else if (_selectedSavedLogin) {
         TextInput.finishAutofillContext(shouldSave: false);
       } else {
-        await SavedLoginService.saveVerified(identifier, password);
+        await SavedLoginService.saveVerified(
+          SavedLoginService.windows
+              ? Supabase.instance.client.auth.currentUser?.email ?? identifier
+              : identifier,
+          password,
+        );
       }
     } catch (e) {
       if (mounted) setState(() => _loading = false);

@@ -3,6 +3,7 @@ import 'package:bowls_saas/features/auth/recovery_password_form.dart';
 import 'package:bowls_saas/features/auth/login_autofill_group.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -14,12 +15,13 @@ void main() {
     WidgetTester tester,
     Future<void> Function(String) update, {
     VoidCallback? complete,
+    TargetPlatform platform = TargetPlatform.iOS,
   }) async {
     tester.view.physicalSize = const Size(393, 852);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    debugDefaultTargetPlatformOverride = platform;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     await tester.pumpWidget(
       MaterialApp(
@@ -125,6 +127,65 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     },
   );
+
+  for (final outcome in ['saved', 'declined', 'unavailable', 'rejected']) {
+    testWidgets('Windows recovery $outcome saves only after server success', (
+      tester,
+    ) async {
+      final response = Completer<void>();
+      final calls = <MethodCall>[];
+      const channel = MethodChannel('bowls/saved_login');
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call);
+          if (outcome == 'unavailable') {
+          throw PlatformException(code: 'unavailable');
+          }
+        return outcome == 'saved';
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+      await show(
+        tester,
+        (_) => response.future,
+        platform: TargetPlatform.windows,
+      );
+      await fill(tester, 'new-password', 'new-password');
+      await save(tester);
+      expect(calls, isEmpty);
+      if (outcome == 'rejected') {
+        response.completeError(const AuthException('Rejected'));
+      } else {
+        response.complete();
+      }
+      await tester.pumpAndSettle();
+      if (outcome == 'rejected') {
+        expect(calls, isEmpty);
+        expect(find.text('Password changed'), findsNothing);
+      } else {
+        expect(calls, hasLength(1));
+        expect(calls.single.method, 'save');
+        expect(calls.single.arguments['identifier'], 'member@example.test');
+        expect(calls.single.arguments['password'], 'new-password');
+        expect(calls.single.arguments['resource'], isNotEmpty);
+        expect(find.text('Password changed'), findsOneWidget);
+        expect(
+          find.textContaining(
+            outcome == 'saved'
+                ? 'was saved on this PC'
+                : 'was not saved on this PC',
+          ),
+          findsOneWidget,
+        );
+      }
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
 
   testWidgets('validation prevents submission and displays actionable errors', (
     tester,

@@ -110,6 +110,49 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('Windows manual sign-in offers saving only after success', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await showLogin(tester);
+    await tester.enterText(find.byType(TextField).first, 'member@example.test');
+    await tester.enterText(find.byType(TextField).last, 'new-test-password');
+    expect(savedCalls, isEmpty);
+    await tester.tap(find.text('Sign In'));
+    await tester.pumpAndSettle();
+    expect(find.text('Signed in'), findsOneWidget);
+    expect(savedCalls, hasLength(1));
+    expect(savedCalls.single.method, 'save');
+    expect(savedCalls.single.arguments['resource'], isNotEmpty);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Windows rejected sign-in never saves', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    accept = false;
+    await showLogin(tester);
+    await tester.enterText(find.byType(TextField).first, 'member@example.test');
+    await tester.enterText(find.byType(TextField).last, 'wrong-password');
+    await tester.tap(find.text('Sign In'));
+    await tester.pumpAndSettle();
+    expect(savedCalls, isEmpty);
+    expect(find.byType(AlertDialog), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Windows saved login signs in without another save offer', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await showLogin(tester);
+    await tester.tap(find.text('Use saved login'));
+    await tester.pumpAndSettle();
+    expect(find.text('Signed in'), findsOneWidget);
+    expect(savedCalls, hasLength(1));
+    expect(savedCalls.single.method, 'get');
+    expect(savedCalls.single.arguments['resource'], isNotEmpty);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   bool saveRequested(WidgetTester tester) => tester.testTextInput.log.any(
     (call) =>
         call.method == 'TextInput.finishAutofillContext' &&

@@ -8,6 +8,7 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "saved_login_channel.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -34,7 +35,13 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "Advapi32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Explicit developer smoke test; never installed or included in app builds.
+add_executable(saved_login_store_test EXCLUDE_FROM_ALL "saved_login_store_test.cpp")
+apply_standard_settings(saved_login_store_test)
+target_link_libraries(saved_login_store_test PRIVATE "Advapi32.lib")

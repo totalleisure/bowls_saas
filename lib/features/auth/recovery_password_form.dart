@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'login_autofill_group.dart';
 import 'password_recovery_progress.dart';
+import 'saved_login_service.dart';
 
 /// A separate password-change context, shared by code and link recovery.
 class RecoveryPasswordForm extends StatefulWidget {
@@ -35,6 +36,7 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
   bool _saving = false;
   bool _saved = false;
   bool _showPassword = false;
+  bool? _windowsSaved;
   String? _error;
 
   bool get _apple => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
@@ -81,6 +83,15 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
       return;
     }
     if (!mounted) return;
+    if (SavedLoginService.windows) {
+      // Windows has no Flutter AutoFill save UI. Ask only after the server
+      // accepts the new password, before leaving the recovery screen.
+      _windowsSaved = await SavedLoginService.saveVerified(
+        widget.email,
+        _password.text,
+      );
+      if (!mounted) return;
+    }
     // Remove the complete group once. Its disposal commits the verified new
     // credentials without a later cancellation or a competing app dialog.
     setState(() {
@@ -115,7 +126,11 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
           ),
           const SizedBox(height: 12),
           Text(
-            _apple
+            SavedLoginService.windows
+                ? (_windowsSaved == true
+                      ? 'Your new password was saved on this PC. Use saved login next time you sign in.'
+                      : 'Your new password was not saved on this PC. Enter it manually next time you sign in.')
+                : _apple
                 ? 'If Apple Passwords asks to update or save this password, accept so it remembers your new password for next time.'
                 : 'If your password manager asks to update or save this password, accept so it remembers your new password for next time.',
           ),
