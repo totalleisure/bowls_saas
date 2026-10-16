@@ -38,6 +38,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _selectingSavedLogin = false;
   bool _selectedSavedLogin = false;
   bool _saveAppleLoginOnDispose = false;
+  int _appleLoginGeneration = 0;
   String _version = '';
   String _buildNumber = '';
   int _brandingSetNo = 0;
@@ -95,11 +96,13 @@ class _AuthScreenState extends State<AuthScreen> {
     Iterable<String>? autofillHints,
     TextInputAction? textInputAction,
     ValueChanged<String>? onSubmitted,
+    bool autofocus = false,
   }) {
     return SizedBox(
       height: height,
       child: TextField(
         controller: controller,
+        autofocus: autofocus,
         obscureText: obscureText,
         keyboardType: keyboardType,
         autofillHints: autofillHints,
@@ -514,6 +517,8 @@ class _AuthScreenState extends State<AuthScreen> {
     if (_loading || _selectingSavedLogin) return;
     final identifier = _email.text.trim();
     final password = _password.text;
+    final appleSavedAttempt = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS && _selectedSavedLogin;
     setState(() => _loading = true);
     try {
       await AccountUsernameService(
@@ -537,6 +542,19 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (e) {
       if (mounted) setState(() => _loading = false);
       await _showAuthFailure(error: e, signingUp: false, retry: _signIn);
+      if (mounted && appleSavedAttempt && e is AuthException &&
+          (e.code == 'invalid_credentials' || e.message == 'Invalid login credentials')) {
+        // Discard the rejected native credential before the member corrects it.
+        // Replacing the group cancels once and gives both fields new native IDs;
+        // autofocus then registers a fresh paired context, keeping the username.
+        // Never commit the failed password or cancel after a successful commit.
+        setState(() {
+          _saveAppleLoginOnDispose = false;
+          _selectedSavedLogin = false;
+          _password.clear();
+          _appleLoginGeneration++;
+        });
+      }
       return;
     } finally {
       if (mounted && _loading) setState(() => _loading = false);
@@ -742,6 +760,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       left: leftOffset,
                       width: contentWidth,
                       child: LoginAutofillGroup(
+                        key: ValueKey(_appleLoginGeneration),
                         onAutofilled: _appleAutofilled,
                         shouldSaveOnDispose: () => _saveAppleLoginOnDispose,
                         onDisposeAction: AutofillContextAction.cancel,
@@ -761,6 +780,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           const SizedBox(height: 12),
                           _buildOverlayField(
                             controller: _password,
+                            autofocus: _appleLoginGeneration > 0,
                             hintText: 'Password',
                             obscureText: _obscurePassword,
                             autofillHints: const [AutofillHints.password],

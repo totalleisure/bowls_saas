@@ -249,6 +249,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(authRequests, 1);
       expect(find.byType(AlertDialog), findsOneWidget);
+      final rejectedGroup = tester.element(find.byType(LoginAutofillGroup));
+      tester.testTextInput.log.clear();
       await tester.tap(
         find
             .descendant(
@@ -258,6 +260,17 @@ void main() {
             .first,
       );
       await tester.pumpAndSettle();
+      expect(tester.element(find.byType(LoginAutofillGroup)), isNot(same(rejectedGroup)));
+      expect(tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+          isNotEmpty);
+      expect(tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+          isEmpty);
+      expect(tester.testTextInput.log
+          .where((call) => call.method == 'TextInput.finishAutofillContext')
+          .map((call) => call.arguments).toList(), [false]);
+      final retryFields = tester.testTextInput.setClientArgs!['fields'] as List;
+      expect(retryFields, hasLength(2));
+      expect((retryFields.last as Map)['autofill']['editingValue']['text'], '');
       await tester.enterText(
         find.byType(TextField).last,
         'corrected-apple-password',
