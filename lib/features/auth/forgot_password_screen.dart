@@ -1,3 +1,4 @@
+import 'recovery_password_form.dart';
 import 'password_recovery_progress.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,12 +29,9 @@ String recoveryRateLimitMessage(String code) {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   late final TextEditingController _email;
   final _code = TextEditingController();
-  final _password = TextEditingController();
-  final _confirmPassword = TextEditingController();
 
   _RecoveryStep _step = _RecoveryStep.requestCode;
   bool _working = false;
-  bool _showPassword = false;
   String _requestedEmail = '';
 
   @override
@@ -57,8 +55,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   void dispose() {
     _email.dispose();
     _code.dispose();
-    _password.dispose();
-    _confirmPassword.dispose();
     super.dispose();
   }
 
@@ -189,80 +185,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
   }
 
-  Future<void> _savePassword() async {
-    final password = _password.text;
-    final confirmation = _confirmPassword.text;
-
-    if (password.length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please use a password of at least 8 characters.'),
-        ),
-      );
-      return;
-    }
-
-    if (password != confirmation) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('The two passwords do not match.')),
-      );
-      return;
-    }
-
-    setState(() => _working = true);
-
-    try {
-      await Supabase.instance.client.auth.updateUser(
-        UserAttributes(password: password),
-      );
-
-      if (!mounted) return;
-
-      await PasswordRecoveryProgress.clear();
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          icon: Icon(
-            Icons.check_circle_outline,
-            color: Colors.green.shade700,
-            size: 48,
-          ),
-          title: const Text('Password updated'),
-          content: const Text(
-            'Your new password has been saved. You are now signed in.',
-            textAlign: TextAlign.center,
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Continue'),
-            ),
-          ],
-        ),
-      );
-
-      if (!mounted) return;
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Password could not be updated: $error')),
-      );
-    } finally {
-      if (mounted) setState(() => _working = false);
-    }
-  }
-
   void _startAgain() {
     PasswordRecoveryProgress.clear();
     setState(() {
       _step = _RecoveryStep.requestCode;
       _requestedEmail = '';
       _code.clear();
-      _password.clear();
-      _confirmPassword.clear();
     });
   }
 
@@ -339,6 +267,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           controller: _code,
           enabled: !_working,
           autofocus: true,
+          autofillHints: const [AutofillHints.oneTimeCode],
           keyboardType: TextInputType.number,
           textInputAction: TextInputAction.done,
           inputFormatters: [
@@ -380,70 +309,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Widget _choosePasswordCard() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          'Choose a new password',
-          style: Theme.of(context).textTheme.headlineSmall,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'The code has been accepted. Enter and confirm the password you want to use from now on.',
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 20),
-        TextField(
-          controller: _password,
-          enabled: !_working,
-          obscureText: !_showPassword,
-          autofillHints: const [AutofillHints.newPassword],
-          decoration: InputDecoration(
-            labelText: 'New password',
-            border: const OutlineInputBorder(),
-            suffixIcon: IconButton(
-              tooltip: _showPassword ? 'Hide password' : 'Show password',
-              onPressed: () {
-                setState(() => _showPassword = !_showPassword);
-              },
-              icon: Icon(
-                _showPassword
-                    ? Icons.visibility_off_outlined
-                    : Icons.visibility_outlined,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        TextField(
-          controller: _confirmPassword,
-          enabled: !_working,
-          obscureText: !_showPassword,
-          textInputAction: TextInputAction.done,
-          autofillHints: const [AutofillHints.newPassword],
-          decoration: const InputDecoration(
-            labelText: 'Confirm new password',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (_) {
-            if (!_working) _savePassword();
-          },
-        ),
-        const SizedBox(height: 20),
-        FilledButton.icon(
-          onPressed: _working ? null : _savePassword,
-          icon: _working
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.lock_reset_outlined),
-          label: Text(_working ? 'Saving…' : 'Save new password'),
-        ),
-      ],
+    return RecoveryPasswordForm(
+      email: _requestedEmail,
+      onBusyChanged: (busy) {
+        if (mounted) setState(() => _working = busy);
+      },
+      onComplete: () =>
+          Navigator.of(context).popUntil((route) => route.isFirst),
     );
   }
 
