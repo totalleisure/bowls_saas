@@ -1,5 +1,5 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '15.0'
+# Match Runner's existing minimum and the supported range in Xcode 27.1.
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -47,6 +47,17 @@ post_install do |installer|
           'BYPASS_PERMISSION_LOCATION_ALWAYS=1',
         ]
       end
+    end
+  end
+
+  # Podspecs may retain older targets even with a platform declaration. Apply
+  # the floor to the Pods project and every target, preserving higher minima.
+  configurations = installer.pods_project.build_configurations +
+    installer.pods_project.targets.flat_map(&:build_configurations)
+  configurations.each do |config|
+    current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+    if current.nil? || current.to_f < 15.0
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
     end
   end
 end
