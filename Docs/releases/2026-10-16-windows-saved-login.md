@@ -1,6 +1,6 @@
 # Windows saved login — 16 October 2026
 
-Implemented and tested in staging, then synced to production source. Interactive member acceptance testing is pending. No database, email, notification, Apple entitlement or App Store changes.
+Wayne confirmed the Windows saved-login and password-update flow works in staging. A subsequent presentation update replaces generic message boxes with branded Windows task dialogs: the existing Total Leisure Bowls logo, clear headings, and Sign in / Save login / Update password / Replace saved login actions. Not now, Escape and closing the dialog decline the action; storage consent remains explicit. Windows keyboard navigation, scaling and accessibility are retained. The app icon now uses the existing Bowls artwork instead of the Flutter template icon. Visual acceptance of the branded prompts is pending. No database, email, notification, Apple entitlement or App Store changes.
 
 The native Windows app now offers to save a verified login and provides Use saved login on the sign-in screen. Password recovery offers to update the stored password immediately after the server accepts it, before leaving the recovery screen. Declining or failure to store never reverses a successful password change. Recovery feedback distinguishes a saved password from one that was not saved.
 

@@ -1,10 +1,40 @@
 #include "saved_login_channel.h"
 #include "saved_login_store.h"
+#include "resource.h"
+#include <commctrl.h>
 #include <flutter/standard_method_codec.h>
 
 namespace {
 using Value = flutter::EncodableValue;
 using Map = flutter::EncodableMap;
+
+// Keep native keyboard/accessibility behaviour, but present Bowls branding and
+// explicit actions instead of generic Yes/No message boxes.
+bool BowlsDialog(HWND owner, const wchar_t* heading, const std::wstring& content,
+                 const wchar_t* action, const wchar_t* footer, bool confirm = true) {
+  constexpr int kAccept = 100;
+  const TASKDIALOG_BUTTON buttons[] = {
+      {kAccept, action}, {IDCANCEL, L"Not now"}};
+  TASKDIALOGCONFIG config{};
+  config.cbSize = sizeof(config);
+  config.hwndParent = owner;
+  config.hInstance = GetModuleHandleW(nullptr);
+  config.dwFlags = static_cast<TASKDIALOG_FLAGS>(
+      TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW);
+  config.pszWindowTitle = L"Total Leisure Bowls";
+  config.pszMainIcon = MAKEINTRESOURCEW(IDI_APP_ICON);
+  config.pszMainInstruction = heading;
+  config.pszContent = content.c_str();
+  config.pszFooter = footer;
+  config.cButtons = confirm ? 2 : 1;
+  config.pButtons = buttons;
+  config.nDefaultButton = confirm ? IDCANCEL : kAccept;
+  config.cxWidth = 320;
+  int selected = IDCANCEL;
+  const HRESULT status = TaskDialogIndirect(&config, &selected, nullptr, nullptr);
+  // A failure to display consent must never authorize saving or sign-in.
+  return SUCCEEDED(status) && selected == kAccept;
+}
 
 std::wstring Wide(const std::string& text) {
   const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
@@ -58,8 +88,9 @@ std::unique_ptr<flutter::MethodChannel<Value>> CreateSavedLoginChannel(
     bowls::StoredLogin existing;
     const DWORD status = bowls::ReadLogin(target, existing);
     if (status != ERROR_SUCCESS && status != ERROR_NOT_FOUND) {
-      MessageBoxW(owner, L"Windows could not access your saved login. You can still sign in manually.",
-                  L"Bowls saved login", MB_OK | MB_ICONWARNING);
+      BowlsDialog(owner, L"Your saved login is unavailable",
+          L"Windows could not access your saved login. You can still sign in manually.",
+          L"Continue", L"Total Leisure Bowls | Member sign-in", false);
       result->Error("unavailable", "Windows credential storage is unavailable.");
       return;
     }
@@ -68,9 +99,9 @@ std::unique_ptr<flutter::MethodChannel<Value>> CreateSavedLoginChannel(
         result->Error("no_credentials", "No saved Bowls login for this environment.");
         return;
       }
-      const auto prompt = L"Sign in to Bowls as:\n\n" + existing.identifier + L"?";
-      if (MessageBoxW(owner, prompt.c_str(), L"Use saved login",
-                      MB_OKCANCEL | MB_ICONQUESTION) != IDOK) {
+      const auto prompt = L"Use your saved login to return to the club.\n\n" + existing.identifier;
+      if (!BowlsDialog(owner, L"Welcome back to Bowls", prompt,
+                       L"Sign in", L"Your login is stored in Windows Credential Manager.")) {
         result->Success();
         return;
       }
@@ -93,22 +124,29 @@ std::unique_ptr<flutter::MethodChannel<Value>> CreateSavedLoginChannel(
       result->Success(Value(true));
       return;
     }
-    std::wstring prompt = status == ERROR_SUCCESS
-        ? L"Update the saved Bowls login on this PC for:\n\n"
-        : L"Save your Bowls login on this PC for:\n\n";
+    const bool replacing = status == ERROR_SUCCESS && existing.identifier != login.identifier;
+    const bool updating = status == ERROR_SUCCESS && !replacing;
+    std::wstring prompt = updating
+        ? L"Remember your new password for next time.\n\n"
+        : L"Make your next visit easier with Use saved login.\n\n";
     prompt += login.identifier;
-    if (status == ERROR_SUCCESS && existing.identifier != login.identifier) {
+    if (replacing) {
       prompt += L"\n\nThis replaces the saved login for " + existing.identifier + L".";
     }
     prompt += L"\n\nOnly save on your own Windows account. Anyone using that account can use this login.";
-    if (MessageBoxW(owner, prompt.c_str(), L"Bowls saved login",
-                    MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION) != IDYES) {
+    if (!BowlsDialog(owner,
+        replacing ? L"Save a different Bowls login?" :
+        updating ? L"Update your saved password?" : L"Save your Bowls login?",
+        prompt, replacing ? L"Replace saved login" :
+        updating ? L"Update password" : L"Save login",
+        L"Protected by Windows Credential Manager on this PC.")) {
       result->Success(Value(false));
       return;
     }
     if (bowls::WriteLogin(target, login) != ERROR_SUCCESS) {
-      MessageBoxW(owner, L"Your account change succeeded, but Windows could not save this password. Enter it manually next time.",
-                  L"Password not saved", MB_OK | MB_ICONWARNING);
+      BowlsDialog(owner, L"Your password could not be saved",
+          L"Your account change succeeded, but Windows could not save this password. Enter it manually next time.",
+          L"Continue", L"Total Leisure Bowls | Member sign-in", false);
       result->Error("unavailable", "Windows could not save the credential.");
       return;
     }
