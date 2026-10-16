@@ -128,7 +128,16 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
       );
     }
     return LoginAutofillGroup(
-      onAutofilled: (_) {}, // Suggestions never submit a password change.
+      onAutofilled: (hints) {
+        // Only a platform fill may also confirm a generated password. Ordinary
+        // typing must still be confirmed independently to catch mistakes.
+        if (_apple &&
+            !_saving &&
+            !_saved &&
+            hints.contains(AutofillHints.newPassword)) {
+          _confirmation.value = _password.value;
+        }
+      }, // Suggestions never submit a password change.
       shouldSaveOnDispose: () => _saved,
       child: Form(
         key: _form,
@@ -180,7 +189,9 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
               obscureText: !_showPassword,
               autocorrect: false,
               enableSuggestions: false,
-              autofillHints: const [AutofillHints.newPassword],
+              // Give iOS a single account/password pair to save. This field
+              // checks typing only; it must not become a second credential.
+              autofillHints: _apple ? null : const [AutofillHints.newPassword],
               textInputAction: TextInputAction.done,
               decoration: const InputDecoration(
                 labelText: 'Confirm new password',

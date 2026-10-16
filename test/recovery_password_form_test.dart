@@ -68,11 +68,10 @@ void main() {
       await tester.tap(find.byType(TextFormField).at(1));
       await tester.pump();
       final fields = tester.testTextInput.setClientArgs!['fields'] as List;
-      expect(fields, hasLength(3));
+      expect(fields, hasLength(2));
       final configs = fields.map((f) => (f as Map)['autofill'] as Map).toList();
       expect(configs.map((f) => f['hints']).toList(), [
         [AutofillHints.username],
-        [AutofillHints.newPassword],
         [AutofillHints.newPassword],
       ]);
       expect(
@@ -88,9 +87,41 @@ void main() {
             .autofill(const TextEditingValue(text: 'generated-password'));
       }
       await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextFormField>(find.byType(TextFormField).at(2))
+            .controller!
+            .text,
+        'generated-password',
+      );
       expect(calls, 0);
       expect(finishes(tester), isNot(contains(true)));
       expect(tester.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
+
+  testWidgets(
+    'manual typing leaves confirmation independent and outside iOS AutoFill',
+    (tester) async {
+      await show(tester, (_) async {});
+      await tester.enterText(
+        find.byType(TextFormField).at(1),
+        'typed-password',
+      );
+      await tester.pumpAndSettle();
+      final confirmation = tester.widget<TextFormField>(
+        find.byType(TextFormField).at(2),
+      );
+      expect(confirmation.controller!.text, isEmpty);
+      await tester.enterText(
+        find.byType(TextFormField).at(2),
+        'typed-password',
+      );
+      final config = tester.testTextInput.setClientArgs!;
+      expect(config['autofill'], isNull);
+      expect(config['fields'], isNull);
+      expect(finishes(tester), isNot(contains(true)));
       debugDefaultTargetPlatformOverride = null;
     },
   );
