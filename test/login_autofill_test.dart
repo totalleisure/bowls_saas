@@ -265,10 +265,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(authRequests, 1);
       accept = true;
+      tester.testTextInput.log.clear();
       await tester.tap(find.text('Sign In'));
       await tester.pumpAndSettle();
       expect(authRequests, 2);
       expect(find.text('Signed in'), findsOneWidget);
+      expect(
+        tester.testTextInput.log
+            .where((call) => call.method == 'TextInput.finishAutofillContext')
+            .map((call) => call.arguments).toList(),
+        equals([true]),
+        reason: 'Correcting a rejected Apple saved password must request an update exactly once.',
+      );
       expect(tester.takeException(), isNull);
       debugDefaultTargetPlatformOverride = null;
     },
