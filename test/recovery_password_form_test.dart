@@ -128,63 +128,74 @@ void main() {
     },
   );
 
-  for (final outcome in ['saved', 'declined', 'unavailable', 'rejected']) {
-    testWidgets('Windows recovery $outcome saves only after server success', (
-      tester,
-    ) async {
-      final response = Completer<void>();
-      final calls = <MethodCall>[];
-      const channel = MethodChannel('bowls/saved_login');
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
-        call,
-      ) async {
-        calls.add(call);
-          if (outcome == 'unavailable') {
-          throw PlatformException(code: 'unavailable');
+  for (final platform in [TargetPlatform.windows, TargetPlatform.android]) {
+    for (final outcome in ['saved', 'declined', 'unavailable', 'rejected']) {
+      testWidgets(
+        '$platform recovery $outcome saves only after server success',
+        (tester) async {
+          final response = Completer<void>();
+          final calls = <MethodCall>[];
+          const channel = MethodChannel('bowls/saved_login');
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            (call) async {
+              calls.add(call);
+              if (outcome == 'unavailable') {
+                throw PlatformException(code: 'unavailable');
+              }
+              return outcome == 'saved';
+            },
+          );
+          addTearDown(
+            () => tester.binding.defaultBinaryMessenger
+                .setMockMethodCallHandler(channel, null),
+          );
+          await show(tester, (_) => response.future, platform: platform);
+          await fill(tester, 'new-password', 'new-password');
+          await save(tester);
+          expect(calls, isEmpty);
+          if (outcome == 'rejected') {
+            response.completeError(const AuthException('Rejected'));
+          } else {
+            response.complete();
           }
-        return outcome == 'saved';
-      });
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          channel,
-          null,
-        ),
+          await tester.pumpAndSettle();
+          if (outcome == 'rejected') {
+            expect(calls, isEmpty);
+            expect(find.text('Password changed'), findsNothing);
+          } else {
+            expect(calls, hasLength(1));
+            expect(calls.single.method, 'save');
+            expect(calls.single.arguments['identifier'], 'member@example.test');
+            expect(calls.single.arguments['password'], 'new-password');
+            expect(
+              calls.single.arguments['resource'],
+              platform == TargetPlatform.windows ? isNotEmpty : isNull,
+            );
+            expect(
+              finishes(tester),
+              isNot(contains(true)),
+              reason:
+                  'Credential Manager saving must not also commit AutoFill.',
+            );
+            expect(find.text('Password changed'), findsOneWidget);
+            expect(
+              find.textContaining(
+                platform == TargetPlatform.windows
+                    ? (outcome == 'saved'
+                          ? 'was saved on this PC'
+                          : 'was not saved on this PC')
+                    : (outcome == 'saved'
+                          ? 'accepted your new password'
+                          : 'did not save your new password'),
+              ),
+              findsOneWidget,
+            );
+          }
+          debugDefaultTargetPlatformOverride = null;
+        },
       );
-      await show(
-        tester,
-        (_) => response.future,
-        platform: TargetPlatform.windows,
-      );
-      await fill(tester, 'new-password', 'new-password');
-      await save(tester);
-      expect(calls, isEmpty);
-      if (outcome == 'rejected') {
-        response.completeError(const AuthException('Rejected'));
-      } else {
-        response.complete();
-      }
-      await tester.pumpAndSettle();
-      if (outcome == 'rejected') {
-        expect(calls, isEmpty);
-        expect(find.text('Password changed'), findsNothing);
-      } else {
-        expect(calls, hasLength(1));
-        expect(calls.single.method, 'save');
-        expect(calls.single.arguments['identifier'], 'member@example.test');
-        expect(calls.single.arguments['password'], 'new-password');
-        expect(calls.single.arguments['resource'], isNotEmpty);
-        expect(find.text('Password changed'), findsOneWidget);
-        expect(
-          find.textContaining(
-            outcome == 'saved'
-                ? 'was saved on this PC'
-                : 'was not saved on this PC',
-          ),
-          findsOneWidget,
-        );
-      }
-      debugDefaultTargetPlatformOverride = null;
-    });
+    }
   }
 
   testWidgets('validation prevents submission and displays actionable errors', (

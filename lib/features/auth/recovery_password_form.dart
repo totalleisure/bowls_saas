@@ -36,7 +36,7 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
   bool _saving = false;
   bool _saved = false;
   bool _showPassword = false;
-  bool? _windowsSaved;
+  bool? _savedLoginUpdated;
   String? _error;
 
   bool get _apple => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
@@ -58,6 +58,7 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
 
   Future<void> _save() async {
     if (_saving || _saved || !_form.currentState!.validate()) return;
+    final verifiedPassword = _password.text;
     setState(() {
       _saving = true;
       _error = null;
@@ -65,10 +66,10 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
     widget.onBusyChanged?.call(true);
     try {
       if (widget.updatePassword != null) {
-        await widget.updatePassword!(_password.text);
+        await widget.updatePassword!(verifiedPassword);
       } else {
         await Supabase.instance.client.auth.updateUser(
-          UserAttributes(password: _password.text),
+          UserAttributes(password: verifiedPassword),
         );
       }
     } catch (error) {
@@ -83,12 +84,12 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
       return;
     }
     if (!mounted) return;
-    if (SavedLoginService.windows) {
-      // Windows has no Flutter AutoFill save UI. Ask only after the server
-      // accepts the new password, before leaving the recovery screen.
-      _windowsSaved = await SavedLoginService.saveVerified(
+    if (SavedLoginService.supported) {
+      // Use the same provider API as Use saved login, including on Android.
+      // Update only after the server accepts this exact password.
+      _savedLoginUpdated = await SavedLoginService.saveVerified(
         widget.email,
-        _password.text,
+        verifiedPassword,
       );
       if (!mounted) return;
     }
@@ -127,9 +128,13 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
           const SizedBox(height: 12),
           Text(
             SavedLoginService.windows
-                ? (_windowsSaved == true
+                ? (_savedLoginUpdated == true
                       ? 'Your new password was saved on this PC. Use saved login next time you sign in.'
                       : 'Your new password was not saved on this PC. Enter it manually next time you sign in.')
+                : SavedLoginService.supported
+                ? (_savedLoginUpdated == true
+                      ? 'Your password manager accepted your new password. Use saved login next time you sign in.'
+                      : 'Your password manager did not save your new password. Enter it manually next time you sign in.')
                 : _apple
                 ? 'If Apple Passwords asks to update or save this password, accept so it remembers your new password for next time.'
                 : 'If your password manager asks to update or save this password, accept so it remembers your new password for next time.',
@@ -153,7 +158,9 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
           _confirmation.value = _password.value;
         }
       }, // Suggestions never submit a password change.
-      shouldSaveOnDispose: () => _saved,
+      // Android/Windows save through SavedLoginService. Do not also ask
+      // AutoFill to commit a second, potentially different credential.
+      shouldSaveOnDispose: () => _saved && !SavedLoginService.supported,
       child: Form(
         key: _form,
         child: Column(
