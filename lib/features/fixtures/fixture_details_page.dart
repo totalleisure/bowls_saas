@@ -19,6 +19,8 @@ import 'repeat_existing_fixture_service.dart';
 import 'repeat_fixture_planner_page.dart';
 import 'fixture_team_structure_service.dart';
 import '../team/team_section.dart';
+import '../team/publication_instructions_dialog.dart';
+import 'package:uuid/uuid.dart';
 import '../team/manage_team_screen.dart';
 import '../diary/rinks_day_view.dart';
 import '../rinks/rinks_setup_screen.dart';
@@ -2803,6 +2805,37 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     } catch (_) {
       // ignore load errors for now (no highlight is fine)
     }
+  }
+
+  Future<void> _openSpecialInstructions(bool published) async {
+    final expectedNotes = _fixture?['notes'] as String?;
+    final requestId = const Uuid().v4();
+    int? recipients;
+    final result = await showDialog<String>(
+      context: context, barrierDismissible: false,
+      builder: (_) => PublicationInstructionsDialog(
+        initialInstructions: expectedNotes ?? '', published: published,
+        readOnly: !_canEditFixtureInformation,
+        onSave: (notes, sendUpdate) async {
+          if (sendUpdate) {
+            recipients = (await _client.rpc('send_fixture_instructions_update', params: {
+              'p_fixture_id': widget.fixtureId, 'p_notes': notes,
+              'p_expected_notes': expectedNotes, 'p_request_id': requestId,
+            }) as num).toInt();
+          } else {
+            await _fixturesRepository.updateFixtureNotes(fixtureId: widget.fixtureId,
+              notes: notes.isEmpty ? null : notes, expectedNotes: expectedNotes);
+          }
+        },
+      ),
+    );
+    if (result == null || !mounted) return;
+    _didChangeFixture = true;
+    await _reloadPreservingScroll();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(recipients == null
+      ? 'Special instructions saved. No email sent.'
+      : 'Special instructions saved. Update queued for $recipients team member(s). Members without email will need a phone call.')));
   }
 
   Future<void> _editFixtureInformation() async {
@@ -6595,21 +6628,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
                 if (!isEventStyleFixture) ...[
                   const SizedBox(height: 12),
-                  Card(child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(children: [
-                        Expanded(child: Text('Special instructions',
-                          style: Theme.of(context).textTheme.titleMedium)),
-                        if (_canEditFixtureInformation)
-                          TextButton.icon(onPressed: _editFixtureInformation,
-                            icon: const Icon(Icons.edit_outlined), label: const Text('Edit')),
-                      ]),
-                      const SizedBox(height: 8),
-                      Text((fixture['notes'] ?? '').toString().trim().isEmpty
-                        ? 'No special instructions have been added.'
-                        : fixture['notes'].toString()),
-                    ]),
+                  Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
+                    onPressed: () => _openSpecialInstructions(isPublished && !isCancelled),
+                    style: (fixture['notes'] ?? '').toString().trim().isNotEmpty
+                      ? OutlinedButton.styleFrom(backgroundColor: Colors.amber.shade100,
+                          foregroundColor: Colors.brown.shade900,
+                          side: BorderSide(color: Colors.amber.shade700))
+                      : null,
+                    icon: Icon((fixture['notes'] ?? '').toString().trim().isNotEmpty
+                      ? Icons.info : Icons.info_outline),
+                    label: Text((fixture['notes'] ?? '').toString().trim().isNotEmpty
+                      ? 'Special Instructions • Added' : 'Special Instructions'),
                   )),
                 ],
 
