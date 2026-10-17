@@ -604,7 +604,9 @@ class _AuthScreenState extends State<AuthScreen> {
     } on PlatformException catch (error) {
       if (mounted && error.code != 'cancelled') {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-          error.code == 'no_credentials'
+          error.code == 'hello_unavailable'
+              ? 'Windows Hello is unavailable or did not verify you. Enter your Bowls details manually.'
+              : error.code == 'no_credentials'
               ? 'No saved login matched this app. Sign in manually, then save your login when offered.'
               : 'Your password manager is unavailable. Enter your details manually.')));
       }

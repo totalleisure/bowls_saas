@@ -129,6 +129,31 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  for (final error in ['hello_unavailable', 'cancelled']) {
+    testWidgets('Windows Hello $error never signs in or overwrites manual input', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await showLogin(tester);
+      await tester.enterText(find.byType(TextField).first, 'manual@example.test');
+      await tester.enterText(find.byType(TextField).last, 'manual-password');
+      pickerError = error;
+      await tester.tap(find.text('Use saved login'));
+      await tester.pumpAndSettle();
+      expect(authRequests, 0);
+      expect(tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+          'manual@example.test');
+      expect(tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+          'manual-password');
+      if (error == 'hello_unavailable') {
+        expect(find.textContaining('Windows Hello is unavailable'), findsOneWidget);
+      }
+      await tester.tap(find.text('Sign In'));
+      await tester.pumpAndSettle();
+      expect(find.text('Signed in'), findsOneWidget);
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
   testWidgets('Windows rejected sign-in never saves', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
