@@ -521,6 +521,15 @@ class _AuthScreenState extends State<AuthScreen> {
         defaultTargetPlatform == TargetPlatform.iOS && _selectedSavedLogin;
     setState(() => _loading = true);
     try {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS &&
+          !_obscurePassword) {
+        // Restore secure native input before authentication can remove this form.
+        // Revealing the password changes iOS secureTextEntry; Apple needs the
+        // secure field when the verified credential is committed at disposal.
+        setState(() => _obscurePassword = true);
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+      }
       await AccountUsernameService(
         Supabase.instance.client,
       ).signIn(identifier, password);
@@ -565,10 +574,14 @@ class _AuthScreenState extends State<AuthScreen> {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS ||
         !mounted || _loading || _selectingSavedLogin ||
         ModalRoute.of(context)?.isCurrent != true ||
-        !hints.contains(AutofillHints.username) ||
         !hints.contains(AutofillHints.password) ||
-        _email.text.trim().isEmpty || _password.text.isEmpty) return;
+        _password.text.isEmpty) return;
+    // iOS may fill only the password when the username is already present.
+    // Remember its origin for rejection handling even without auto-submitting.
     _selectedSavedLogin = true;
+    if (!hints.contains(AutofillHints.username) || _email.text.trim().isEmpty) {
+      return;
+    }
     FocusManager.instance.primaryFocus?.unfocus();
     _signIn();
   }
@@ -792,7 +805,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                     ? Icons.visibility
                                     : Icons.visibility_off,
                               ),
-                              onPressed: () {
+                              onPressed: _loading ? null : () {
                                 setState(() {
                                   _obscurePassword = !_obscurePassword;
                                 });

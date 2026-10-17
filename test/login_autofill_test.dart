@@ -17,10 +17,12 @@ void main() {
   const savedLoginChannel = MethodChannel('bowls/saved_login');
   final savedCalls = <MethodCall>[];
   var authRequests = 0;
+  VoidCallback? onAuthRequest;
   String? pickerError;
   setUp(() async {
     savedCalls.clear();
     authRequests = 0;
+    onAuthRequest = null;
     pickerError = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(savedLoginChannel, (call) async {
@@ -51,6 +53,7 @@ void main() {
       authOptions: const FlutterAuthClientOptions(autoRefreshToken: false),
       httpClient: MockClient((request) async {
         authRequests++;
+        onAuthRequest?.call();
         if (!accept) {
           return http.Response(
             jsonEncode({
@@ -196,6 +199,46 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  for (final succeeds in [true, false]) {
+    testWidgets('Apple revealed password is secured before auth (success=$succeeds)', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      await showLogin(tester);
+      await tester.enterText(find.byType(TextField).first, 'member@example.test');
+      await tester.enterText(find.byType(TextField).last, 'corrected-test-password');
+      await tester.tap(find.byIcon(Icons.visibility));
+      await tester.pump();
+      expect(tester.widget<TextField>(find.byType(TextField).last).obscureText, isFalse);
+      tester.testTextInput.log.clear();
+      accept = succeeds;
+      var checkedNativeConfig = false;
+      onAuthRequest = () {
+        final updates = tester.testTextInput.log.where((call) =>
+            call.method == 'TextInput.updateConfig').toList();
+        expect(updates, isNotEmpty);
+        expect((updates.last.arguments as Map)['obscureText'], isTrue);
+        expect(tester.widget<TextField>(find.byType(TextField).last).obscureText, isTrue);
+        expect(tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+            'corrected-test-password');
+        checkedNativeConfig = true;
+      };
+      await tester.tap(find.text('Sign In'));
+      await tester.pumpAndSettle();
+      expect(checkedNativeConfig, isTrue);
+      expect(authRequests, 1);
+      if (succeeds) {
+        expect(find.text('Signed in'), findsOneWidget);
+        expect(tester.testTextInput.log
+            .where((call) => call.method == 'TextInput.finishAutofillContext')
+            .map((call) => call.arguments).toList(), [true]);
+      } else {
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(saveRequested(tester), isFalse);
+      }
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
   testWidgets('Apple rejected login cancels on exit without saving', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -235,17 +278,25 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  for (final passwordOnly in [false, true]) {
   testWidgets(
-    'Apple incomplete fill remains manual; failed full fill can be corrected',
+    'Apple rejected fill can be corrected (passwordOnly=$passwordOnly)',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
       accept = false;
       await showLogin(tester);
+      if (passwordOnly) {
+        await tester.enterText(find.byType(TextField).first, 'saved@example.test');
+      }
       appleFill(tester, passwordOnly: true);
       await tester.pumpAndSettle();
       expect(authRequests, 0);
-      appleFill(tester);
+      if (passwordOnly) {
+        await tester.tap(find.text('Sign In'));
+      } else {
+        appleFill(tester);
+      }
       await tester.pumpAndSettle();
       expect(authRequests, 1);
       expect(find.byType(AlertDialog), findsOneWidget);
@@ -294,6 +345,7 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     },
   );
+  }
 
   testWidgets(
     'platform sees paired login fields and saves only after successful login',
