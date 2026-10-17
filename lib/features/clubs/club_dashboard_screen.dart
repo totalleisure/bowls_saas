@@ -797,7 +797,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             .from('team_selection_members')
             .select(
               'acceptance, role, team_selections(status, fixture:fixtures('
-              'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+              'id, club_id, notes, start_at, is_home, section, rinks_required, players_per_rink, '
               'requires_rsvp, team_id, team_name, cancelled_at, competition_type_id, '
               'captain_member_profile_id, vice_captain_member_profile_id, '
               'fixture_rinks(format, players_per_rink), '
@@ -826,7 +826,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         client
             .from('fixtures')
             .select(
-              'id, club_id, start_at, is_home, section, rinks_required, players_per_rink, '
+              'id, club_id, notes, start_at, is_home, section, rinks_required, players_per_rink, '
               'requires_rsvp, team_id, team_name, cancelled_at, '
               'rescheduled_from_fixture_id, rescheduled_to_fixture_id, rescheduled_at, '
               'captain_member_profile_id, vice_captain_member_profile_id, '
@@ -850,7 +850,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               'team_selections!inner('
               '  status, '
               '  fixture:fixtures!inner('
-              '    id, club_id, start_at, is_home, section, rinks_required, players_per_rink, cancelled_at, '
+              '    id, club_id, notes, start_at, is_home, section, rinks_required, players_per_rink, cancelled_at, '
               '    requires_rsvp, team_id, team_name, venue_id, opponent_venue_id, green_area_id, '
               '    fixture_rinks(format, players_per_rink), '
               '    competition_type_id, '
@@ -1266,7 +1266,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     final row = await client
         .from('fixtures')
         .select(
-          'id, club_id, captain_member_profile_id, vice_captain_member_profile_id, start_at, is_home, cancelled_at, section, rinks_required, players_per_rink, orientation, '
+          'id, club_id, notes, captain_member_profile_id, vice_captain_member_profile_id, start_at, is_home, cancelled_at, section, rinks_required, players_per_rink, orientation, '
           'venue:venues!fixtures_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
           'opponent_venue:venues!fixtures_opponent_venue_id_fkey(id, name, address_line1, address_line2, town_city, postcode, contact_name, contact_phone, contact_email, website_url, directions_url, google_maps_url, google_place_id, latitude, longitude), '
           'green_areas(name, discipline, orientation_mode)',

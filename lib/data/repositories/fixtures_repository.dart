@@ -37,11 +37,13 @@ class FixturesRepository {
   Future<void> updateFixtureNotes({
     required String fixtureId,
     required String? notes,
+    required String? expectedNotes,
   }) async {
-    await _client
-        .from('fixtures')
-        .update({'notes': notes})
-        .eq('id', fixtureId);
+    await _client.rpc('set_fixture_instructions', params: {
+      'p_fixture_id': fixtureId,
+      'p_notes': notes,
+      'p_expected_notes': expectedNotes,
+    });
   }
 
   Future<void> deleteFixture(String fixtureId) async {

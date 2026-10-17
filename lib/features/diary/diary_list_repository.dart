@@ -10,7 +10,7 @@ const diaryMaintenanceType = <String, dynamic>{
   'colour_scheme': {'background_hex': '#ECEFF1', 'foreground_hex': '#263238'},
 };
 const diaryFixtureSelection = '''
-  id, club_id, start_at, end_at, cancelled_at, is_home, section,
+  id, club_id, notes, start_at, end_at, cancelled_at, is_home, section,
   team_id, team_name, opponent_name, venue_id, opponent_venue_id,
   captain_member_profile_id, vice_captain_member_profile_id,
   green_area_id, rinks_required, competition_type_id,

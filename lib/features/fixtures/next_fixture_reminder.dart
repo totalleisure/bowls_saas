@@ -229,7 +229,9 @@ class NextFixtureReminder {
                       if (!isCancelled) ...[
                         const SizedBox(height: 14),
                         Text(
-                          'Special instructions: none at the moment',
+                          (fixture['notes'] ?? '').toString().trim().isEmpty
+                              ? 'Special instructions: none at the moment'
+                              : 'Special instructions: ${fixture['notes'].toString().trim()}',
                           style: TextStyle(color: fg),
                         ),
                       ],

@@ -182,9 +182,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           _isFixtureCaptain ||
           _isFixtureViceCaptain);
 
-  bool get _canEditEventInformation =>
+  bool get _canEditFixtureInformation =>
       _canWrite &&
-      _isEventStyleFixture &&
       (_isSuperuser ||
           _isClubAdmin ||
           _isAdmin ||
@@ -2806,8 +2805,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
-  Future<void> _editEventInformation() async {
-    if (!_canEditEventInformation) return;
+  Future<void> _editFixtureInformation() async {
+    if (!_canEditFixtureInformation) return;
 
     final controller = TextEditingController(
       text: (_fixture?['notes'] ?? '').toString(),
@@ -2816,7 +2815,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final updatedText = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit event information'),
+        title: Text(_isEventStyleFixture ? 'Edit event information' : 'Edit special instructions'),
         content: SizedBox(
           width: 560,
           child: TextField(
@@ -2825,8 +2824,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             minLines: 5,
             maxLines: 12,
             textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(
-              labelText: 'Event information',
+            maxLength: 5000,
+            decoration: InputDecoration(
+              labelText: _isEventStyleFixture ? 'Event information' : 'Special instructions',
               hintText:
                   'Add details, instructions, timings or other information for members.',
               alignLabelWithHint: true,
@@ -2858,6 +2858,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       await _fixturesRepository.updateFixtureNotes(
         fixtureId: widget.fixtureId,
         notes: notes.isEmpty ? null : notes,
+        expectedNotes: _fixture?['notes'] as String?,
       );
 
       _didChangeFixture = true;
@@ -2865,12 +2866,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Event information updated.')),
+        SnackBar(content: Text(_isEventStyleFixture ? 'Event information updated.' : 'Special instructions updated.')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not update event information: $e')),
+        SnackBar(content: Text('Could not save information: $e')),
       );
     }
   }
@@ -6592,6 +6593,26 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
                 _buildFixtureVenueCard(),
 
+                if (!isEventStyleFixture) ...[
+                  const SizedBox(height: 12),
+                  Card(child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Expanded(child: Text('Special instructions',
+                          style: Theme.of(context).textTheme.titleMedium)),
+                        if (_canEditFixtureInformation)
+                          TextButton.icon(onPressed: _editFixtureInformation,
+                            icon: const Icon(Icons.edit_outlined), label: const Text('Edit')),
+                      ]),
+                      const SizedBox(height: 8),
+                      Text((fixture['notes'] ?? '').toString().trim().isEmpty
+                        ? 'No special instructions have been added.'
+                        : fixture['notes'].toString()),
+                    ]),
+                  )),
+                ],
+
                 if (isEventStyleFixture) ...[
                   const SizedBox(height: 12),
                   _buildEventRsvpCard(),
@@ -6611,9 +6632,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                                       ?.copyWith(fontWeight: FontWeight.w600),
                                 ),
                               ),
-                              if (_canEditEventInformation)
+                              if (_canEditFixtureInformation)
                                 TextButton.icon(
-                                  onPressed: _editEventInformation,
+                                  onPressed: _editFixtureInformation,
                                   icon: const Icon(Icons.edit_outlined),
                                   label: const Text('Edit'),
                                 ),

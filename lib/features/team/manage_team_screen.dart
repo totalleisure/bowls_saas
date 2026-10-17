@@ -1,3 +1,4 @@
+import 'publication_instructions_dialog.dart';
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
@@ -87,7 +88,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   bool get _canModifySelection => !widget.readOnly && _canEditSelection && !_confirmingTeamChanges;
   bool get _canSendReminders => !widget.readOnly && _canEditSelection &&
       _status == 'published' && !_hasStagedChanges && !_confirmingTeamChanges;
-  bool get _canPublishTeam => !widget.readOnly && _canPublish && !_hasStagedChanges && !_confirmingTeamChanges;
+  bool _publishing = false;
+
+  bool get _canPublishTeam => !_publishing && !widget.readOnly && _canPublish && !_hasStagedChanges && !_confirmingTeamChanges;
   bool get _canForceAcceptSelection => !widget.readOnly && _canForceAccept && !_hasStagedChanges && !_confirmingTeamChanges;
   bool get _usesPublishedCompositionStaging =>
       _status == 'published' &&
@@ -2250,13 +2253,15 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     return result == true;
   }
 
-  Future<void> _publishTeamSelection({required bool allowIncomplete}) async {
+  Future<void> _publishTeamSelection({required bool allowIncomplete, required String instructions, required String? expectedNotes}) async {
     await Supabase.instance.client.rpc(
-      'publish_team_selection_safe',
+      'publish_team_with_instructions',
       params: {
         'p_fixture_id': widget.fixture['id']?.toString(),
         'p_team_selection_id': _selectionId!,
         'p_allow_incomplete': allowIncomplete,
+        'p_notes': instructions,
+        'p_expected_notes': expectedNotes,
       },
     );
   }
@@ -2275,9 +2280,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     if (!_canPublishTeam) return;
     if (_selectionId == null) return;
 
+    setState(() => _publishing = true);
     try {
+      final latest = await _client.from('fixtures').select('notes')
+          .eq('id', widget.fixture['id'].toString()).single();
+      final expectedNotes = latest['notes'] as String?;
+      if (!mounted) return;
+      final instructions = await showDialog<String>(context: context,
+        builder: (_) => PublicationInstructionsDialog(initialInstructions: expectedNotes ?? ''));
+      if (instructions == null || !mounted) return;
       try {
-        await _publishTeamSelection(allowIncomplete: false);
+        await _publishTeamSelection(allowIncomplete: false, instructions: instructions, expectedNotes: expectedNotes);
       } catch (e) {
         final incomplete = _parseIncompleteTeamError(e);
         if (incomplete == null) rethrow;
@@ -2290,7 +2303,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
         if (!publishAnyway) return;
 
-        await _publishTeamSelection(allowIncomplete: true);
+        await _publishTeamSelection(allowIncomplete: true, instructions: instructions, expectedNotes: expectedNotes);
       }
 
       TeamSheetAttachmentResult? attachmentResult;
@@ -2325,6 +2338,8 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Publish error: $e')));
+    } finally {
+      if (mounted) setState(() => _publishing = false);
     }
   }
 
