@@ -263,12 +263,6 @@ pw.Widget _fixtureTypeBand(
           ],
         ),
 
-        // 👇 NEW: Arrival message
-        pw.SizedBox(height: 4),
-        pw.Text(
-          'Please arrive at least 15 minutes before the start of the fixture',
-          style: pw.TextStyle(fontSize: 10, color: fg),
-        ),
       ],
     ),
   );
