@@ -20,6 +20,7 @@ import 'repeat_fixture_planner_page.dart';
 import 'fixture_team_structure_service.dart';
 import '../team/team_section.dart';
 import '../team/manage_team_screen.dart';
+import '../diary/rinks_day_view.dart';
 import '../rinks/rinks_setup_screen.dart';
 import '../rinks/rink_assignments_screen.dart';
 import '../../core/utils/date_format.dart';
@@ -4985,6 +4986,38 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
+  bool _openingRinksDay = false;
+
+  Future<void> _openRinksDay() async {
+    final clubId = _fixture?['club_id']?.toString();
+    final date = _startAtLocal;
+    if (_openingRinksDay || clubId == null || date == null) return;
+    _openingRinksDay = true;
+    try {
+      final club = await Supabase.instance.client
+          .from('clubs').select('name').eq('id', clubId).maybeSingle();
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => RinkDayViewScreen(
+          clubId: clubId,
+          clubName: club?['name']?.toString() ?? 'Club',
+          date: DateTime(date.year, date.month, date.day),
+          greenAreaId: _greenAreaId,
+          fixtureId: widget.fixtureId,
+        ),
+      ));
+      if (mounted) await _loadRinkAvailability(showLoading: false);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the Rinks view. Please try again.')),
+        );
+      }
+    } finally {
+      _openingRinksDay = false;
+    }
+  }
+
   Widget _buildRinkAvailabilitySection() {
     if (_greenAreaId == null || _startAtLocal == null || _endAtLocal == null) {
       return const Text(
@@ -5042,71 +5075,80 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: BoxDecoration(
-            color: enoughRinks ? Colors.green.shade50 : Colors.red.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: enoughRinks ? Colors.green.shade300 : Colors.red.shade300,
+        Semantics(
+          label: 'View rink bookings for this day',
+          button: true,
+          onLongPress: _openRinksDay,
+          child: GestureDetector(
+            onLongPress: _openRinksDay,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: enoughRinks ? Colors.green.shade50 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: enoughRinks ? Colors.green.shade300 : Colors.red.shade300,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      '$freeRinks of $totalRinks rinks free',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: enoughRinks
+                            ? Colors.green.shade900
+                            : Colors.red.shade900,
+                      ),
+                    ),
+
+                    const SizedBox(height: 5),
+
+                    Text(
+                      '$capacityBookedRinks reserved by fixtures · '
+                      '$physicallyBookedRinks physically allocated',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: enoughRinks
+                            ? Colors.green.shade900
+                            : Colors.red.shade900,
+                      ),
+                    ),
+
+                    if (unallocatedReservedRinks > 0) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        '$unallocatedReservedRinks reserved '
+                        '${unallocatedReservedRinks == 1 ? 'rink is' : 'rinks are'} '
+                        'still awaiting physical allocation',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ],
+
+                    if (!enoughRinks) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        '${capacityBookedRinks - totalRinks} more '
+                        '${capacityBookedRinks - totalRinks == 1 ? 'rink is' : 'rinks are'} '
+                        'required than this green can provide',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red.shade900,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
             ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                '$freeRinks of $totalRinks rinks free',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  color: enoughRinks
-                      ? Colors.green.shade900
-                      : Colors.red.shade900,
-                ),
-              ),
-
-              const SizedBox(height: 5),
-
-              Text(
-                '$capacityBookedRinks reserved by fixtures · '
-                '$physicallyBookedRinks physically allocated',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: enoughRinks
-                      ? Colors.green.shade900
-                      : Colors.red.shade900,
-                ),
-              ),
-
-              if (unallocatedReservedRinks > 0) ...[
-                const SizedBox(height: 5),
-                Text(
-                  '$unallocatedReservedRinks reserved '
-                  '${unallocatedReservedRinks == 1 ? 'rink is' : 'rinks are'} '
-                  'still awaiting physical allocation',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.orange.shade900,
-                  ),
-                ),
-              ],
-
-              if (!enoughRinks) ...[
-                const SizedBox(height: 5),
-                Text(
-                  '${capacityBookedRinks - totalRinks} more '
-                  '${capacityBookedRinks - totalRinks == 1 ? 'rink is' : 'rinks are'} '
-                  'required than this green can provide',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.red.shade900,
-                  ),
-                ),
-              ],
-            ],
           ),
         ),
 

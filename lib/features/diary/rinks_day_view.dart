@@ -39,12 +39,14 @@ class RinkDayViewScreen extends StatefulWidget {
     required this.clubName,
     required this.date,
     this.fixtureId,
+    this.greenAreaId,
   });
 
   final String clubId;
   final String clubName;
   final DateTime date;
   final String? fixtureId;
+  final String? greenAreaId;
 
   @override
   State<RinkDayViewScreen> createState() => _RinkDayViewScreenState();
@@ -336,7 +338,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         throw Exception('Green area is missing its ID');
       }
 
-      final fixtures = await _loadHomeFixturesForDay(dayStart, dayEnd);
+      final fixtures = await _loadHomeFixturesForDay(dayStart, dayEnd, greenAreaId);
 
       final maintenanceRows = await _loadMaintenanceForDay(
         dayStart,
@@ -439,15 +441,17 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
       throw Exception('No home venue found for this club');
     }
 
-    final green = await _client
+    var greenQuery = _client
         .from('green_areas')
         .select(
           'id, name, rink_count, scheme_type, custom_labels, scheme_prefix, scheme_padding, '
           'is_outdoor, uses_sunset_cutoff, sunset_booking_offset_minutes',
         )
-        .eq('venue_id', venue['id'])
-        .limit(1)
-        .maybeSingle();
+        .eq('venue_id', venue['id']);
+    if (widget.greenAreaId != null) {
+      greenQuery = greenQuery.eq('id', widget.greenAreaId!);
+    }
+    final green = await greenQuery.limit(1).maybeSingle();
 
     if (green == null) {
       throw Exception('No green area found for the home venue');
@@ -498,6 +502,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
   Future<List<Map<String, dynamic>>> _loadHomeFixturesForDay(
     DateTime dayStart,
     DateTime dayEnd,
+    String greenAreaId,
   ) async {
     final res = await _client
         .from('fixtures')
@@ -534,6 +539,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         ''')
         .eq('club_id', widget.clubId)
         .eq('is_home', true)
+        .eq('green_area_id', greenAreaId)
         .isFilter('cancelled_at', null)
         .gte('start_at', clubTimeToUtc(dayStart).toIso8601String())
         .lt('start_at', clubTimeToUtc(dayEnd).toIso8601String())
@@ -791,7 +797,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: true,
         toolbarHeight: 44,
         actions: [
           ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
@@ -1225,6 +1231,13 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(block.title)));
+      return;
+    }
+
+    // The calling fixture is already underneath this route. Reuse it rather
+    // than stacking another copy every time its rink is selected.
+    if (fixtureId == widget.fixtureId && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
       return;
     }
 
