@@ -1809,7 +1809,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .inFilter('member_profile_id', selectedIds.toList());
       final unavailable = existing.where((row) => row['status'] == 'no').toList();
       final priorSelections = await _client.from('team_selection_members')
-          .select('member_profile_id, acceptance, member_profiles(display_name)')
+          .select('member_profile_id, acceptance, member_profiles!team_selection_members_member_profile_id_fkey(display_name)')
           .eq('team_selection_id', _selectionId!)
           .inFilter('member_profile_id', selectedIds.toList());
       final declined = priorSelections.where((row) => row['acceptance'] == 'declined').toList();
