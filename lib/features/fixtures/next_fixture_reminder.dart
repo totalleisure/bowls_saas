@@ -284,7 +284,7 @@ class NextFixtureReminder {
                               );
                             },
                             child: Text(
-                              fixture['_reminderAcceptance'] == 'pending'
+                              !isCancelled && fixture['_reminderAcceptance'] == 'pending'
                                   ? 'Review and respond'
                                   : 'View fixture',
                               style: TextStyle(

@@ -53,6 +53,26 @@ void main() {
     expect(opened, 'match-1');
   });
 
+  for (final status in ['accepted', 'pending']) {
+    testWidgets('cancelled $status selection opens cancellation notice', (tester) async {
+      String? opened;
+      await tester.pumpWidget(app(automatic: true, loader: () async => {
+        ...fixture, 'cancelled_at': '2026-10-09T12:00:00Z',
+        '_reminderAcceptance': status,
+      }, open: (id) async => opened = id));
+      await tester.pumpAndSettle();
+      expect(find.text('CANCELLED'), findsOneWidget);
+      expect(find.textContaining('This fixture was due in'), findsOneWidget);
+      expect(find.textContaining('Your next match is in'), findsNothing);
+      expect(find.textContaining('Response needed'), findsNothing);
+      expect(find.text('Review and respond'), findsNothing);
+      expect(find.text('Navigate'), findsNothing);
+      await tester.tap(find.text('View fixture'));
+      await tester.pumpAndSettle();
+      expect(opened, 'match-1');
+    });
+  }
+
   testWidgets('start-screen reminder opens automatically only once', (tester) async {
     var loads = 0;
     await tester.pumpWidget(app(automatic: true, loader: () async {

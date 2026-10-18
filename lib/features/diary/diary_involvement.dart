@@ -161,7 +161,6 @@ class DiaryInvolvementRepository {
           .inFilter('acceptance', ['accepted', 'pending'])
           .eq('team_selections.status', 'published')
           .eq('team_selections.fixture.club_id', clubId)
-          .isFilter('team_selections.fixture.cancelled_at', null)
           .gte(
             'team_selections.fixture.start_at',
             nowUtc.toUtc().toIso8601String(),
@@ -191,7 +190,6 @@ class DiaryInvolvementRepository {
           )
           .eq('club_id', clubId)
           .inFilter('id', candidates.map((f) => f['id']).toList())
-          .isFilter('cancelled_at', null)
           .order('id', ascending: true)
           .range(offset, offset + 499)
           .count(CountOption.exact),

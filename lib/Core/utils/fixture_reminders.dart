@@ -1,4 +1,5 @@
 /// Pending responses within seven days and accepted matches share date order.
+/// Cancelled selections remain visible as cancellation notices until their start.
 /// The nearest two accepted matches are retained alongside every urgent response.
 List<Map<String, dynamic>> fixtureReminders(
   Iterable<Map<String, dynamic>> candidates, {
@@ -8,9 +9,7 @@ List<Map<String, dynamic>> fixtureReminders(
   final instant = now.toUtc();
   for (final fixture in candidates) {
     final start = DateTime.tryParse('${fixture['start_at']}')?.toUtc();
-    if (start == null ||
-        start.isBefore(instant) ||
-        fixture['cancelled_at'] != null) {
+    if (start == null || start.isBefore(instant)) {
       continue;
     }
     final status = fixture['_reminderAcceptance'] ?? 'accepted';

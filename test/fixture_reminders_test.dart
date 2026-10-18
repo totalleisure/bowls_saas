@@ -31,7 +31,7 @@ void main() {
         match('declined', 1, 'declined'),
         {...match('cancelled', 1, 'pending'), 'cancelled_at': '2026-10-09'},
       ], now: now).map((f) => f['id']),
-      ['seven'],
+      ['cancelled', 'seven'],
     );
   });
   test('all urgent responses survive the nearest-two accepted limit', () {

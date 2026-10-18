@@ -57,6 +57,7 @@ void main() {
         final details = req.url.path.endsWith('/fixtures');
         if (details) {
           expect(q['club_id'], 'eq.club');
+          expect(q['cancelled_at'], isNull);
           expect(q['id'], contains('pending'));
           expect(q['id'], isNot(contains('distant-pending')));
           expect(q['select'], contains('address_line1'));
@@ -66,13 +67,13 @@ void main() {
           expect(q['acceptance'], 'in.("accepted","pending")');
           expect(q['team_selections.status'], 'eq.published');
           expect(q['team_selections.fixture.club_id'], 'eq.club');
-          expect(q['team_selections.fixture.cancelled_at'], 'is.null');
+          expect(q['team_selections.fixture.cancelled_at'], isNull);
         }
         final data = details ? [
-          fixture('accepted', date: '2026-10-16T12:00:00Z'),
+          {...fixture('accepted', date: '2026-10-16T12:00:00Z'), 'cancelled_at': '2026-10-10'},
           fixture('pending', date: '2026-10-13T12:00:00Z'),
         ] : [
-          selection('accepted', date: '2026-10-16T12:00:00Z'),
+          selection('accepted', date: '2026-10-16T12:00:00Z', cancelled: true, role: 'reserve'),
           selection('pending', date: '2026-10-13T12:00:00Z', acceptance: 'pending'),
           selection('distant-pending', date: '2026-10-20T12:00:00Z', acceptance: 'pending'),
         ];
@@ -84,6 +85,7 @@ void main() {
       .reminders(DateTime.utc(2026, 10, 10, 12));
     expect(rows.map((f) => f['id']), ['pending', 'accepted']);
     expect(rows.first['_reminderAcceptance'], 'pending');
+    expect(rows.last['cancelled_at'], isNotNull);
   });
   test(
     'published involvement distinguishes player, reserve and acceptance; hides drafts, declined, unselected and cancelled',
