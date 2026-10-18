@@ -1,3 +1,4 @@
+import 'enable_member_login_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -169,6 +170,21 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
     return 'assets/images/blank_bg_phone_2.png';
   }
+
+  Widget _captainManagedAccess() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    const Text('Captain-managed member — contact by telephone. No login or email.'),
+    if (widget.canManageMembers && widget.initialActive)
+      OutlinedButton.icon(icon: const Icon(Icons.person_add_alt_1), label: const Text('Enable app login'),
+        onPressed: _saving ? null : () async {
+          if (_hasUnsavedChanges) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Save member edits before enabling app login.')));
+            return;
+          }
+          final enabled = await showDialog<bool>(context: context, barrierDismissible: false,
+            builder: (_) => EnableMemberLoginDialog(clubId: widget.clubId, memberProfileId: widget.memberProfileId));
+          if (enabled == true && mounted) Navigator.pop(context, true);
+        }),
+  ]);
 
   Future<void> _save() async {
     if (_saving) return;
@@ -632,9 +648,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           const SizedBox(height: 8),
 
           if (_captainManaged)
-            const Text(
-              'Captain-managed member — contact by telephone. No login or email.',
-            )
+            _captainManagedAccess()
           else ...[
             _fieldWithDirectoryOption(
               label: 'Login email (read only)',
@@ -1048,9 +1062,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                           const SizedBox(height: 8),
 
                           if (_captainManaged)
-                            const Text(
-                              'Captain-managed member — contact by telephone. No login or email.',
-                            )
+                            _captainManagedAccess()
                           else ...[
                             _fieldWithDirectoryOption(
                               label: 'Login email (read only)',

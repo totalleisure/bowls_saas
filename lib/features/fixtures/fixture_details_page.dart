@@ -2807,6 +2807,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
   }
 
+  Future<void> _openTeamFromFixture() async {
+    if (!_canViewTeam || _fixture == null) return;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => ManageTeamScreen(
+      fixture: _fixture!, readOnly: !_canManageTeam || _fixture?['cancelled_at'] != null)));
+    if (mounted) await _refreshAfterTeamManagement();
+  }
+
   Future<void> _openSpecialInstructions(bool published) async {
     final expectedNotes = _fixture?['notes'] as String?;
     final requestId = const Uuid().v4();
@@ -6485,14 +6492,16 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        lockedFixtureLabel,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              color: fixtureTypeFg,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Expanded(child: Text(lockedFixtureLabel,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: fixtureTypeFg, fontWeight: FontWeight.w700))),
+                        if (isPublished && canViewTeam && !isOpenSessionFixture && !_usesSimpleBookingWorkflow)
+                          TextButton.icon(onPressed: _openTeamFromFixture,
+                            icon: const Icon(Icons.groups_outlined),
+                            label: Text(canManageTeam && !isCancelled ? 'Manage Team' : 'View Team'),
+                            style: TextButton.styleFrom(foregroundColor: fixtureTypeFg)),
+                      ]),
                       const SizedBox(height: 6),
                       Text(
                         '${DateFormat('EEEE d MMMM yyyy').format(when)} · '

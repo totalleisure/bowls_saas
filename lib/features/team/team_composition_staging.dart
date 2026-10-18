@@ -203,3 +203,32 @@ TeamChangeReview buildTeamChangeReview({
   }
   return TeamChangeReview(teamLines, playerLines, recipients);
 }
+
+/// Every selected player needs a position or an explicit reserve/removal choice.
+List<Map<String, dynamic>> unpositionedSelectedPlayers({
+  required Iterable<Map<String, dynamic>> selected,
+  required Iterable<Map<String, dynamic>> assignments,
+}) {
+  final positioned = assignments.map((a) => a['member_profile_id']?.toString()).toSet();
+  return selected.where((m) => m['is_selected'] == true && m['role'] == 'player' &&
+    !positioned.contains(m['member_profile_id']?.toString())).toList();
+}
+
+Set<String> removeUnpositionedDecliners({required List<Map<String, dynamic>> selected,
+  required Iterable<Map<String, dynamic>> assignments}) {
+  final ids = unpositionedSelectedPlayers(selected: selected, assignments: assignments)
+    .where((m) => m['acceptance'] == 'declined').map((m) => m['member_profile_id'].toString()).toSet();
+  selected.removeWhere((m) => ids.contains(m['member_profile_id']));
+  return ids;
+}
+
+void resolveUnpositionedPlayers({required List<Map<String, dynamic>> selected,
+  required Set<String> memberIds, required bool makeReserves}) {
+  if (!makeReserves) {
+    selected.removeWhere((m) => memberIds.contains(m['member_profile_id']));
+  } else {
+    for (final member in selected) {
+      if (memberIds.contains(member['member_profile_id'])) member['role'] = 'reserve';
+    }
+  }
+}

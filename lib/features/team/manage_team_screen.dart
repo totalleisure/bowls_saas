@@ -569,7 +569,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     if (_usesPublishedCompositionStaging) {
       if (mounted) {
-        setState(_refreshCompositionDirty);
+        setState(() { _removeDisplacedDecliners(); _refreshCompositionDirty(); });
       }
       return;
     }
@@ -584,24 +584,41 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     );
   }
 
-  Future<void> _showUnpositionedPlayers(List<Map<String, dynamic>> players) async {
+  Future<bool> _showUnpositionedPlayers(List<Map<String, dynamic>> players) async {
+    if (players.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:
+        Text('The team has changed. Reopen it and review the unassigned players.')));
+      return false;
+    }
     final names = players.map((m) => _displayNameWithPreferredPosition(
-        m['member_profiles'] as Map<String, dynamic>?)).where((n) => n.isNotEmpty).join('\n');
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Choose what happens to these players'),
-        content: SingleChildScrollView(child: Text(
-          '${names.isEmpty ? 'A previously assigned player no longer has a team position.' : names}\n\n'
-          'Assign each player to a team position, make them a reserve, or remove them from the selection before confirming.\n\n'
-          'Your changes are still here to review. Nothing has been saved or sent.',
-        )),
-        actions: [FilledButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Review players'),
-        )],
-      ),
-    );
+      m['member_profiles'] as Map<String, dynamic>?)).join('\n');
+    final action = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
+      title: const Text('Players without a team position'),
+      content: SingleChildScrollView(child: Text('$names\n\n'
+        'Make all these selected players reserves, or remove them from the selected pool?\n\n'
+        'Reserves keeps them in this fixture as reserves. Remove takes them out of the selection; '
+        'available members return to the available pool and can be picked again. '
+        'Players who declined are removed from the selected and available pools.\n\n'
+        'Cancel keeps your edits so you can assign positions yourself. Nothing is saved or sent until you confirm the team changes.')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+        OutlinedButton(onPressed: () => Navigator.pop(dialogContext, 'remove'), child: const Text('Remove')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, 'reserve'), child: const Text('Reserves')),
+      ],
+    ));
+    if (action == null || !mounted) return false;
+    final ids = players.map((m) => m['member_profile_id'].toString()).toSet();
+    setState(() {
+      resolveUnpositionedPlayers(selected: _selected, memberIds: ids, makeReserves: action == 'reserve');
+      _refreshCompositionDirty();
+    });
+    return true;
+  }
+
+  void _removeDisplacedDecliners() {
+    final removed = removeUnpositionedDecliners(selected: _selected,
+      assignments: _currentPlayerAssignmentPayload());
+    _pool.removeWhere((row) => removed.contains(row['member_profile_id']));
   }
 
   Future<void> _confirmTeamChanges() async {
@@ -612,14 +629,13 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
       return;
     }
 
-    final unresolved = unresolvedDisplacedPlayers(
-      originallyPositioned: _originallyPositionedPlayers,
+    _removeDisplacedDecliners();
+    final unresolved = unpositionedSelectedPlayers(
       selected: _selected,
       assignments: _currentPlayerAssignmentPayload(),
     );
     if (unresolved.isNotEmpty) {
-      await _showUnpositionedPlayers(unresolved);
-      return;
+      if (!await _showUnpositionedPlayers(unresolved)) return;
     }
 
     final members = buildConfirmedTeamMembers(_selected);
@@ -1341,10 +1357,12 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
             'accepted_by_profile:member_profiles!team_selection_members_acceptance_by_fkey(display_name)',
           )
           .eq('team_selection_id', _selectionId!)
-          .eq('is_selected', true)
           .order('created_at');
 
-      _selected = List<Map<String, dynamic>>.from(selRows);
+      _selected = List<Map<String, dynamic>>.from(selRows).where((r) => r['is_selected'] == true).toList();
+      final declinedIds = selRows.where((r) => r['acceptance'] == 'declined')
+          .map((r) => r['member_profile_id']).toSet();
+      _pool.removeWhere((r) => declinedIds.contains(r['member_profile_id']));
       _authoritativeSelectedById = {
         for (final row in _selected)
           if (row['member_profile_id'] != null)
@@ -2195,7 +2213,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         title: const Text('Return member to pool?'),
         content: Text(
           '$name is selected but has not been allocated to a team position.\n\n'
-          'Return this member to the available pool?',
+          'Remove them from the selected pool and return them to the available pool to be picked again? Players who declined will not appear in the available pool.',
         ),
         actions: [
           TextButton(
@@ -3438,13 +3456,6 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                             : Wrap(
                                 spacing: 8,
                                 children: [
-                                  if (!isAllocated && _canModifySelection)
-                                    TextButton.icon(
-                                      onPressed: () =>
-                                          _returnUnallocatedMemberToPool(s),
-                                      icon: const Icon(Icons.undo, size: 18),
-                                      label: const Text('Return to pool'),
-                                    ),
                                   PopupMenuButton<String>(
                                     onSelected: (v) async {
                                       if (v == 'player' ||

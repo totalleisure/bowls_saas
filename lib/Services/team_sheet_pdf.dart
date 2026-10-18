@@ -1,3 +1,4 @@
+import 'arrival_guidance.dart';
 import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -262,7 +263,10 @@ pw.Widget _fixtureTypeBand(
             ),
           ],
         ),
-
+        if (defaultArrivalGuidance(data.notes) case final arrival?) ...[
+          pw.SizedBox(height: 4),
+          pw.Text(arrival, style: pw.TextStyle(fontSize: 10, color: fg)),
+        ],
       ],
     ),
   );
