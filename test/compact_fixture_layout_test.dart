@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bowls_saas/Core/widgets/app_badge.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bowls_saas/features/team/selected_member_interaction_card.dart';
 import 'package:bowls_saas/features/fixtures/widgets/fixture_timing_controls.dart';
@@ -18,7 +19,8 @@ void main() {
           child: Scaffold(body: SingleChildScrollView(child: Column(children: [
             SelectedMemberInteractionCard(color: Colors.blue.shade50,
               title: const Column(crossAxisAlignment: CrossAxisAlignment.start,
-                children: [Text('Alexandra Example Player'), Text('SELECTED')]),
+                children: [Text('Alexandra Example Player')]),
+              bottomTrailing: const AppBadge(text: 'PLAYER'),
               subtitle: const Text('Not allocated\nSelected — not awaiting acceptance\n07710 325696'),
               trailing: PopupMenuButton<String>(itemBuilder: (_) => [
                 const PopupMenuItem(value: 'reserve', child: Text('Make reserve')),
@@ -31,6 +33,10 @@ void main() {
           ]))),
         )));
         expect(tester.takeException(), isNull);
+        expect(tester.getBottomRight(find.byType(AppBadge)).dx,
+          closeTo(tester.getBottomRight(find.byKey(selectedMemberInteractionTileKey)).dx - 16, 1));
+        expect(tester.getBottomRight(find.byType(AppBadge)).dy,
+          closeTo(tester.getBottomRight(find.byKey(selectedMemberInteractionTileKey)).dy - 10, 1));
         if (width < 600 * scale) {
           expect(tester.getTopLeft(find.text('End')).dy,
             greaterThan(tester.getBottomLeft(find.text('9:00\u00a0a.m.')).dy));

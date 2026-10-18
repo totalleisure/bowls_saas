@@ -3402,12 +3402,12 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                       return SelectedMemberInteractionCard(
                         color: bgColor,
+                        bottomTrailing: isPositionedPlayer ? const AppBadge(text: 'PLAYER') : null,
                         title: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(name),
                             if (role == 'reserve') AppBadge(text: 'RESERVE'),
-                            if (isPositionedPlayer) AppBadge(text: 'PLAYER'),
                             if (isSelectedUnpositioned)
                               AppBadge(text: 'SELECTED'),
                             if (role == 'opponent') AppBadge(text: 'OPPONENT'),
