@@ -3,6 +3,10 @@ import 'package:bowls_saas/features/team/team_composition_staging.dart';
 Map<String,dynamic> member(String id, String acceptance, [String role='player']) =>
  {'member_profile_id':id,'is_selected':true,'role':role,'acceptance':acceptance};
 void main() {
+ test('fully positioned players and existing reserves need no allocation dialogue', () {
+  final selected=[member('a','accepted'),member('b','pending'),member('r','pending','reserve')];
+  expect(unpositionedSelectedPlayers(selected:selected,assignments:[{'member_profile_id':'a'},{'member_profile_id':'b'}]),isEmpty);
+ });
  test('replacement removes displaced decliner but preserves accepted player and reserve', () {
   final selected=[member('decliner','declined'),member('accepted','accepted'),member('reserve','pending','reserve')];
   final removed=removeUnpositionedDecliners(selected:selected,assignments:[{'member_profile_id':'accepted'}]);

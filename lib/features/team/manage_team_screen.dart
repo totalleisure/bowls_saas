@@ -1,3 +1,4 @@
+import 'pool_recruitment_confirmation.dart';
 import 'publication_instructions_dialog.dart';
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
@@ -1807,30 +1808,30 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
           .eq('fixture_id', fixtureId)
           .inFilter('member_profile_id', selectedIds.toList());
       final unavailable = existing.where((row) => row['status'] == 'no').toList();
-      var overrideUnavailable = false;
-      if (unavailable.isNotEmpty) {
-        if (!(_isClubAdmin || _isSuperuser)) {
+      final priorSelections = await _client.from('team_selection_members')
+          .select('member_profile_id, acceptance, member_profiles(display_name)')
+          .eq('team_selection_id', _selectionId!)
+          .inFilter('member_profile_id', selectedIds.toList());
+      final declined = priorSelections.where((row) => row['acceptance'] == 'declined').toList();
+      var confirmed = false;
+      if (unavailable.isNotEmpty || declined.isNotEmpty) {
+        if (unavailable.isNotEmpty && !(_isClubAdmin || _isSuperuser)) {
           throw const PostgrestException(message:
               'A selected member previously answered Not available. Ask a club admin to confirm an override.');
         }
         if (!mounted) return;
-        final names = unavailable.map((row) =>
-            row['member_profiles']?['display_name'] ?? 'Selected member').join(', ');
-        overrideUnavailable = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
-          title: const Text('Override Not available?'),
-          content: Text('$names previously answered Not available.\n\n'
-              'Add them to the pool as Maybe? This replaces that answer but does not select them for the team. Confirm their availability first.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Override and add to pool')),
-          ],
-        )) ?? false;
-        if (!overrideUnavailable || !mounted) return;
+        confirmed = await showDialog<bool>(context: context, builder: (_) =>
+          PoolRecruitmentConfirmation(
+            declinedNames: declined.map((row) => row['member_profiles']?['display_name']?.toString() ?? 'Selected member').toList(),
+            unavailableNames: unavailable.map((row) => row['member_profiles']?['display_name']?.toString() ?? 'Selected member').toList(),
+          )) ?? false;
+        if (!confirmed || !mounted) return;
       }
-      await _client.rpc('add_fixture_members_to_pool', params: {
+      await _client.rpc('add_fixture_members_to_pool_reviewed', params: {
         'p_fixture_id': fixtureId,
         'p_member_profile_ids': selectedIds.toList(),
-        'p_override_unavailable': overrideUnavailable,
+        'p_override_unavailable': unavailable.isNotEmpty && confirmed,
+        'p_confirm_declined': declined.isNotEmpty && confirmed,
       });
     }
 
