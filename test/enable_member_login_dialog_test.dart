@@ -7,13 +7,15 @@ void main() {
   var calls=0; String? email;
   await tester.pumpWidget(MaterialApp(home: Scaffold(body:EnableMemberLoginDialog(clubId:'club',memberProfileId:'member',enableLogin:(value) async {calls++;email=value;return {'enabled':true,'setup_sent':sent};}))));
   expect(calls,0);
-  await tester.tap(find.text('Enable login and send code'));await tester.pump();
+  await tester.tap(find.text('Enable login'));await tester.pump();
   expect(calls,0);expect(find.text('Enter the member’s unique email address.'),findsOneWidget);
   await tester.enterText(find.byType(TextField),' Member@Example.invalid ');
-  await tester.tap(find.text('Enable login and send code'));await tester.pumpAndSettle();
+  await tester.tap(find.text('Enable login'));await tester.pumpAndSettle();
   expect(calls,1);expect(email,'member@example.invalid');
   expect(find.text('App login enabled'),findsOneWidget);
-  expect(find.textContaining(sent?'password-setup code has been sent':'setup email could not be confirmed'),findsOneWidget);
+  expect(find.textContaining('Their existing membership has been kept.'),findsOneWidget);
+  expect(find.textContaining('Request a code there'),findsOneWidget);
+  expect(find.textContaining('code has been sent'),findsNothing);
   expect(find.text('Done'),findsOneWidget);
  });
  }

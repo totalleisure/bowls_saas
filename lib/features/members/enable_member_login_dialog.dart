@@ -14,7 +14,6 @@ class _EnableMemberLoginDialogState extends State<EnableMemberLoginDialog> {
   final _email = TextEditingController();
   bool _busy = false;
   bool _enabled = false;
-  bool _sent = false;
   String? _error;
   @override
   void dispose() { _email.dispose(); super.dispose(); }
@@ -31,7 +30,7 @@ class _EnableMemberLoginDialogState extends State<EnableMemberLoginDialog> {
           'enable-member-login', body: {'club_id': widget.clubId,
             'member_profile_id': widget.memberProfileId, 'email': email})).data as Map);
       if (result['enabled'] != true) throw Exception('App access was not enabled.');
-      if (mounted) setState(() { _enabled = true; _sent = result['setup_sent'] == true; });
+      if (mounted) setState(() { _enabled = true; });
     } on FunctionException catch (e) {
       if (mounted) setState(() => _error = e.details is Map
         ? e.details['error']?.toString() : 'Could not enable app access. Refresh and check before retrying.');
@@ -45,22 +44,21 @@ class _EnableMemberLoginDialogState extends State<EnableMemberLoginDialog> {
     content: SizedBox(width: 480, child: SingleChildScrollView(child: Column(
       mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (!_enabled) ...[
-        const Text('Add a unique email for this member. Their existing membership, selections and history will be kept. This sends a code so they can choose their own password.'),
+        const Text('Add a unique email for this member. Their existing membership, selections and history will be kept. The member will request a code when they are ready to set their password. No code is sent now.'),
         const SizedBox(height: 12),
         TextField(controller: _email, enabled: !_busy, keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(labelText: 'Member email address')),
       ] else ...[
-        Text(_sent ? 'A password-setup code has been sent to ${_email.text.trim()}.'
-          : 'Their login is enabled, but the setup email could not be confirmed. Their membership has been kept.'),
+        Text('App login is enabled for ${_email.text.trim()}. Their existing membership has been kept.'),
         const SizedBox(height: 12),
-        const Text('Ask the member to open Forgotten password on the Bowls sign-in screen, enter this email, request a fresh code and follow the steps to choose a password. They do not need to register again.'),
+        const Text('To set their first password, ask the member to open Forgotten password on the Bowls sign-in screen and enter this email. Request a code there, enter that code on the same screen, then choose a password. They do not need to register again.'),
       ],
       if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
       if (_busy) const LinearProgressIndicator(),
     ]))),
     actions: [
       if (!_enabled) TextButton(onPressed: _busy ? null : () => Navigator.pop(context), child: const Text('Cancel')),
-      if (!_enabled) FilledButton(onPressed: _busy ? null : _enable, child: const Text('Enable login and send code')),
+      if (!_enabled) FilledButton(onPressed: _busy ? null : _enable, child: const Text('Enable login')),
       if (_enabled) FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Done')),
     ],
   ));

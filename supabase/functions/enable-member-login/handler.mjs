@@ -36,6 +36,7 @@ export async function handleEnableLogin(req, admin) {
     const target = await read(admin.from('member_profiles').select('id,user_id,is_captain_managed,email_address,display_name')
       .eq('id', b.member_profile_id).maybeSingle());
     if (!target) return reply({ error: 'Member not found.' }, 404);
+    let expectedUserId = target.user_id;
     if (target.user_id) {
       // Only retry this conversion; never change or merge an existing account.
       const existing = await admin.auth.admin.getUserById(target.user_id);
@@ -52,12 +53,17 @@ export async function handleEnableLogin(req, admin) {
       });
       if (created.error || !created.data.user) return reply({ error:
         'Login could not be created. The email may already be in use, or the member may have changed. Refresh and check before retrying.' }, 409);
+      expectedUserId = created.data.user.id;
     }
-    // The password is never exposed. The recipient proves email ownership using
-    // the existing Forgotten password recovery-code flow before choosing one.
-    let sent = false;
-    try { const r = await admin.auth.resetPasswordForEmail(email); sent = !r.error; } catch { /* conversion already committed */ }
-    return reply({ enabled: true, email, setup_sent: sent });
+    // Auth may attach trusted app_metadata after inserting its user row.
+    // Only report success once the existing profile has actually been linked.
+    const linked = await read(admin.from('member_profiles').select('user_id,is_captain_managed')
+      .eq('id', target.id).maybeSingle());
+    if (!linked?.user_id || linked.user_id !== expectedUserId || linked.is_captain_managed) {
+      return reply({ error: 'The login was created but membership linking needs attention. Please contact your administrator; do not register another account.' }, 409);
+    }
+    // Request the code only when the member opens the password-setup screen.
+    return reply({ enabled: true, email, setup_sent: false });
   } catch {
     return reply({ error: 'Unable to confirm app access. Refresh the member before trying again.' }, 500);
   }
