@@ -3403,14 +3403,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                       return SelectedMemberInteractionCard(
                         color: bgColor,
-                        bottomTrailing: isPositionedPlayer ? const AppBadge(text: 'PLAYER') : null,
+                        bottomTrailing: role == 'reserve'
+                            ? const AppBadge(text: 'RESERVE')
+                            : isSelectedUnpositioned
+                                ? const AppBadge(text: 'SELECTED')
+                                : isPositionedPlayer
+                                    ? const AppBadge(text: 'PLAYER')
+                                    : null,
                         title: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(name),
-                            if (role == 'reserve') AppBadge(text: 'RESERVE'),
-                            if (isSelectedUnpositioned)
-                              AppBadge(text: 'SELECTED'),
                             if (role == 'opponent') AppBadge(text: 'OPPONENT'),
                             if (role == 'marker') AppBadge(text: 'MARKER'),
                           ],
@@ -3418,16 +3421,18 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              placementLabel,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: isAllocated
-                                    ? Theme.of(context).colorScheme.onSurface
-                                    : Colors.red.shade700,
+                            if (role != 'reserve') ...[
+                              Text(
+                                placementLabel,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: isAllocated
+                                      ? Theme.of(context).colorScheme.onSurface
+                                      : Colors.red.shade700,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 2),
+                              const SizedBox(height: 2),
+                            ],
                             Text(
                               isSelectedUnpositioned
                                   ? 'Selected — not awaiting acceptance'
