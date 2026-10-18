@@ -3392,7 +3392,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
                       Color bgColor;
                       if (isSelectedUnpositioned || role == 'reserve') {
-                        bgColor = const Color(0xFFE3F2FD);
+                        bgColor = role == 'reserve' && acceptance == 'accepted'
+                            ? const Color(0xFFD3EAFB) // slightly deeper reserve blue
+                            : const Color(0xFFE3F2FD);
                       } else if (acceptance == 'accepted') {
                         bgColor = const Color(0xFFE8F5E9); // soft green
                       } else if (acceptance == 'declined') {
