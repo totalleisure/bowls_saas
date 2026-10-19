@@ -264,9 +264,7 @@ serve(async (req) => {
         const bodyHtml = escapeHtml(String(email.body ?? ""))
           .replace(/\r?\n/g, "<br>");
         const actionHtml = actionBlock
-          ? buildEmailActionBlock(actionBlock, replyAddress!,
-              email.event_type === 'fixture_rescheduled_selected'
-                ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/view-email-fixture` : undefined)
+          ? buildEmailActionBlock(actionBlock, replyAddress!)
           : "";
 
         const sendRes = await fetch(

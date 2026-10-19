@@ -39,7 +39,6 @@ function formatExpiry(value: string | null | undefined): string {
 export function buildEmailActionBlock(
   block: EmailActionBlock | null | undefined,
   replyAddress: string,
-  viewBase?: string,
 ): string {
   if (!block || !block.response_code || !Array.isArray(block.actions)) {
     return "";
@@ -75,9 +74,6 @@ export function buildEmailActionBlock(
       </a>`;
   }).join("");
 
-  const viewUrl = viewBase && token ? new URL(viewBase) : null;
-  if (viewUrl) { viewUrl.searchParams.set('code', code); viewUrl.searchParams.set('token', token); }
-  const viewButton = viewUrl ? `<a href="${escapeHtml(viewUrl.href)}" style="display:inline-block;margin:6px 8px 6px 0;padding:12px 18px;border-radius:6px;background:#174f87;color:white;text-decoration:none;font-weight:700;">View fixture</a>` : '';
   const expiry = formatExpiry(block.expires_at);
   const heading = block.heading || "Please respond";
   const instructions = block.instructions ||
@@ -93,7 +89,7 @@ export function buildEmailActionBlock(
         ${escapeHtml(instructions)}
       </div>
       <div style="margin:8px 0 10px 0;">
-        ${buttons}${viewButton}
+        ${buttons}
       </div>
       <div style="font-size:13px;color:#555555;margin-top:8px;">
         If the buttons do not open your email application, reply to this email
