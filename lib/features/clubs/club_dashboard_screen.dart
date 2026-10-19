@@ -1,3 +1,4 @@
+import '../fixtures/selection_response_stage.dart';
 import '../fixtures/widgets/fixture_response_panel.dart';
 import '../dashboard/dashboard_filter_store.dart';
 // Dashboard venue navigation + approximate distance: 20260730-phase2d2-distance.
@@ -796,7 +797,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         client
             .from('team_selection_members')
             .select(
-              'acceptance, role, team_selections(status, fixture:fixtures('
+              'acceptance, role, team_selections!inner(status, fixture:fixtures!inner('
               'id, club_id, notes, start_at, is_home, section, rinks_required, players_per_rink, '
               'requires_rsvp, team_id, team_name, cancelled_at, competition_type_id, '
               'captain_member_profile_id, vice_captain_member_profile_id, '
@@ -812,7 +813,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             )
             .eq('member_profile_id', myId)
             .eq('is_selected', true)
-            .eq('acceptance', 'pending'),
+            .eq('team_selections.status', 'published')
+            .eq('team_selections.fixture.club_id', widget.clubId)
+            .gte('team_selections.fixture.start_at', DateTime.now().toUtc().toIso8601String()),
         client
             .from('clubs')
             .select('name, primary_color_hex, secondary_color_hex')
@@ -890,19 +893,12 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         }
       }
 
-      // Selected fixtures where this member still needs to accept or decline.
-      final needsRows = dashboardRows[2];
-
-      final rawNeeds = List<Map<String, dynamic>>.from(needsRows);
-      final selectedPendingFixtureIds = rawNeeds
-          .map(
-            (r) =>
-                ((r['team_selections'] as Map<String, dynamic>?)?['fixture']
-                        as Map<String, dynamic>?)?['id']
-                    ?.toString(),
-          )
-          .whereType<String>()
-          .toSet();
+      // Keep all response states: accepting must not reopen availability.
+      final selectedRows = List<Map<String, dynamic>>.from(dashboardRows[2]);
+      final selectedPublishedFixtureIds = publishedSelectionFixtureIds(selectedRows);
+      final rawNeeds = selectedRows
+          .where((row) => row['acceptance'] == 'pending')
+          .toList();
 
       // 1) Load my club name
       final clubRow = dashboardRows[3] as Map<String, dynamic>;
@@ -971,6 +967,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       final toRsvp = allFixtures.where((f) {
         if (f['cancelled_at'] != null) return false;
         if (!_canRsvpFromDashboard) return false;
+        if (selectedPublishedFixtureIds.contains(f['id']?.toString())) {
+          return false;
+        }
         if (_isOpenSessionOrEvent(f)) return false;
 
         final requiresRsvp = f['requires_rsvp'] == true;
@@ -999,7 +998,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             f['rescheduled_from_fixture_id']?.toString().isNotEmpty == true;
 
         final fixtureId = f['id']?.toString();
-        if (rescheduled && selectedPendingFixtureIds.contains(fixtureId)) {
+        if (rescheduled && selectedPublishedFixtureIds.contains(fixtureId)) {
           return false;
         }
 

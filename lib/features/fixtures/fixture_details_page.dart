@@ -1828,6 +1828,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           )
           .eq('team_selection_id', teamSelectionId)
           .eq('member_profile_id', myId)
+          .eq('is_selected', true)
           .maybeSingle();
 
       if (!mounted) return;
