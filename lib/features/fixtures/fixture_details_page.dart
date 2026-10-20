@@ -1,3 +1,4 @@
+import 'widgets/fixture_information_dialog.dart';
 import 'widgets/fixture_timing_controls.dart';
 import 'widgets/fixture_response_panel.dart';
 // Fixture team refresh integration: 20260730-v2.
@@ -2849,47 +2850,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   Future<void> _editFixtureInformation() async {
     if (!_canEditFixtureInformation) return;
 
-    final controller = TextEditingController(
-      text: (_fixture?['notes'] ?? '').toString(),
-    );
-
     final updatedText = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(_isEventStyleFixture ? 'Edit event information' : 'Edit special instructions'),
-        content: SizedBox(
-          width: 560,
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            minLines: 5,
-            maxLines: 12,
-            textCapitalization: TextCapitalization.sentences,
-            maxLength: 5000,
-            decoration: InputDecoration(
-              labelText: _isEventStyleFixture ? 'Event information' : 'Special instructions',
-              hintText:
-                  'Add details, instructions, timings or other information for members.',
-              alignLabelWithHint: true,
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, controller.text),
-            icon: const Icon(Icons.save),
-            label: const Text('Save'),
-          ),
-        ],
+      builder: (_) => FixtureInformationDialog(
+        initialText: (_fixture?['notes'] ?? '').toString(),
+        isEvent: _isEventStyleFixture,
       ),
     );
-
-    controller.dispose();
 
     if (updatedText == null || !mounted) return;
 
