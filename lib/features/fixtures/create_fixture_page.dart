@@ -129,6 +129,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   // Players, Opponents, Markers
   List<Map<String, dynamic>> _clubMembers = [];
   final Map<String, String?> _playerSelections = {};
+  final Map<String, String> _playerExternalNames = {};
   final Map<String, String?> _opponentSelections = {};
   final Map<String, String> _opponentExternalNames = {};
   final Map<String, String?> _markerSelections = {};
@@ -1710,21 +1711,26 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     );
   }
 
-  String _selectedOpponentLabel(String key) {
-    final memberId = _opponentSelections[key];
+  String _selectedPreselectLabel(String key, {bool isPlayer = false}) {
+    final selections = isPlayer ? _playerSelections : _opponentSelections;
+    final externalNames = isPlayer
+        ? _playerExternalNames
+        : _opponentExternalNames;
+    final memberId = selections[key];
     if (memberId != null && memberId.isNotEmpty) {
       return _selectedMemberLabel(memberId);
     }
 
-    final externalName = _opponentExternalNames[key]?.trim() ?? '';
+    final externalName = externalNames[key]?.trim() ?? '';
     if (externalName.isNotEmpty) return externalName;
 
     return 'Optional — select or enter name';
   }
 
-  Future<String?> _promptForExternalOpponentName({
+  Future<String?> _promptForExternalName({
     required int playerNo,
     required String initialValue,
+    required String roleLabel,
   }) async {
     var enteredName = initialValue;
 
@@ -1732,14 +1738,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: Text('Opponent $playerNo name'),
+          title: Text('$roleLabel $playerNo name'),
           content: TextFormField(
             initialValue: initialValue,
             autofocus: true,
             textCapitalization: TextCapitalization.words,
             textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(
-              labelText: 'External opponent name',
+            decoration: InputDecoration(
+              labelText: 'External ${roleLabel.toLowerCase()} name',
               hintText: 'Leave blank to cancel',
               border: OutlineInputBorder(),
             ),
@@ -1777,18 +1783,27 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return result;
   }
 
-  Future<void> _chooseOpponentForSlot({
+  Future<void> _choosePreselectForSlot({
     required int teamNo,
+    bool isPlayer = false,
     required int playerNo,
   }) async {
     final key = _slotKey(teamNo, playerNo);
+    final selections = isPlayer ? _playerSelections : _opponentSelections;
+    final externalNames = isPlayer
+        ? _playerExternalNames
+        : _opponentExternalNames;
+    final roleLabel = isPlayer ? 'Player' : 'Opponent';
+    if (isPlayer && teamNo == 1 && playerNo == 1) {
+      _bookerAutoPlacedInFirstPlayerSlot = false;
+    }
 
     final choice = await showModalBottomSheet<String>(
       context: context,
       builder: (sheetContext) {
         final hasValue =
-            (_opponentSelections[key]?.isNotEmpty == true) ||
-            (_opponentExternalNames[key]?.trim().isNotEmpty == true);
+            (selections[key]?.isNotEmpty == true) ||
+            (externalNames[key]?.trim().isNotEmpty == true);
 
         return SafeArea(
           child: Column(
@@ -1801,13 +1816,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
               ),
               ListTile(
                 leading: const Icon(Icons.edit),
-                title: const Text('Enter an external opponent name'),
+                title: Text(
+                  'Enter an external ${roleLabel.toLowerCase()} name',
+                ),
                 onTap: () => Navigator.pop(sheetContext, 'external'),
               ),
               if (hasValue)
                 ListTile(
                   leading: const Icon(Icons.clear),
-                  title: const Text('Leave opponent blank'),
+                  title: Text('Clear ${roleLabel.toLowerCase()}'),
                   onTap: () => Navigator.pop(sheetContext, 'clear'),
                 ),
             ],
@@ -1819,16 +1836,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     if (!mounted || choice == null) return;
 
     if (choice == 'member') {
-      final beforeMember = _opponentSelections[key];
-      final beforeExternal = _opponentExternalNames[key];
+      final beforeMember = selections[key];
+      final beforeExternal = externalNames[key];
 
       await pickFixtureSlotMember(
         context: context,
         clubId: widget.clubId,
-        title: 'Select Opponent $playerNo',
-        bucket: 'opponent',
+        title: 'Select $roleLabel $playerNo',
+        bucket: isPlayer ? 'player' : 'opponent',
         key: key,
-        selections: _opponentSelections,
+        selections: selections,
         fixtureId: null,
         useFixtureSection: true,
         initialSectionFilter: _memberPickerSectionFilterForCurrentFixture(),
@@ -1838,31 +1855,32 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
       if (!mounted) return;
 
-      final selectedMember = _opponentSelections[key];
+      final selectedMember = selections[key];
       if (selectedMember != null && selectedMember.isNotEmpty) {
-        setState(() => _opponentExternalNames.remove(key));
+        setState(() => externalNames.remove(key));
       } else {
         setState(() {});
       }
 
-      if (beforeMember != _opponentSelections[key] ||
-          beforeExternal != _opponentExternalNames[key]) {
+      if (beforeMember != selections[key] ||
+          beforeExternal != externalNames[key]) {
         _markDirty();
       }
       return;
     }
 
     if (choice == 'external') {
-      final name = await _promptForExternalOpponentName(
+      final name = await _promptForExternalName(
         playerNo: playerNo,
-        initialValue: _opponentExternalNames[key] ?? '',
+        roleLabel: roleLabel,
+        initialValue: externalNames[key] ?? '',
       );
 
       if (!mounted || name == null) return;
 
       setState(() {
-        _opponentSelections.remove(key);
-        _opponentExternalNames[key] = name;
+        selections.remove(key);
+        externalNames[key] = name;
       });
       _markDirty();
       return;
@@ -1870,8 +1888,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     if (choice == 'clear') {
       setState(() {
-        _opponentSelections.remove(key);
-        _opponentExternalNames.remove(key);
+        selections.remove(key);
+        externalNames.remove(key);
       });
       _markDirty();
     }
@@ -3414,7 +3432,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       return;
     }
 
-    if (currentValue == null || currentValue.isEmpty) {
+    if ((currentValue == null || currentValue.isEmpty) &&
+        (_playerExternalNames[key]?.trim().isEmpty ?? true)) {
       setState(() {
         _playerSelections[key] = _currentMemberId;
         _bookerAutoPlacedInFirstPlayerSlot = true;
@@ -3574,6 +3593,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
             _playerSelections[key] == _currentMemberId;
         if ((!automaticBooker &&
                 (_playerSelections[key]?.isNotEmpty ?? false)) ||
+            (_playerExternalNames[key]?.trim().isNotEmpty ?? false) ||
             (_opponentSelections[key]?.isNotEmpty ?? false) ||
             (_opponentExternalNames[key]?.trim().isNotEmpty ?? false)) {
           return true;
@@ -3597,6 +3617,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         if (!rinkWillBeRemoved && playerNo <= playersPerRink) continue;
         final key = _slotKey(teamNo, playerNo);
         _playerSelections.remove(key);
+        _playerExternalNames.remove(key);
         if (key == _slotKey(1, 1)) _bookerAutoPlacedInFirstPlayerSlot = false;
         _opponentSelections.remove(key);
         _opponentExternalNames.remove(key);
@@ -3838,6 +3859,13 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                   'position': playerNo,
                 });
                 selectedMemberRoles[playerId] = 'player';
+              } else if (_playerExternalNames[key]?.trim().isNotEmpty ??
+                  false) {
+                rinkAssignments.add({
+                  'team_no': teamNo,
+                  'display_name': _playerExternalNames[key]!.trim(),
+                  'position': playerNo,
+                });
               }
 
               final opponentId = _opponentSelections[key];
@@ -4109,31 +4137,15 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           ),
                           const SizedBox(height: 3),
                           OutlinedButton(
-                            onPressed: () async {
-                              if (teamNo == 1 && playerNo == 1) {
-                                _bookerAutoPlacedInFirstPlayerSlot = false;
-                              }
-                              await pickFixtureSlotMember(
-                                context: context,
-                                clubId: widget.clubId,
-                                title: 'Select Player $playerNo',
-                                bucket: 'player',
-                                key: _slotKey(teamNo, playerNo),
-                                selections: _playerSelections,
-                                fixtureId: null,
-                                useFixtureSection: true,
-                                initialSectionFilter:
-                                    _memberPickerSectionFilterForCurrentFixture(),
-                                showError: _showSaveErrorDialog,
-                                memberAlreadySelectedElsewhere:
-                                    _memberAlreadySelectedElsewhere,
-                              );
-
-                              if (mounted) setState(() {});
-                            },
+                            onPressed: () => _choosePreselectForSlot(
+                              teamNo: teamNo,
+                              playerNo: playerNo,
+                              isPlayer: true,
+                            ),
                             child: Text(
-                              _selectedMemberLabel(
-                                _playerSelections[_slotKey(teamNo, playerNo)],
+                              _selectedPreselectLabel(
+                                _slotKey(teamNo, playerNo),
+                                isPlayer: true,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -4153,12 +4165,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           ),
                           const SizedBox(height: 3),
                           OutlinedButton(
-                            onPressed: () => _chooseOpponentForSlot(
+                            onPressed: () => _choosePreselectForSlot(
                               teamNo: teamNo,
                               playerNo: playerNo,
                             ),
                             child: Text(
-                              _selectedOpponentLabel(
+                              _selectedPreselectLabel(
                                 _slotKey(teamNo, playerNo),
                               ),
                               maxLines: 1,
