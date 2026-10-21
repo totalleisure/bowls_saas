@@ -131,6 +131,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   final Map<String, bool> _markerRequiredByRinkId = {};
   final Map<String, bool> _markerRequestByRinkId = {};
 
+  bool _refreshingDetails = false;
+  int _detailsRefreshVersion = 0;
   bool _preselectDirty = false;
   bool _savingPreselect = false;
   bool _changingPreselectStructure = false;
@@ -5469,6 +5471,33 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     );
   }
 
+  Future<void> _refreshDetails() async {
+    if (_refreshingDetails) return;
+    if (_preselectDirty || _teamNameCtrl.text.trim() != _savedFixtureLabel.trim() ||
+        _dressCode != _savedDressCode || _selectedTeamId != _savedTeamId) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Save or discard your edits before refreshing.'),
+      ));
+      return;
+    }
+    setState(() => _refreshingDetails = true);
+    try {
+      await _reloadPreservingScroll();
+      if (!mounted) return;
+      await _loadMyRsvp();
+      if (!mounted) return;
+      await _loadMemberPreselectData();
+      if (!mounted) return;
+      setState(() => _detailsRefreshVersion++);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not refresh fixture: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _refreshingDetails = false);
+    }
+  }
+
   Future<void> _reloadPreservingScroll() async {
     // Lightweight refresh: retain the mounted page and its natural scroll
     // position instead of replacing the body and restoring a pixel offset.
@@ -6365,6 +6394,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ),
         title: Text(pageTitle),
         actions: [
+          IconButton(
+            tooltip: 'Refresh fixture',
+            onPressed: _refreshingDetails || _savingPreselect || _savingTeam || _savingTeamName
+                ? null : _refreshDetails,
+            icon: _refreshingDetails
+                ? const SizedBox(width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh),
+          ),
           if (_canRepeatFixture)
             IconButton(
               tooltip: 'Repeat fixture',
@@ -6465,10 +6503,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             color: fixtureTypeFg, fontWeight: FontWeight.w700))),
                         if (isPublished && canViewTeam && !isOpenSessionFixture && !_usesSimpleBookingWorkflow)
-                          TextButton.icon(onPressed: _openTeamFromFixture,
+                          OutlinedButton.icon(onPressed: _openTeamFromFixture,
                             icon: const Icon(Icons.groups_outlined),
                             label: Text(canManageTeam && !isCancelled ? 'Manage Team' : 'View Team'),
-                            style: TextButton.styleFrom(foregroundColor: fixtureTypeFg)),
+                            style: OutlinedButton.styleFrom(foregroundColor: fixtureTypeFg,
+                              side: BorderSide(color: fixtureTypeFg ?? Theme.of(context).colorScheme.primary))),
                       ]),
                       const SizedBox(height: 6),
                       Text(
@@ -6935,7 +6974,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                     const SizedBox(height: 12),
                     TeamSection(
                       key: ValueKey(
-                        '${widget.fixtureId}-'
+                        '${widget.fixtureId}-$_detailsRefreshVersion-'
                         '${_myTeamSelectionStatus ?? ''}-'
                         '${fixture['ts']?['status'] ?? ''}',
                       ),

@@ -194,7 +194,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     super.initState();
     _teamNameCtrl.addListener(_markDirty);
     _notesCtrl.addListener(_markDirty);
-    _load();
+    _loadAndChooseFixtureType();
   }
 
   @override
@@ -205,6 +205,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     _notesCtrl.dispose();
     _matchFeeCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAndChooseFixtureType() async {
+    await _load();
+    if (!mounted || !_canWrite || _error != null || _fixtureTypes.isEmpty) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    await _pickFixtureType();
   }
 
   Future<void> _load() async {

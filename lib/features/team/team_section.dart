@@ -436,7 +436,7 @@ class _TeamSectionState extends State<TeamSection> {
                           },
                           icon: const Icon(Icons.picture_as_pdf),
                         ),
-                      TextButton(
+                      OutlinedButton(
                         onPressed: _openManageTeam,
                         child: Text(
                           widget.readOnly ? 'View Team' : 'Manage Team',
