@@ -1,4 +1,5 @@
 import 'pool_recruitment_confirmation.dart';
+import 'acceptance_reminder_eligibility.dart';
 import 'publication_instructions_dialog.dart';
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
@@ -2522,15 +2523,15 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         case 'pending':
           return acceptance == 'pending' &&
               (!_usesPublishedCompositionStaging ||
-                  _isOperationalPositionedPlayer(s));
+                  _isSelectedMemberAllocated(s));
         case 'accepted':
           return acceptance == 'accepted' &&
               (!_usesPublishedCompositionStaging ||
-                  _isOperationalPositionedPlayer(s));
+                  _isSelectedMemberAllocated(s));
         case 'declined':
           return acceptance == 'declined' &&
               (!_usesPublishedCompositionStaging ||
-                  _isOperationalPositionedPlayer(s));
+                  _isSelectedMemberAllocated(s));
         case 'not_allocated':
           return !_isSelectedMemberAllocated(s);
         default:
@@ -2553,15 +2554,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     if (fixtureId == null || fixtureId.isEmpty) return;
 
     final targetIds = rows
-        .where((r) {
-          if (r['member_profiles']?['is_captain_managed'] == true) return false;
-          final acceptance = (r['acceptance'] ?? 'pending')
-              .toString()
-              .toLowerCase();
-          return acceptance == 'pending' &&
-              (!_usesPublishedCompositionStaging ||
-                  _isOperationalPositionedPlayer(r));
-        })
+        .where((row) => canRemindSelectedMember(
+          row, isAllocated: _isSelectedMemberAllocated(row),
+        ))
         .map((r) => r['member_profile_id']?.toString())
         .whereType<String>()
         .where((id) => id.isNotEmpty)
@@ -2570,7 +2565,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
 
     if (targetIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No pending players eligible for email reminders. Contact captain-managed members by telephone.')),
+        const SnackBar(content: Text('No pending selected members are eligible for email reminders. Contact captain-managed members by telephone.')),
       );
       return;
     }
@@ -2605,7 +2600,7 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Reminder queued for ${targetIds.length} player(s).'),
+        content: Text('Reminder queued for ${targetIds.length} member(s).'),
       ),
     );
   }
@@ -3523,9 +3518,9 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
                                           value: 'accept',
                                           child: Text('Accept'),
                                         ),
-                                      if (_canSendReminders && mp?['is_captain_managed'] != true && acceptance == 'pending' &&
-                                          (!_usesPublishedCompositionStaging ||
-                                              isPositionedPlayer))
+                                      if (_canSendReminders && canRemindSelectedMember(
+                                          s, isAllocated: isAllocated,
+                                        ))
                                         const PopupMenuItem(
                                           value: 'remind',
                                           child: Text('Send reminder'),
