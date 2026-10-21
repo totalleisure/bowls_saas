@@ -4396,7 +4396,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 ),
                 if (_canMaintainMemberPreselectFixture)
                   ActionPill(
-                    label: 'Add team',
+                    label: 'Add Team/Rink',
                     tone: ActionPillTone.green,
                     onPressed: _preselectDirty || _changingPreselectStructure
                         ? null
@@ -4407,45 +4407,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             const SizedBox(height: 6),
             Text(
               _canMaintainMemberPreselectFixture
-                  ? 'Make all selection changes, then use Save changes above.'
+                  ? 'Make all selection changes, then use Confirm Team Changes at the top.'
                   : 'Current Pre-Select fixture assignments.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
-
-            if (_canMaintainMemberPreselectFixture && _preselectDirty) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: const Text(
-                  'The selection has unsaved changes.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.green.shade700,
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: _savingPreselect ? null : _savePreselectState,
-                icon: _savingPreselect
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(_savingPreselect ? 'Saving...' : 'Save changes'),
-              ),
-              const SizedBox(height: 16),
-            ],
 
             if (_memberPreselectRinks.isEmpty)
               const Text(
@@ -4458,6 +4425,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                   builder: (context) {
                     final rinkId = rink['id'].toString();
                     final teamNo = rink['fixture_rink_no'] ?? '';
+                    final rinkLabel = (rink['home_rink_label'] ?? '').toString().trim();
                     final playersPerSide =
                         int.tryParse(
                           (rink['players_per_rink'] ?? '2').toString(),
@@ -4492,7 +4460,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Team $teamNo',
+                                  rinkLabel.isEmpty
+                                      ? 'Team $teamNo (Rink not assigned)'
+                                      : 'Team $teamNo (Rink $rinkLabel)',
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
@@ -6402,6 +6372,19 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         ),
         title: Text(pageTitle),
         actions: [
+          if (_canMaintainMemberPreselectFixture && _preselectDirty)
+            FilledButton.icon(
+              onPressed: _savingPreselect ? null : _savePreselectState,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+              ),
+              icon: _savingPreselect
+                  ? const SizedBox(width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.check_circle),
+              label: Text(_savingPreselect ? 'Saving...' : 'Confirm Team Changes'),
+            ),
           IconButton(
             tooltip: 'Refresh fixture',
             onPressed: _refreshingDetails || _savingPreselect || _savingTeam || _savingTeamName
