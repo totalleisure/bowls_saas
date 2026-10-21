@@ -1,3 +1,4 @@
+import 'widgets/preselect_leave_guard.dart';
 import 'widgets/fixture_information_dialog.dart';
 import 'widgets/fixture_timing_controls.dart';
 import 'widgets/fixture_response_panel.dart';
@@ -4406,12 +4407,45 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             const SizedBox(height: 6),
             Text(
               _canMaintainMemberPreselectFixture
-                  ? 'Make all selection changes, then use Save selection once.'
+                  ? 'Make all selection changes, then use Save changes above.'
                   : 'Current Pre-Select fixture assignments.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
+
+            if (_canMaintainMemberPreselectFixture && _preselectDirty) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: const Text(
+                  'The selection has unsaved changes.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade700,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: _savingPreselect ? null : _savePreselectState,
+                icon: _savingPreselect
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
+                label: Text(_savingPreselect ? 'Saving...' : 'Save changes'),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             if (_memberPreselectRinks.isEmpty)
               const Text(
@@ -4741,35 +4775,6 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                   },
                 ),
               ],
-
-            if (_canMaintainMemberPreselectFixture && _preselectDirty) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: const Text(
-                  'The selection has unsaved changes.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _savingPreselect ? null : _savePreselectState,
-                icon: _savingPreselect
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(_savingPreselect ? 'Saving...' : 'Save selection'),
-              ),
-              const SizedBox(height: 16),
-            ],
 
             if (_isHome) ...[
               const SizedBox(height: 8),
@@ -6387,10 +6392,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         !['accepted', 'declined'].contains(_myTeamSelectionStatus)) ||
         (showAvailability && !['yes', 'maybe', 'no'].contains(_myRsvp));
 
-    return Scaffold(
+    return PreselectLeaveGuard(
+      hasChanges: _preselectDirty,
+      saving: _savingPreselect,
+      child: Scaffold(
       appBar: AppBar(
         leading: BackButton(
-          onPressed: () => Navigator.pop(context, _didChangeFixture),
+          onPressed: () => Navigator.maybePop(context, _didChangeFixture),
         ),
         title: Text(pageTitle),
         actions: [
@@ -7028,6 +7036,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ),
         ],
       ),
+    ),
     );
   }
 }
