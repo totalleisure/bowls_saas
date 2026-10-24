@@ -9,6 +9,9 @@ class NextFixtureReminderButton extends StatefulWidget {
   final String clubId;
   final String clubName;
   final bool showOnOpen;
+  /// Lets the owning screen consume its entry reminder before async loading.
+  /// The screen survives header reconstruction during a diary refresh.
+  final VoidCallback? onAutomaticOpen;
   final Future<Map<String, dynamic>?> Function()? loader;
   final DateTime Function()? now;
   final Future<void> Function(String)? openFixture;
@@ -17,6 +20,7 @@ class NextFixtureReminderButton extends StatefulWidget {
     required this.clubId,
     required this.clubName,
     this.showOnOpen = false,
+    this.onAutomaticOpen,
     this.loader,
     this.now,
     this.openFixture,
@@ -35,7 +39,10 @@ class _NextFixtureReminderButtonState extends State<NextFixtureReminderButton> {
     super.initState();
     if (widget.showOnOpen) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _show(automatic: true);
+        if (mounted && (ModalRoute.of(context)?.isCurrent ?? true)) {
+          widget.onAutomaticOpen?.call();
+          _show(automatic: true);
+        }
       });
     }
   }
@@ -50,7 +57,8 @@ class _NextFixtureReminderButtonState extends State<NextFixtureReminderButton> {
               Supabase.instance.client,
               widget.clubId,
             ).reminders((widget.now?.call() ?? DateTime.now()).toUtc());
-      if (!mounted || (automatic && fixtures.isEmpty)) return;
+      if (!mounted) return;
+      if (automatic && (fixtures.isEmpty || !(ModalRoute.of(context)?.isCurrent ?? true))) return;
       await NextFixtureReminder(
         context: context,
         clubName: widget.clubName,

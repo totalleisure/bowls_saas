@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/date_format.dart';
 import 'club_dashboard_screen.dart';
+import 'club_welcome_screen.dart';
 import '../diary/month_overview_screen.dart';
 import '../diary/diary_list_screen.dart';
 
@@ -25,13 +26,29 @@ extension ClubStartViewLabel on ClubStartView {
 class ClubStartPreference {
   static String key(String userId, String clubId) =>
       'club.start.v1.$userId.$clubId';
-  static Future<ClubStartView> load(String userId, String clubId) async {
+
+  /// Null means the member has not explicitly chosen a supported starting view.
+  static Future<ClubStartView?> loadSaved(String userId, String clubId) async {
     final prefs = await SharedPreferences.getInstance();
     final value = prefs.getString(key(userId, clubId));
-    return ClubStartView.values.firstWhere(
-      (view) => view.name == value,
-      orElse: () => ClubStartView.dashboard,
-    );
+    for (final view in ClubStartView.values) {
+      if (view.name == value) return view;
+    }
+    return null;
+  }
+
+  // Retain the legacy fallback for callers needing a concrete view. Club entry
+  // uses loadSaved to distinguish an explicit Dashboard choice from no choice.
+  static Future<ClubStartView> load(String userId, String clubId) async =>
+      await loadSaved(userId, clubId) ?? ClubStartView.dashboard;
+
+  static Future<void> clear(String userId, String clubId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.remove(key(userId, clubId))) {
+      throw StateError(
+        'Your starting screen could not be saved. Please try again.',
+      );
+    }
   }
 
   static Future<void> save(
@@ -80,30 +97,65 @@ class ClubStartScreen extends StatefulWidget {
   final String clubName;
   final String userId;
   final Widget Function(ClubStartView)? pageBuilder;
+  final bool showWelcome;
   const ClubStartScreen({
     super.key,
     required this.clubId,
     required this.clubName,
     required this.userId,
     this.pageBuilder,
+    this.showWelcome = false,
   });
   @override
   State<ClubStartScreen> createState() => _ClubStartScreenState();
 }
 
 class _ClubStartScreenState extends State<ClubStartScreen> {
-  late Future<ClubStartView> _choice;
+  late Future<ClubStartView?> _choice;
   @override
   void initState() {
     super.initState();
-    _choice = ClubStartPreference.load(widget.userId, widget.clubId);
+    _choice = _loadEntryChoice();
+  }
+
+  Future<ClubStartView?> _loadEntryChoice() async {
+    final choice = await ClubStartPreference.loadSaved(
+      widget.userId,
+      widget.clubId,
+    );
+    if (choice == null) {
+      // Show the introduction once, even if the member leaves without choosing.
+      // Preserve the application's existing Dashboard fallback for later visits.
+      await ClubStartPreference.save(
+        widget.userId,
+        widget.clubId,
+        ClubStartView.dashboard,
+      );
+    }
+    return choice;
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<ClubStartView>(
+  Widget build(BuildContext context) => FutureBuilder<ClubStartView?>(
     future: _choice,
     builder: (context, snapshot) {
-      if (snapshot.hasData) {
+      if (snapshot.connectionState == ConnectionState.done &&
+          !snapshot.hasError) {
+        if (widget.showWelcome || snapshot.data == null) {
+          return ClubWelcomeScreen(
+            userId: widget.userId,
+            clubId: widget.clubId,
+            clubName: widget.clubName,
+            initialChoice: snapshot.data ?? ClubStartView.dashboard,
+            onOpen: (view) => Navigator.of(context).pushReplacement(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    widget.pageBuilder?.call(view) ??
+                    clubStartPage(view, widget.clubId, widget.clubName),
+              ),
+            ),
+          );
+        }
         return widget.pageBuilder?.call(snapshot.data!) ??
             clubStartPage(snapshot.data!, widget.clubId, widget.clubName);
       }
@@ -118,12 +170,8 @@ class _ClubStartScreenState extends State<ClubStartScreen> {
                       'Could not load your starting-screen preference.',
                     ),
                     TextButton(
-                      onPressed: () => setState(
-                        () => _choice = ClubStartPreference.load(
-                          widget.userId,
-                          widget.clubId,
-                        ),
-                      ),
+                      onPressed: () =>
+                          setState(() => _choice = _loadEntryChoice()),
                       child: const Text('Retry'),
                     ),
                   ],
@@ -143,7 +191,7 @@ Future<void> chooseClubStartView(
   final id = userId ?? Supabase.instance.client.auth.currentUser?.id;
   if (id == null) return;
   try {
-    final current = await ClubStartPreference.load(id, clubId);
+    final current = await ClubStartPreference.loadSaved(id, clubId);
     if (!context.mounted) return;
     final selected = await showDialog<ClubStartView>(
       context: context,
@@ -196,4 +244,24 @@ Future<void> chooseClubStartView(
       );
     }
   }
+}
+
+Future<void> showClubWelcome(
+  BuildContext context,
+  String clubId,
+  String clubName, {
+  String? userId,
+}) async {
+  final id = userId ?? Supabase.instance.client.auth.currentUser?.id;
+  if (id == null || !context.mounted) return;
+  await Navigator.of(context).pushReplacement(
+    MaterialPageRoute<void>(
+      builder: (_) => ClubStartScreen(
+        clubId: clubId,
+        clubName: clubName,
+        userId: id,
+        showWelcome: true,
+      ),
+    ),
+  );
 }

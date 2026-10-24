@@ -50,6 +50,7 @@ class DiaryListScreen extends StatefulWidget {
 }
 
 class _DiaryListScreenState extends State<DiaryListScreen> {
+  bool _shownEntryReminder = false;
   final _scroll = ScrollController();
   final _search = TextEditingController();
   String _searchText = '';
@@ -476,7 +477,8 @@ class _DiaryListScreenState extends State<DiaryListScreen> {
           ),
           NextFixtureReminderButton(
             clubId: widget.clubId, clubName: widget.clubName,
-            showOnOpen: widget.showNextMatchOnOpen),
+            showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
+            onAutomaticOpen: () => _shownEntryReminder = true),
           ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
         ],
         bottom: DiaryViewBar(
@@ -753,6 +755,7 @@ class DiaryEntryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final type = entry['competition_type'] as Map? ?? {};
     final scheme = type['colour_scheme'] as Map? ?? {};
+    final isCancelled = entry['cancelled_at'] != null;
     final maintenance = entry['_maintenance'] == true;
     final usesRinks = type['uses_rinks'] != false;
     final start = parseClubTime(entry['start_at'] as String);
@@ -782,12 +785,12 @@ class DiaryEntryCard extends StatelessWidget {
       if (maintenance && end != null)
         'Until ${DateFormat('d MMM, HH:mm').format(end)}',
     ];
-    final foreground = _colour(
+    final foreground = isCancelled ? Colors.grey.shade800 : _colour(
       scheme['foreground_hex'],
       Theme.of(context).colorScheme.onSurface,
     );
     return Card(
-      color: _colour(
+      color: isCancelled ? Colors.grey.shade300 : _colour(
         scheme['background_hex'],
         Theme.of(context).colorScheme.surfaceContainerLow,
       ),
@@ -814,7 +817,7 @@ class DiaryEntryCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (entry['cancelled_at'] != null)
+                    if (isCancelled)
                       Text(
                         'Cancelled',
                         style: TextStyle(

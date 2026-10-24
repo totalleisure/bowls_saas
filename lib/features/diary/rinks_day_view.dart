@@ -338,7 +338,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
         throw Exception('Green area is missing its ID');
       }
 
-      final fixtures = await _loadHomeFixturesForDay(dayStart, dayEnd, greenAreaId);
+      final fixtures = await _loadHomeFixturesForDay(
+        dayStart,
+        dayEnd,
+        greenAreaId,
+      );
 
       final maintenanceRows = await _loadMaintenanceForDay(
         dayStart,
@@ -1158,7 +1162,10 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                           alignment: Alignment.center,
                           decoration: const BoxDecoration(
                             border: Border(
-                              left: BorderSide(color: Color(0xFFEEEEEE)),
+                              left: BorderSide(
+                                color: Color(0xFFCBD5E1),
+                                width: 1.2,
+                              ),
                             ),
                           ),
                           child: Text(
@@ -1189,7 +1196,10 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
                           decoration: const BoxDecoration(
                             color: Color(0xFFF8FAFC),
                             border: Border(
-                              left: BorderSide(color: Color(0xFFEEEEEE)),
+                              left: BorderSide(
+                                color: Color(0xFFCBD5E1),
+                                width: 1.2,
+                              ),
                               bottom: BorderSide(color: Color(0xFFDDDDDD)),
                             ),
                           ),
@@ -2952,7 +2962,9 @@ class _HourGridBackground extends StatelessWidget {
             Container(
               width: hourWidth,
               decoration: const BoxDecoration(
-                border: Border(left: BorderSide(color: Color(0xFFF3F4F6))),
+                border: Border(
+                  left: BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
+                ),
               ),
             ),
         ],

@@ -1,5 +1,5 @@
 import { parseResponse } from "./response_parser.ts";
-import { candidate, correlate, automated, header, buildReminderHtml, responseTokenHash } from "./written_reply.ts";
+import { candidate, correlate, automated, header, buildReminderHtml, responseTokenHash, writtenReplySenderEnabled } from "./written_reply.ts";
 import type { Mail } from "./written_reply.ts";
 import type { ResponseMessage } from "./response_parser.ts";
 
@@ -220,8 +220,7 @@ export async function handleRequest(req: Request, dependencies: {
         if (automated(completeMessage, mailbox)) continue;
         const parsed = parseResponse(completeMessage);
         if (!parsed) {
-          if (config?.enabled && candidate(completeMessage, mailbox, config.enabled_at, new Date().toISOString()) &&
-              config.reminder_recipients.includes(String(completeMessage.from?.emailAddress?.address ?? "").trim().toLowerCase())) {
+          if (writtenReplySenderEnabled(config, String(completeMessage.from?.emailAddress?.address ?? "")) && candidate(completeMessage, mailbox, config.enabled_at, new Date().toISOString())) {
             await processWrittenReply(completeMessage, mailbox, graphToken, supabase, fetch);
           }
           continue;

@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -27,6 +28,28 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   saved_login_channel_ = CreateSavedLoginChannel(
       flutter_controller_->engine()->messenger(), GetHandle());
+  title_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "bowls/window_title",
+      &flutter::StandardMethodCodec::GetInstance());
+  wchar_t initial_title[256] = {};
+  GetWindowTextW(GetHandle(), initial_title, 256);
+  title_channel_->SetMethodCallHandler(
+      [this, original = std::wstring(initial_title)](const auto& call, auto result) {
+        if (call.method_name() == "reset") {
+          SetWindowTextW(GetHandle(), original.c_str());
+          result->Success();
+        } else if (call.method_name() == "set" && call.arguments() &&
+                   std::holds_alternative<std::string>(*call.arguments())) {
+          const auto& title = std::get<std::string>(*call.arguments());
+          const int length = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, nullptr, 0);
+          std::wstring wide(length, L'\0');
+          MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, wide.data(), length);
+          SetWindowTextW(GetHandle(), wide.c_str());
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -42,6 +65,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  title_channel_.reset();
   saved_login_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;

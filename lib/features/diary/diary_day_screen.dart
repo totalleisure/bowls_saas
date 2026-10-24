@@ -1,5 +1,6 @@
 import '../communications/club_options_button.dart';
 import 'diary_view_bar.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -65,8 +66,10 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
             club_id,
             start_at,
             end_at,
+            cancelled_at,
             is_home,
             section,
+            dress_code,
             team_name,
             opponent_name,
             venue_id,
@@ -205,6 +208,9 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
         });
 
     return _DiaryItem(
+      section: _sectionLabel(f['section']),
+      dressCode: _dressLabel(f['dress_code']),
+      isCancelled: f['cancelled_at'] != null,
       fixtureId: f['id'].toString(),
       startAt: startAt,
       endAt: endAt,
@@ -263,66 +269,69 @@ class _DiaryDayScreenState extends State<DiaryDayScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 44,
-        bottom: DiaryViewBar(
-          selected: DiaryView.day,
-          clubId: widget.clubId,
-          clubName: widget.clubName,
-          date: _date,
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: null,
-        actions: [
-          IconButton(
-            tooltip: 'Previous day',
-            icon: const Icon(Icons.chevron_left),
-            onPressed: () => _moveDay(-1),
-          ),
-          IconButton(
-            tooltip: 'Next day',
-            icon: const Icon(Icons.chevron_right),
-            onPressed: () => _moveDay(1),
-          ),
-          IconButton(
-            tooltip: 'Rinks view',
-            icon: const Icon(Icons.view_timeline),
-            onPressed: _openRinksView,
-          ),
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: _load,
-          ),
-          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
-        ],
+    final toolbar = AppBar(
+      primary: true,
+      toolbarHeight: 44,
+      bottom: DiaryViewBar(
+        selected: DiaryView.day,
+        clubId: widget.clubId,
+        clubName: widget.clubName,
+        date: _date,
       ),
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+      title: null,
+      actions: [
+        IconButton(
+          tooltip: 'Previous day',
+          icon: const Icon(Icons.chevron_left),
+          onPressed: () => _moveDay(-1),
+        ),
+        IconButton(
+          tooltip: 'Next day',
+          icon: const Icon(Icons.chevron_right),
+          onPressed: () => _moveDay(1),
+        ),
+        IconButton(
+          tooltip: 'Rinks view',
+          icon: const Icon(Icons.view_timeline),
+          onPressed: _openRinksView,
+        ),
+        IconButton(
+          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: _load,
+        ),
+        ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+      ],
+    );
+    return Scaffold(
+      appBar: toolbar,
+      body: SafeArea(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragEnd: (details) {
+            final velocity = details.primaryVelocity ?? 0;
 
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragEnd: (details) {
-          final velocity = details.primaryVelocity ?? 0;
-
-          if (velocity < -300) {
-            _moveDay(1);
-          } else if (velocity > 300) {
-            _moveDay(-1);
-          }
-        },
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? Padding(padding: const EdgeInsets.all(16), child: Text(_error!))
-            : _DiaryDayColumn(
-                clubName: widget.clubName,
-                date: _date,
-                items: _items,
-                onItemTap: _openFixture,
-              ),
+            if (velocity < -300) {
+              _moveDay(1);
+            } else if (velocity > 300) {
+              _moveDay(-1);
+            }
+          },
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Padding(padding: const EdgeInsets.all(16), child: Text(_error!))
+              : _DiaryDayColumn(
+                  clubName: widget.clubName,
+                  date: _date,
+                  items: _items,
+                  onItemTap: _openFixture,
+                ),
+        ),
       ),
     );
   }
@@ -356,25 +365,24 @@ class _DiaryDayColumn extends StatelessWidget {
       children: [
         _DayHeader(clubName: clubName, date: date, itemCount: items.length),
         Expanded(
-          child: items.isEmpty
-              ? const Center(
-                  child: Text(
-                    'Nothing in the diary for this day.',
-                    style: TextStyle(fontSize: 18),
-                  ),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return _DiaryItemTile(
-                      item: item,
-                      onTap: () => onItemTap(item),
-                    );
-                  },
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 24),
+            children: [
+              if (items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('Nothing in the diary for this day.'),
                 ),
+              for (final item in items)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: _DiaryItemTile(
+                    item: item,
+                    onTap: () => onItemTap(item),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );
@@ -414,13 +422,22 @@ class _DayHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            _prettyDate(date),
-            style: const TextStyle(
-              fontSize: 34,
-              height: 1.05,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF111827),
+          SizedBox(
+            width: double.infinity,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.center,
+              child: Text(
+                _prettyDate(date),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 26,
+                  height: 1.05,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF111827),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -462,12 +479,20 @@ class _DiaryItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasRinks = item.rinkLabels.isNotEmpty;
-    final rinkText = hasRinks
-        ? 'Rinks ${item.rinkLabels.join(', ')}'
-        : item.usesRinks && item.rinksRequired > 0
-        ? '${item.rinksRequired} rink${item.rinksRequired == 1 ? '' : 's'} needed'
-        : item.venueName;
+    final background = item.isCancelled
+        ? Colors.grey.shade300
+        : item.backgroundColor;
+    final foreground = item.isCancelled
+        ? Colors.grey.shade800
+        : item.foregroundColor;
+    final teams = item.rinksRequired > 0
+        ? item.rinksRequired
+        : item.rinkLabels.length;
+    final secondary = item.fixtureTypeName.trim();
+    final showSecondary =
+        secondary.isNotEmpty &&
+        secondary.toLowerCase() != item.title.trim().toLowerCase() &&
+        secondary.toLowerCase() != item.venueName.trim().toLowerCase();
 
     return Container(
       decoration: item.isMine
@@ -475,7 +500,7 @@ class _DiaryItemTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: item.backgroundColor.withOpacity(0.35),
+                  color: background.withValues(alpha: 0.35),
                   blurRadius: 16,
                   spreadRadius: 1,
                   offset: const Offset(0, 4),
@@ -489,15 +514,13 @@ class _DiaryItemTile extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(
-            color: item.isMine
-                ? item.foregroundColor
-                : item.backgroundColor.withOpacity(0.6),
+            color: item.isMine ? foreground : background.withValues(alpha: 0.6),
             width: item.isMine ? 2.2 : 1,
           ),
         ),
         shadowColor: item.isMine
-            ? item.backgroundColor.withOpacity(0.55)
-            : Colors.black.withOpacity(0.2),
+            ? background.withValues(alpha: 0.55)
+            : Colors.black.withValues(alpha: 0.2),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: onTap,
@@ -507,7 +530,7 @@ class _DiaryItemTile extends StatelessWidget {
                 Container(
                   width: 72,
                   decoration: BoxDecoration(
-                    color: item.backgroundColor,
+                    color: background,
                     borderRadius: const BorderRadius.horizontal(
                       left: Radius.circular(16),
                     ),
@@ -522,7 +545,7 @@ class _DiaryItemTile extends StatelessWidget {
                       Text(
                         _timeLabel(item.startAt),
                         style: TextStyle(
-                          color: item.foregroundColor,
+                          color: foreground,
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
                         ),
@@ -531,13 +554,13 @@ class _DiaryItemTile extends StatelessWidget {
                       Container(
                         width: 18,
                         height: 2,
-                        color: item.foregroundColor.withOpacity(0.5),
+                        color: foreground.withValues(alpha: 0.5),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         _timeLabel(item.endAt),
                         style: TextStyle(
-                          color: item.foregroundColor.withOpacity(0.9),
+                          color: foreground.withValues(alpha: 0.9),
                           fontWeight: FontWeight.w700,
                           fontSize: 12,
                         ),
@@ -547,9 +570,9 @@ class _DiaryItemTile extends StatelessWidget {
                 ),
                 Expanded(
                   child: Container(
-                    color: _isLightColor(item.foregroundColor)
-                        ? item.backgroundColor.withOpacity(0.72)
-                        : item.backgroundColor.withOpacity(0.10),
+                    color: _isLightColor(foreground)
+                        ? background.withValues(alpha: 0.72)
+                        : background.withValues(alpha: 0.10),
                     padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -559,85 +582,79 @@ class _DiaryItemTile extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                item.title,
+                                '${item.isCancelled ? 'Cancelled · ' : ''}${item.title}',
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontSize: 18,
                                   height: 1.05,
                                   fontWeight: FontWeight.w900,
-                                  color: item.foregroundColor,
+                                  color: foreground,
                                 ),
                               ),
                             ),
                             if (item.isMine) ...[
                               const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.9),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.person,
-                                  size: 14,
-                                  color: item.backgroundColor,
+                              Tooltip(
+                                message: 'Playing in Match',
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xfff1f5f9),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: const Color(0xff243b53),
+                                    ),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(5),
+                                    child: Icon(
+                                      Icons.person,
+                                      size: 16,
+                                      color: Color(0xff243b53),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
                             const SizedBox(width: 4),
                             Icon(
                               Icons.chevron_right,
-                              color: item.foregroundColor.withOpacity(0.75),
+                              color: foreground.withValues(alpha: 0.75),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          item.fixtureTypeName.isEmpty
-                              ? item.subtitle
-                              : item.fixtureTypeName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: item.foregroundColor.withOpacity(0.88),
+                        if (showSecondary) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            secondary,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: foreground,
+                            ),
                           ),
-                        ),
+                        ],
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 6,
                           runSpacing: 6,
                           children: [
-                            _MiniChip(
-                              icon: item.isHome
-                                  ? Icons.home
-                                  : Icons.directions_bus,
-                              text: item.isHome ? 'Home' : 'Away',
-                              color: item.foregroundColor,
-                            ),
-                            if (rinkText.isNotEmpty)
+                            if (item.section.isNotEmpty)
                               _MiniChip(
-                                icon: item.usesRinks
-                                    ? Icons.view_timeline
-                                    : Icons.place,
-                                text: rinkText,
-                                color: item.foregroundColor,
+                                icon: Icons.people_outline,
+                                text: item.section,
+                              ),
+                            if (item.usesRinks && teams > 0)
+                              _MiniChip(
+                                icon: Icons.groups_outlined,
+                                text: '$teams team${teams == 1 ? '' : 's'}',
+                              ),
+                            if (item.dressCode.isNotEmpty)
+                              _MiniChip(
+                                icon: Icons.checkroom,
+                                text: item.dressCode,
                               ),
                           ],
                         ),
-                        if (item.notes.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            item.notes,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF374151),
-                              height: 1.15,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -652,36 +669,34 @@ class _DiaryItemTile extends StatelessWidget {
 }
 
 class _MiniChip extends StatelessWidget {
-  const _MiniChip({
-    required this.icon,
-    required this.text,
-    required this.color,
-  });
+  const _MiniChip({required this.icon, required this.text});
 
   final IconData icon;
   final String text;
-  final Color color;
 
   @override
   Widget build(BuildContext context) {
+    const color = Color(0xff243b53);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.82),
+        color: const Color(0xfff1f5f9),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.18)),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 13, color: color),
           const SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -692,6 +707,9 @@ class _MiniChip extends StatelessWidget {
 
 class _DiaryItem {
   const _DiaryItem({
+    required this.section,
+    required this.dressCode,
+    required this.isCancelled,
     required this.fixtureId,
     required this.startAt,
     required this.endAt,
@@ -709,6 +727,8 @@ class _DiaryItem {
     required this.foregroundColor,
   });
 
+  final String section, dressCode;
+  final bool isCancelled;
   final String fixtureId;
   final DateTime startAt;
   final DateTime endAt;
@@ -732,34 +752,40 @@ String _timeLabel(DateTime dt) {
   return '$h:$m';
 }
 
-String _prettyDate(DateTime dt) {
-  const weekdays = [
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-    'Sunday',
-  ];
-  const months = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
-
-  return '${weekdays[dt.weekday - 1]} ${dt.day} ${months[dt.month - 1]} ${dt.year}';
-}
+String _prettyDate(DateTime dt) => DateFormat('EEEE d MMM yyyy').format(dt);
 
 bool _isLightColor(Color color) {
   return color.computeLuminance() > 0.65;
+}
+
+String _sectionLabel(dynamic value) {
+  final raw = (value ?? '').toString().trim().toLowerCase();
+  switch (raw) {
+    case 'mens':
+    case "men's":
+    case 'men':
+    case 'male':
+      return 'Mens';
+    case 'ladies':
+    case "ladies'":
+    case 'women':
+    case 'female':
+      return 'Ladies';
+    case 'mixed':
+      return 'Mixed';
+    case 'open':
+      return 'Open';
+    default:
+      return raw.isEmpty ? '' : '${raw[0].toUpperCase()}${raw.substring(1)}';
+  }
+}
+
+String _dressLabel(dynamic value) {
+  final values = value is List ? value : [value];
+  return values
+      .map((v) => (v ?? '').toString().trim().toLowerCase())
+      .where((v) => const {'whites', 'greys', 'blacks', 'jackets'}.contains(v))
+      .map((v) => '${v[0].toUpperCase()}${v.substring(1)}')
+      .toSet()
+      .join(' / ');
 }

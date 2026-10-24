@@ -6691,7 +6691,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
                 const SizedBox(height: 20),
 
-                if (!isEventStyleFixture) ...[
+                if (!isEventStyleFixture &&
+                    _canEditFixtureLabel &&
+                    (isPreselectFixture || !isWorkflowLocked)) ...[
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -6699,7 +6701,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Fixture workflow',
+                            'Fixture settings',
                             style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
@@ -6898,8 +6900,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         ),
                         const SizedBox(height: 8),
                         FixtureTimingControls(
-                          start: _formatLocalDisplay(when),
-                          end: _formatLocalDisplay(endWhen),
+                          start: DateFormat('EEE d MMM yyyy, h:mm a').format(when).replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.'),
+                          end: DateFormat('EEE d MMM yyyy, h:mm a').format(endWhen).replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.'),
                           onEditStart: _canEditFixtureOperationalDetails ? _editStartTime : null,
                           onEditEnd: _canEditFixtureOperationalDetails ? _editEndTime : null,
                         ),

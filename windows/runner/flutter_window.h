@@ -26,6 +26,7 @@ class FlutterWindow : public Win32Window {
  private:
   // The project to run.
   flutter::DartProject project_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> title_channel_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;

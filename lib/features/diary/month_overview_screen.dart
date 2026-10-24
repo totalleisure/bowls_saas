@@ -1,15 +1,17 @@
 import '../fixtures/next_fixture_reminder_button.dart';
 import '../communications/club_options_button.dart';
 import 'diary_view_bar.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../fixtures/fixture_details_page.dart';
+import 'month_calendar.dart';
+import 'month_diary_repository.dart';
 
 import '../../core/utils/date_format.dart';
 
 import 'diary_day_screen.dart';
-import 'rinks_day_view.dart';
 
 class MonthOverviewScreen extends StatefulWidget {
   const MonthOverviewScreen({
@@ -30,6 +32,26 @@ class MonthOverviewScreen extends StatefulWidget {
 }
 
 class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
+  static const _windowTitle = MethodChannel('bowls/window_title');
+  Future<void> _updateWindowTitle({bool reset = false}) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
+    try {
+      await _windowTitle.invokeMethod<void>(
+        reset ? 'reset' : 'set',
+        reset ? null : _monthLabel(_visibleMonth),
+      );
+    } on MissingPluginException {
+      // Other hosts and widget tests do not provide the Windows title channel.
+    }
+  }
+
+  @override
+  void dispose() {
+    _updateWindowTitle(reset: true);
+    super.dispose();
+  }
+
+  bool _shownEntryReminder = false;
   final _client = Supabase.instance.client;
 
   late DateTime _visibleMonth;
@@ -40,7 +62,7 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
 
   double _monthZoom = 1.0;
 
-  List<_MonthDiaryItem> _items = [];
+  List<MonthDiaryItem> _items = [];
 
   String? _myProfileId;
 
@@ -62,19 +84,18 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
     );
 
     _visibleMonth = DateTime(widget.initialDate.year, widget.initialDate.month);
+    _updateWindowTitle();
     _loadMonth();
   }
 
   Future<void> _loadMonth() async {
+    _updateWindowTitle();
     setState(() {
       _isLoading = true;
       _loadError = null;
     });
 
     try {
-      final monthStart = DateTime(_visibleMonth.year, _visibleMonth.month);
-      final monthEnd = DateTime(_visibleMonth.year, _visibleMonth.month + 1);
-
       final userId = _client.auth.currentUser?.id;
 
       if (userId != null) {
@@ -89,48 +110,18 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
         _myProfileId = null;
       }
 
-      final res = await _client
-          .from('fixtures')
-          .select('''
-            id,
-            club_id,
-            start_at,
-            end_at,
-            cancelled_at,
-            is_home,
-            opponent_name,
-            green_area_id,
-            rinks_required,
-            competition_types (
-              id,
-              name,
-              is_internal,
-              selection_mode,
-              colour_scheme:fixture_colour_schemes (
-                background_hex,
-                foreground_hex
-              )
-            ),
-            fixture_rinks (
-              id,
-              home_rink_label,
-              fixture_rink_assignments (
-                member_profile_id
-              )
-            )
-          ''')
-          .eq('club_id', widget.clubId)
-          .gte('start_at', clubTimeToUtc(monthStart).toIso8601String())
-          .lt('start_at', clubTimeToUtc(monthEnd).toIso8601String())
-          .order('start_at');
-
-      final rows = List<Map<String, dynamic>>.from(res);
+      final rows = await MonthDiaryRepository(
+        _client,
+        widget.clubId,
+      ).load(_visibleMonth);
+      if (!mounted) return;
 
       setState(() {
         _items = rows.map(_mapFixture).toList();
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loadError = e.toString();
         _isLoading = false;
@@ -138,7 +129,7 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
     }
   }
 
-  _MonthDiaryItem _mapFixture(Map<String, dynamic> row) {
+  MonthDiaryItem _mapFixture(Map<String, dynamic> row) {
     final startAt = parseClubTime(row['start_at'].toString());
 
     final endAt = row['end_at'] != null
@@ -162,7 +153,10 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
     final typeName = (type?['name'] ?? '').toString().trim();
     final opponentName = (row['opponent_name'] ?? '').toString().trim();
 
-    final title = isInternal
+    final venueName = ((row['venue'] as Map?)?['name'] ?? '').toString().trim();
+    final title = row['is_home'] == false
+        ? (venueName.isNotEmpty ? venueName : 'Venue to be confirmed')
+        : isInternal
         ? (typeName.isNotEmpty ? typeName : 'Internal Fixture')
         : (opponentName.isNotEmpty ? opponentName : typeName);
 
@@ -170,11 +164,11 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
 
     final isCancelled = row['cancelled_at'] != null;
 
-    return _MonthDiaryItem(
+    return MonthDiaryItem(
       fixtureId: row['id'].toString(),
       startAt: startAt,
       endAt: endAt,
-      label: isInternal
+      label: isInternal && row['is_home'] != false
           ? '${_timeLabel(startAt)} • $title'
           : '${_timeLabel(startAt)} $homeAway • $title',
       backgroundColor: bg,
@@ -226,21 +220,6 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
     await _loadMonth();
   }
 
-  Future<void> _openRinksView() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => RinkDayViewScreen(
-          clubId: widget.clubId,
-          clubName: widget.clubName,
-          date: _selectedDate,
-        ),
-      ),
-    );
-
-    if (!mounted) return;
-    await _loadMonth();
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -249,9 +228,12 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
           title: const Text('Monthly Diary'),
           actions: [
             NextFixtureReminderButton(
-            clubId: widget.clubId, clubName: widget.clubName,
-            showOnOpen: widget.showNextMatchOnOpen),
-          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+              clubId: widget.clubId,
+              clubName: widget.clubName,
+              showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
+              onAutomaticOpen: () => _shownEntryReminder = true,
+            ),
+            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
           ],
         ),
         body: const Center(child: CircularProgressIndicator()),
@@ -264,9 +246,12 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
           title: const Text('Monthly Diary'),
           actions: [
             NextFixtureReminderButton(
-            clubId: widget.clubId, clubName: widget.clubName,
-            showOnOpen: widget.showNextMatchOnOpen),
-          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+              clubId: widget.clubId,
+              clubName: widget.clubName,
+              showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
+              onAutomaticOpen: () => _shownEntryReminder = true,
+            ),
+            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
           ],
         ),
         body: Padding(
@@ -276,68 +261,90 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 44,
-        actions: [
-          NextFixtureReminderButton(
-            clubId: widget.clubId, clubName: widget.clubName,
-            showOnOpen: widget.showNextMatchOnOpen),
-          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
-        ],
-        bottom: DiaryViewBar(
-          selected: DiaryView.month,
+    final toolbar = AppBar(
+      primary: true,
+      toolbarHeight: 44,
+      title: Text(
+        _monthLabel(_visibleMonth),
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      actions: [
+        NextFixtureReminderButton(
           clubId: widget.clubId,
           clubName: widget.clubName,
-          date: _selectedDate,
+          showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
+          onAutomaticOpen: () => _shownEntryReminder = true,
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+      ],
+      bottom: DiaryViewBar(
+        selected: DiaryView.month,
+        clubId: widget.clubId,
+        clubName: widget.clubName,
+        date: _selectedDate,
       ),
-      body: SafeArea(
-        child: Column(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    );
+    return Scaffold(
+      appBar: toolbar,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: Material(
+        key: const ValueKey('month-floating-navigation'),
+        elevation: 4,
+        color: Theme.of(context).colorScheme.surface,
+        shape: StadiumBorder(
+          side: BorderSide(color: Theme.of(context).colorScheme.outline),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _MonthHeader(
-              clubName: widget.clubName,
-              visibleMonth: _visibleMonth,
-              selectedDate: _selectedDate,
-              onPrevious: () => _moveMonth(-1),
-              onNext: () => _moveMonth(1),
-              onToday: _goToToday,
-              onRinksView: _openRinksView,
+            TextButton.icon(
+              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              onPressed: () => _moveMonth(-1),
+              icon: const Icon(Icons.chevron_left),
+              label: const Text('Previous'),
             ),
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: 1050,
-                  child: _MonthGrid(
-                    month: _visibleMonth,
-                    items: _items,
-                    onFixtureTap: _openFixture,
-                    onDayTap: _openDay,
-                    zoom: _monthZoom,
-                  ),
-                ),
-              ),
+            Container(
+              width: 1,
+              height: 22,
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+            TextButton.icon(
+              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              iconAlignment: IconAlignment.end,
+              onPressed: () => _moveMonth(1),
+              icon: const Icon(Icons.chevron_right),
+              label: const Text('Next'),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Future<void> _openFixture(String fixtureId) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FixtureDetailsPage(fixtureId: fixtureId),
+      body: SafeArea(
+        child: MonthCalendar(
+          month: _visibleMonth,
+          selectedDate: _selectedDate,
+          items: _items,
+          onDayTap: _openDay,
+          zoom: _monthZoom,
+          onZoomChanged: _setMonthZoom,
+          showZoomControls: false,
+          header: Column(
+            children: [
+              _MonthHeader(
+                clubName: widget.clubName,
+                selectedDate: _selectedDate,
+                onToday: _goToToday,
+                zoom: _monthZoom,
+                onZoomChanged: _setMonthZoom,
+              ),
+            ],
+          ),
+        ),
       ),
     );
-
-    if (!mounted) return;
-    await _loadMonth();
   }
 
   Future<void> _openDay(DateTime date) async {
@@ -375,60 +382,28 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
 class _MonthHeader extends StatelessWidget {
   const _MonthHeader({
     required this.clubName,
-    required this.visibleMonth,
     required this.selectedDate,
-    required this.onPrevious,
-    required this.onNext,
     required this.onToday,
-    required this.onRinksView,
+    required this.zoom,
+    required this.onZoomChanged,
   });
 
   final String clubName;
-  final DateTime visibleMonth;
   final DateTime selectedDate;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
   final VoidCallback onToday;
-  final VoidCallback onRinksView;
+  final double zoom;
+  final ValueChanged<double> onZoomChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final narrow = MediaQuery.of(context).size.width < 560;
-
-    final monthTitle = Text(
-      _monthLabel(visibleMonth),
-      textAlign: TextAlign.center,
-      style: theme.textTheme.headlineSmall?.copyWith(
-        fontWeight: FontWeight.w900,
-        color: const Color(0xFF111827),
-      ),
-    );
-
     final selectedDateText = Text(
-      'Selected day: ${_prettyDate(selectedDate)}',
+      'Selected Day: ${_prettyDate(selectedDate)}',
+      textAlign: TextAlign.center,
       style: const TextStyle(
         fontWeight: FontWeight.w700,
         color: Color(0xFF4B5563),
       ),
-    );
-
-    final monthNav = Row(
-      children: [
-        OutlinedButton.icon(
-          onPressed: onPrevious,
-          icon: const Icon(Icons.chevron_left),
-          label: Text(narrow ? 'Previous' : 'Previous Month'),
-        ),
-        const SizedBox(width: 8),
-        Expanded(child: monthTitle),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: onNext,
-          icon: const Icon(Icons.chevron_right),
-          label: Text(narrow ? 'Next' : 'Next Month'),
-        ),
-      ],
     );
 
     final actionRow = Row(
@@ -438,12 +413,8 @@ class _MonthHeader extends StatelessWidget {
           icon: const Icon(Icons.today),
           label: const Text('Today'),
         ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: onRinksView,
-          icon: const Icon(Icons.grid_view),
-          label: const Text('Rinks View'),
-        ),
+        const Spacer(),
+        MonthCalendarZoomControls(zoom: zoom, onChanged: onZoomChanged),
       ],
     );
 
@@ -462,337 +433,17 @@ class _MonthHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          monthNav,
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [actionRow, selectedDateText],
+          actionRow,
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: Center(child: selectedDateText),
           ),
         ],
       ),
     );
   }
-}
-
-class _MonthGrid extends StatelessWidget {
-  const _MonthGrid({
-    required this.month,
-    required this.items,
-    required this.onFixtureTap,
-    required this.onDayTap,
-    required this.zoom,
-  });
-
-  final DateTime month;
-  final List<_MonthDiaryItem> items;
-  final ValueChanged<String> onFixtureTap;
-  final ValueChanged<DateTime> onDayTap;
-  final double zoom;
-
-  @override
-  Widget build(BuildContext context) {
-    //    final firstOfMonth = DateTime(month.year, month.month);
-    //    final startOffset = firstOfMonth.weekday - DateTime.monday;
-    //    final gridStart = firstOfMonth.subtract(Duration(days: startOffset));
-
-    final firstOfMonth = DateTime(month.year, month.month, 1);
-    final startOffset = firstOfMonth.weekday - DateTime.monday;
-    final gridStart = firstOfMonth.subtract(Duration(days: startOffset));
-
-    return Column(
-      children: [
-        Row(
-          children: const [
-            _WeekdayHeader('Mon'),
-            _WeekdayHeader('Tue'),
-            _WeekdayHeader('Wed'),
-            _WeekdayHeader('Thu'),
-            _WeekdayHeader('Fri'),
-            _WeekdayHeader('Sat'),
-            _WeekdayHeader('Sun'),
-          ],
-        ),
-        Expanded(
-          child: GestureDetector(
-            onScaleUpdate: (details) {
-              final state = context
-                  .findAncestorStateOfType<_MonthOverviewScreenState>();
-
-              if (state == null) return;
-
-              double nextZoom = state._monthZoom;
-
-              if (details.scale > 1.02) {
-                nextZoom = (state._monthZoom + 0.02).clamp(0.75, 1.6);
-              } else if (details.scale < 0.98) {
-                nextZoom = (state._monthZoom - 0.02).clamp(0.75, 1.6);
-              }
-
-              if (nextZoom != state._monthZoom) {
-                state._setMonthZoom(nextZoom);
-              }
-            },
-            child: GridView.builder(
-              physics: const ClampingScrollPhysics(),
-              itemCount: 42,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 7,
-                childAspectRatio: 1.05 / zoom,
-              ),
-              itemBuilder: (context, index) {
-                final date = DateTime(
-                  gridStart.year,
-                  gridStart.month,
-                  gridStart.day + index,
-                );
-
-                final dayItems =
-                    items
-                        .where(
-                          (i) =>
-                              i.startAt.year == date.year &&
-                              i.startAt.month == date.month &&
-                              i.startAt.day == date.day,
-                        )
-                        .toList()
-                      ..sort((a, b) {
-                        final timeCompare = a.startAt.compareTo(b.startAt);
-                        if (timeCompare != 0) return timeCompare;
-                        return a.label.compareTo(b.label);
-                      });
-
-                return _MonthDayCell(
-                  date: date,
-                  isCurrentMonth: date.month == month.month,
-                  items: dayItems,
-                  onFixtureTap: onFixtureTap,
-                  onDayTap: onDayTap,
-                );
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _WeekdayHeader extends StatelessWidget {
-  const _WeekdayHeader(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        height: 34,
-        alignment: Alignment.center,
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8FAFC),
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB)),
-            bottom: BorderSide(color: Color(0xFFE5E7EB)),
-            right: BorderSide(color: Color(0xFFE5E7EB)),
-          ),
-        ),
-        child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-      ),
-    );
-  }
-}
-
-class _MonthDayCell extends StatelessWidget {
-  const _MonthDayCell({
-    required this.date,
-    required this.isCurrentMonth,
-    required this.items,
-    required this.onFixtureTap,
-    required this.onDayTap,
-  });
-
-  final DateTime date;
-  final bool isCurrentMonth;
-  final List<_MonthDiaryItem> items;
-  final ValueChanged<String> onFixtureTap;
-  final ValueChanged<DateTime> onDayTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final today = DateTime.now();
-    final isToday =
-        date.year == today.year &&
-        date.month == today.month &&
-        date.day == today.day;
-
-    final visibleItems = items.take(4).toList();
-    final hiddenCount = items.length - visibleItems.length;
-
-    return InkWell(
-      onTap: () => onDayTap(date),
-      child: Container(
-        padding: const EdgeInsets.all(5),
-        decoration: BoxDecoration(
-          color: isCurrentMonth ? Colors.white : const Color(0xFFF3F4F6),
-          border: Border.all(
-            color: isToday ? const Color(0xFF2563EB) : const Color(0xFFE5E7EB),
-            width: isToday ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Align(
-              alignment: Alignment.topRight,
-              child: Text(
-                '${date.day}',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: isCurrentMonth
-                      ? const Color(0xFF111827)
-                      : const Color(0xFF9CA3AF),
-                ),
-              ),
-            ),
-            const SizedBox(height: 3),
-            for (final item in visibleItems)
-              _MonthFixtureChip(
-                item: item,
-                onTap: () => onFixtureTap(item.fixtureId),
-              ),
-            if (hiddenCount > 0)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  '+$hiddenCount more',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-              ),
-            const Spacer(),
-            _RinkUsageLine(items: items),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MonthFixtureChip extends StatelessWidget {
-  const _MonthFixtureChip({required this.item, required this.onTap});
-
-  final _MonthDiaryItem item;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final backgroundColor = item.isCancelled
-        ? Colors.grey.shade300
-        : item.backgroundColor;
-
-    final foregroundColor = item.isCancelled
-        ? Colors.grey.shade800
-        : item.foregroundColor;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.circular(4),
-            border: item.isMine
-                ? Border.all(color: foregroundColor, width: 1.4)
-                : null,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    height: 1.05,
-                    fontWeight: FontWeight.w700,
-                    color: foregroundColor,
-                  ),
-                ),
-              ),
-              if (item.isMine) ...[
-                const SizedBox(width: 2),
-                Icon(Icons.person, size: 11, color: foregroundColor),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RinkUsageLine extends StatelessWidget {
-  const _RinkUsageLine({required this.items});
-
-  final List<_MonthDiaryItem> items;
-
-  @override
-  Widget build(BuildContext context) {
-    final rinksUsed = items.fold<int>(0, (sum, item) => sum + item.rinksUsed);
-
-    Color color;
-    if (rinksUsed == 0) {
-      color = const Color(0xFFE5E7EB);
-    } else if (rinksUsed <= 2) {
-      color = const Color(0xFF22C55E);
-    } else if (rinksUsed <= 5) {
-      color = const Color(0xFFF59E0B);
-    } else {
-      color = const Color(0xFFDC2626);
-    }
-
-    return Container(
-      height: 4,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(999),
-      ),
-    );
-  }
-}
-
-class _MonthDiaryItem {
-  const _MonthDiaryItem({
-    required this.fixtureId,
-    required this.startAt,
-    required this.endAt,
-    required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
-    required this.isMine,
-    required this.rinksUsed,
-    required this.isCancelled,
-  });
-
-  final String fixtureId;
-  final DateTime startAt;
-  final DateTime endAt;
-  final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
-  final bool isMine;
-  final int rinksUsed;
-  final bool isCancelled;
 }
 
 String _monthLabel(DateTime date) {

@@ -1247,7 +1247,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_shownNextFixturePopup && mounted) {
           _shownNextFixturePopup = true;
-          _showNextFixturePopup();
+          if (ModalRoute.of(context)?.isCurrent ?? true) {
+            _showNextFixturePopup();
+          }
         }
       });
     } catch (e) {

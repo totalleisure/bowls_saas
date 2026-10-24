@@ -167,10 +167,12 @@ class NextFixtureReminder {
       context: context,
       builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(18),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        constraints: const BoxConstraints(maxWidth: 560),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Material(
                 color: bg,
@@ -272,8 +274,10 @@ class NextFixtureReminder {
 
                       const SizedBox(height: 18),
 
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           TextButton(
                             onPressed: () async {
@@ -284,7 +288,9 @@ class NextFixtureReminder {
                               );
                             },
                             child: Text(
-                              !isCancelled && fixture['_reminderAcceptance'] == 'pending'
+                              !isCancelled &&
+                                      fixture['_reminderAcceptance'] ==
+                                          'pending'
                                   ? 'Review and respond'
                                   : 'View fixture',
                               style: TextStyle(
@@ -293,7 +299,6 @@ class NextFixtureReminder {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           TextButton(
                             onPressed: () => Navigator.pop(dialogContext),
                             child: Text('OK', style: TextStyle(color: fg)),

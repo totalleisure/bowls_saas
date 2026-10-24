@@ -29,6 +29,16 @@ export function buildReminderHtml(mailbox: string, code: string, token: string |
   return `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#202124;max-width:600px"><p>${reminderText}</p><p>${buttons}</p><p>Each button opens a prepared email. Please send it without changing the subject or message. You can also respond in the app.</p><p>Your written reply has been flagged for the captain or organiser. Thank you.</p><p>If a button does not open your email application, send a new email to ${escapeHtml(mailbox)} with exactly one of these lines as the message:</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">ACCEPT ${escapeHtml(credential)}<br>DECLINE ${escapeHtml(credential)}</pre></div>`;
 }
 export const normalise = (s: string | undefined) => (s ?? '').trim().toLowerCase();
+export function writtenReplySenderEnabled(config: {
+  enabled?: boolean; sender_scope?: string; reminder_recipients?: string[];
+} | null | undefined, sender: string): boolean {
+  const email = normalise(sender);
+  if (!config?.enabled || !email) return false;
+  // The claim RPC authoritatively checks membership in the original request's Club.
+  if (config.sender_scope === 'active_members') return true;
+  if (config.sender_scope && config.sender_scope !== 'allowlist') return false;
+  return (config.reminder_recipients ?? []).some(value => normalise(value) === email);
+}
 export function header(m: Mail, name: string): string {
   return (m.internetMessageHeaders ?? []).filter(h => normalise(h.name) === name)
     .map(h => h.value.trim()).join(' ');

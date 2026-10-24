@@ -12,6 +12,7 @@ enum MemberOptionsAction {
   month,
   list,
   startingScreen,
+  welcome,
   membershipDetails,
   accountSecurity,
   volunteerLists,
@@ -26,6 +27,7 @@ Future<void> showMemberOptionsMenu({
   required String clubId,
   required String clubName,
   required Future<void> Function() openMembershipDetails,
+  String? userId,
   bool allowVolunteerLists = true,
   bool allowAdmin = false,
   bool showAdminGuide = false,
@@ -43,6 +45,7 @@ Future<void> showMemberOptionsMenu({
         MemberOptionsAction.month => Colors.teal,
         MemberOptionsAction.list => Colors.blue,
         MemberOptionsAction.startingScreen => Colors.deepPurple,
+        MemberOptionsAction.welcome => Colors.green,
         MemberOptionsAction.membershipDetails => Colors.cyan,
         MemberOptionsAction.accountSecurity => Colors.blueGrey,
         MemberOptionsAction.volunteerLists => Colors.green,
@@ -143,6 +146,11 @@ Future<void> showMemberOptionsMenu({
                 Icons.home_outlined,
                 'Starting screen',
               ),
+              item(
+                MemberOptionsAction.welcome,
+                Icons.waving_hand_outlined,
+                'Welcome · Your Club. Your Way.',
+              ),
               const Divider(height: 8, indent: 16, endIndent: 16),
               item(
                 MemberOptionsAction.membershipDetails,
@@ -185,8 +193,12 @@ Future<void> showMemberOptionsMenu({
     },
   );
   if (!context.mounted || action == null) return;
+  if (action == MemberOptionsAction.welcome) {
+    await showClubWelcome(context, clubId, clubName, userId: userId);
+    return;
+  }
   if (action == MemberOptionsAction.startingScreen) {
-    await chooseClubStartView(context, clubId);
+    await chooseClubStartView(context, clubId, userId: userId);
     return;
   }
   if (action == MemberOptionsAction.membershipDetails) {

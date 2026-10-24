@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bowls_saas/features/fixtures/next_fixture_reminder_button.dart';
@@ -87,6 +88,49 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
   });
 
+  testWidgets('returning from a deeper page and rebuilding header does not repeat entry reminder', (tester) async {
+    var loads = 0;
+    var shown = false;
+    var generation = 0;
+    Widget screen() => StatefulBuilder(builder:(context,setState)=>Scaffold(
+      appBar:AppBar(actions:[NextFixtureReminderButton(
+        key:ValueKey(generation),clubId:'club',clubName:'Bowls',
+        showOnOpen:!shown,onAutomaticOpen:()=>shown=true,
+        loader:()async{loads++;return fixture;},
+        now:()=>DateTime.utc(2026,10,10,12),
+      )]),
+      body:TextButton(onPressed:()async{
+        await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>Scaffold(appBar:AppBar(),body:const Text('Day details'))));
+        if(context.mounted)setState(()=>generation++);
+      },child:const Text('Open day')),
+    ));
+    await tester.pumpWidget(MaterialApp(home:Builder(builder:(context)=>Scaffold(body:TextButton(
+      onPressed:(){shown=false;Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>screen()));},child:const Text('Enter club'))))));
+    await tester.tap(find.text('Enter club'));await tester.pumpAndSettle();
+    expect(loads,1);await tester.tap(find.text('OK'));await tester.pumpAndSettle();
+    await tester.tap(find.text('Open day'));await tester.pumpAndSettle();
+    await tester.pageBack();await tester.pumpAndSettle();
+    expect(loads,1);expect(find.byType(Dialog),findsNothing);
+    await tester.tap(find.byTooltip('Next match'));await tester.pumpAndSettle();
+    expect(loads,2);expect(find.byType(Dialog),findsOneWidget);
+    await tester.tap(find.text('OK'));await tester.pumpAndSettle();
+    await tester.pageBack();await tester.pumpAndSettle();
+    await tester.tap(find.text('Enter club'));await tester.pumpAndSettle();
+    expect(loads,3);expect(find.byType(Dialog),findsOneWidget);
+  });
+  testWidgets('automatic lookup completing under a deeper route does not open over it', (tester) async {
+    final result=Completer<Map<String,dynamic>?>();
+    await tester.pumpWidget(MaterialApp(home:Builder(builder:(context)=>Scaffold(
+      appBar:AppBar(actions:[NextFixtureReminderButton(clubId:'club',clubName:'Club',showOnOpen:true,loader:()=>result.future)]),
+      body:TextButton(onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>Scaffold(appBar:AppBar(),body:const Text('Day details')))),child:const Text('Open day')),
+    ))));
+    await tester.pump();
+    await tester.tap(find.text('Open day'));await tester.pumpAndSettle();
+    result.complete(fixture);await tester.pumpAndSettle();
+    expect(find.text('Day details'),findsOneWidget);expect(find.byType(Dialog),findsNothing);
+    await tester.pageBack();await tester.pumpAndSettle();
+    expect(find.byType(Dialog),findsNothing);
+  });
   testWidgets('no match is quiet automatically and explained when requested', (tester) async {
     await tester.pumpWidget(app(automatic: true, loader: () async => null));
     await tester.pumpAndSettle();
