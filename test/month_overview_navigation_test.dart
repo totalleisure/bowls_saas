@@ -28,7 +28,18 @@ void main() {
               'start_at':
                   '2026-10-01T${(8 + n).toString().padLeft(2, '0')}:00:00Z',
               'end_at': '2026-10-01T20:00:00Z',
-              'is_home': n != 1,
+              'is_home': n != 1 && n != 7,
+              'team_name': n == 2
+                  ? '  Junior coaching  '
+                  : n == 4
+                  ? ''
+                  : n == 5
+                  ? '   '
+                  : n == 6
+                  ? 'Club singles semi-final'
+                  : n == 7
+                  ? 'County league trip'
+                  : null,
               'section': n == 1 ? 'mens' : 'mixed',
               'dress_code': n == 1 ? ['whites'] : ['greys'],
               'rinks_required': 4,
@@ -37,7 +48,10 @@ void main() {
               'venue': {'id': 'away-venue', 'name': 'White Oak Bowls Club'},
               'opponent_name': 'Friendly game $n',
               'fixture_rinks': [],
-              'competition_types': {'name': 'Roll-up', 'is_internal': false},
+              'competition_types': {
+                'name': n >= 2 ? 'Open Fixture' : 'Roll-up',
+                'is_internal': n >= 2,
+              },
               'competition_type': {
                 'name': 'Roll-up',
                 'is_internal': false,
@@ -62,6 +76,40 @@ void main() {
     );
   });
   tearDownAll(() => Supabase.instance.dispose());
+  testWidgets(
+    'Month uses the fixture label and preserves fallback descriptions',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MonthOverviewScreen(
+            clubId: 'club',
+            clubName: 'Club',
+            initialDate: DateTime(2026, 10),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      Text label(int n) => tester.widget<Text>(
+        find
+            .descendant(
+              of: find.byKey(ValueKey('month-fixture-fixture-$n')),
+              matching: find.byType(Text),
+            )
+            .first,
+      );
+      expect(label(2).data, contains('• Junior coaching'));
+      expect(label(2).data, isNot(contains('Open Fixture')));
+      for (final n in [3, 4, 5])
+        expect(label(n).data, contains('• Open Fixture'));
+      expect(label(6).data, contains('• Club singles semi-final'));
+      expect(label(7).data, contains('A • County league trip'));
+      expect(label(1).data, contains('A • White Oak Bowls Club'));
+      expect(label(0).data, contains('H • Friendly game 0'));
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'Month fixture label opens Day View, returns to Month, and empty dates also open Day View',
     (tester) async {

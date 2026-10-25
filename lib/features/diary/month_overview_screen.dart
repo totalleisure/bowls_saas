@@ -154,7 +154,10 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
     final opponentName = (row['opponent_name'] ?? '').toString().trim();
 
     final venueName = ((row['venue'] as Map?)?['name'] ?? '').toString().trim();
-    final title = row['is_home'] == false
+    final fixtureLabel = (row['team_name'] ?? '').toString().trim();
+    final title = fixtureLabel.isNotEmpty
+        ? fixtureLabel
+        : row['is_home'] == false
         ? (venueName.isNotEmpty ? venueName : 'Venue to be confirmed')
         : isInternal
         ? (typeName.isNotEmpty ? typeName : 'Internal Fixture')

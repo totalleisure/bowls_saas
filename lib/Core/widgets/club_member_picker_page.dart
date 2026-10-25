@@ -308,6 +308,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
                   ),
                   const SizedBox(height: 12),
                   TextField(
+                    autofocus: true,
                     controller: _searchController,
                     decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.search),

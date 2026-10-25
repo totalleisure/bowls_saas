@@ -34,6 +34,14 @@ void main() {
         'club',
       ).load(DateTime(2026, 10));
       expect(rows.length, 1201);
+      expect(
+        requests.every(
+          (u) => (u.queryParameters['select'] ?? '')
+              .split(',')
+              .contains('team_name'),
+        ),
+        isTrue,
+      );
       expect(requests.length, 7);
       expect(
         requests.every((u) => u.queryParameters['club_id'] == 'eq.club'),

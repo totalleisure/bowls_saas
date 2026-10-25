@@ -15,7 +15,7 @@ class MonthDiaryRepository {
       (offset) => client
           .from('fixtures')
           .select('''
-        id, club_id, start_at, end_at, cancelled_at, is_home, opponent_name,
+        id, club_id, start_at, end_at, cancelled_at, is_home, opponent_name, team_name,
         green_area_id, rinks_required,
           venue:venues!fixtures_venue_id_fkey(id,name),
         competition_types (

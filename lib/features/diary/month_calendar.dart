@@ -223,7 +223,7 @@ class _MonthCalendarState extends State<MonthCalendar> {
                   children: [
                     Expanded(
                       child: Text(
-                        DateFormat('dd-MMM-yy').format(date),
+                        DateFormat('EEE dd-MMM-yy').format(date),
                         style: TextStyle(
                           fontSize: 12 * widget.zoom,
                           fontWeight: FontWeight.w800,

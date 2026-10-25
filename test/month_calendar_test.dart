@@ -166,7 +166,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('month-fixture-f0')));
       await tester.tap(
-        find.descendant(of: day(1), matching: find.text('01-Oct-26')).first,
+        find.descendant(of: day(1), matching: find.text('Thu 01-Oct-26')).first,
       );
       await tester.tapAt(tester.getTopLeft(day(2)) + const Offset(50, 55));
       expect(opened, [october, october, DateTime(2026, 10, 2)]);
