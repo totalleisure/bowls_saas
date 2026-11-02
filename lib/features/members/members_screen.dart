@@ -1,3 +1,5 @@
+import '../reports/club_reports_screen.dart';
+import '../reports/club_usage.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:typed_data';
@@ -19,7 +21,12 @@ class MembersScreen extends StatefulWidget {
   State<MembersScreen> createState() => _MembersScreenState();
 }
 
-class _MembersScreenState extends State<MembersScreen> {
+class _MembersScreenState extends State<MembersScreen>
+    with ClubScreenTracking<MembersScreen> {
+  @override
+  String get usageClubId => widget.clubId;
+  @override
+  String get usageScreen => 'Membership';
   final SupabaseClient _client = Supabase.instance.client;
 
   bool _loading = true;
@@ -489,6 +496,16 @@ class _MembersScreenState extends State<MembersScreen> {
       appBar: AppBar(
         title: Text('Members'),
         actions: [
+          if (_canManageMembers)
+            IconButton(
+              tooltip: 'Reports',
+              icon: const Icon(Icons.assessment_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ClubReportsScreen(clubId: widget.clubId),
+                ),
+              ),
+            ),
           IconButton(
             onPressed: _load,
             icon: const Icon(Icons.refresh),
@@ -513,10 +530,26 @@ class _MembersScreenState extends State<MembersScreen> {
                     padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: FilledButton.icon(
-                        onPressed: _addCaptainManagedMember,
-                        icon: const Icon(Icons.person_add),
-                        label: const Text('Add captain-managed member'),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.assessment_outlined),
+                            label: const Text('Reports'),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    ClubReportsScreen(clubId: widget.clubId),
+                              ),
+                            ),
+                          ),
+                          FilledButton.icon(
+                            onPressed: _addCaptainManagedMember,
+                            icon: const Icon(Icons.person_add),
+                            label: const Text('Add captain-managed member'),
+                          ),
+                        ],
                       ),
                     ),
                   ),

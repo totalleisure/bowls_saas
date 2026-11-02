@@ -3,6 +3,7 @@ import '../auth/account_security_screen.dart';
 import '../clubs/club_start_screen.dart';
 import '../clubs/club_home_screen.dart';
 import '../fixtures/fixtures_screen.dart';
+import '../competitions/screens/competitions_screen.dart';
 import '../help/player_help_screen.dart';
 import '../notifications/notifications_page.dart';
 import 'member_mailing_lists_screen.dart';
@@ -11,6 +12,7 @@ enum MemberOptionsAction {
   dashboard,
   month,
   list,
+  competitions,
   startingScreen,
   welcome,
   membershipDetails,
@@ -44,6 +46,7 @@ Future<void> showMemberOptionsMenu({
         MemberOptionsAction.dashboard => Colors.indigo,
         MemberOptionsAction.month => Colors.teal,
         MemberOptionsAction.list => Colors.blue,
+        MemberOptionsAction.competitions => Colors.amber,
         MemberOptionsAction.startingScreen => Colors.deepPurple,
         MemberOptionsAction.welcome => Colors.green,
         MemberOptionsAction.membershipDetails => Colors.cyan,
@@ -147,6 +150,11 @@ Future<void> showMemberOptionsMenu({
                 'Starting screen',
               ),
               item(
+                MemberOptionsAction.competitions,
+                Icons.emoji_events_outlined,
+                'Competitions',
+              ),
+              item(
                 MemberOptionsAction.welcome,
                 Icons.waving_hand_outlined,
                 'Welcome · Your Club. Your Way.',
@@ -172,7 +180,7 @@ Future<void> showMemberOptionsMenu({
                 item(
                   MemberOptionsAction.bookings,
                   Icons.event_available,
-                  'My fixture bookings',
+                  'My Fixture Bookings and Competitions',
                 ),
               item(
                 MemberOptionsAction.notifications,
@@ -222,6 +230,10 @@ Future<void> showMemberOptionsMenu({
     return;
   }
   final Widget page = switch (action) {
+    MemberOptionsAction.competitions => CompetitionsScreen(
+      clubId: clubId,
+      clubName: clubName,
+    ),
     MemberOptionsAction.accountSecurity => const AccountSecurityScreen(),
     MemberOptionsAction.volunteerLists => MemberMailingListsScreen(
       clubId: clubId,

@@ -1,4 +1,5 @@
 import 'widgets/preselect_leave_guard.dart';
+import '../competitions/screens/competition_fixture_management_screen.dart';
 import 'widgets/fixture_information_dialog.dart';
 import 'widgets/fixture_timing_controls.dart';
 import 'widgets/fixture_response_panel.dart';
@@ -84,6 +85,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _canDeleteFixture = false;
   bool _canAssignCaptaincy = false;
   bool _canManageTeam = false;
+  bool _canManageCompetitionBooking = false;
   bool _canViewTeam = false;
 
   bool _loading = true;
@@ -181,15 +183,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _isEventStyleFixture =>
       _selectedCompetitionType?['uses_rinks'] == false;
 
+  bool get _isCancelledFixture => _fixture?['cancelled_at'] != null;
+  bool get _canModifyActiveFixture => _canWrite && !_isCancelledFixture;
+
   bool get _canManageEventAttendance =>
       _canWrite &&
       _isEventStyleFixture &&
-      (_canEditAdminFixtureDetails ||
+      (_hasAdminFixtureAuthority ||
           _isFixtureCaptain ||
           _isFixtureViceCaptain);
 
   bool get _canEditFixtureInformation =>
-      _canWrite &&
+      _canModifyActiveFixture &&
       (_isSuperuser ||
           _isClubAdmin ||
           _isAdmin ||
@@ -264,9 +269,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     return parseClubTime(raw);
   }
 
+  bool get _hasAdminFixtureAuthority =>
+      _canWrite && (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator);
+
   bool get _canEditAdminFixtureDetails =>
-      _canWrite &&
-      (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator);
+      !_isCancelledFixture && _hasAdminFixtureAuthority;
 
   bool get _canRepeatFixture =>
       _canWrite && (_isSuperuser || _isClubAdmin || _isSuper || _isAdmin);
@@ -283,7 +290,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _canMaintainMemberPreselectFixture {
-    return _canWrite &&
+    return _canModifyActiveFixture &&
         _usesSimpleBookingWorkflow &&
         (_canUseFullAdminTools || _canManageTeam || _isFixtureCaptain);
   }
@@ -291,7 +298,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canViewMemberPreselectFixture {
     if (!_usesSimpleBookingWorkflow) return false;
 
-    if (_canMaintainMemberPreselectFixture) return true;
+    if (_canMaintainMemberPreselectFixture ||
+        (_isCancelledFixture && _canWrite &&
+            (_hasAdminFixtureAuthority ||
+                _isFixtureCaptain || _isFixtureViceCaptain))) return true;
 
     final myId = _currentMemberId ?? _myMemberProfileId;
     if (myId == null || myId.isEmpty) return false;
@@ -453,10 +463,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _canRsvpToFixture {
-    return _canWrite && _hasClubMembership;
+    return _canModifyActiveFixture && _hasClubMembership;
   }
 
-  bool get _canEditFixtureLabel {
+  bool get _canViewFixtureSettings {
     return _canWrite &&
         (_isSuperuser ||
             _isClubAdmin ||
@@ -464,6 +474,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             _isFixtureCaptain ||
             _isFixtureViceCaptain);
   }
+
+  bool get _canEditFixtureLabel =>
+      !_isCancelledFixture && _canViewFixtureSettings;
 
   String _normaliseDressCode(dynamic value) {
     dynamic raw = value;
@@ -2515,6 +2528,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       _canDeleteFixture = false;
       _canAssignCaptaincy = false;
       _canManageTeam = false;
+      _canManageCompetitionBooking = false;
       _canViewTeam = false;
     }
 
@@ -2528,6 +2542,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       }
 
       final access = await loadClubAccess(clubId: clubId, client: _client);
+
+      var canManageCompetition = false;
+      try {
+        final competitionAccess = Map<String,dynamic>.from(await _client.rpc('competition_fixture_access', params: {'p_fixture_id': widget.fixtureId}) as Map);
+        canManageCompetition = access.canWrite && !_isCancelledFixture && competitionAccess['can_manage'] == true;
+      } catch (e) {
+        debugPrint('Competition booking permissions unavailable: $e');
+      }
 
       final fixtureCaptainId = _fixture?['captain_member_profile_id']
           ?.toString();
@@ -2545,7 +2567,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       final canAdminManage = access.canAdminManageFixtures;
 
-      final canEditFixture = access.canWrite && canAdminManage;
+      final isCancelled = _isCancelledFixture;
+      final canEditFixture = access.canWrite && !isCancelled && canAdminManage;
       final isCreator =
           _fixture?['created_by_user_id'] == _client.auth.currentUser?.id;
       final canManageFixture =
@@ -2568,13 +2591,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         }
       }
 
-      final isCancelled = _fixture?['cancelled_at'] != null;
-
       final canAssignCaptaincy =
           access.canWrite && !isCancelled && canAdminManage;
 
       final canManageTeam =
-          access.canWrite &&
+          access.canWrite && !isCancelled &&
           (canAdminManage || isFixtureCaptain || isFixtureVice);
 
       // Team visibility belongs to club members, not just selected players.
@@ -2597,6 +2618,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         _canDeleteFixture = canDeleteFixture;
         _canAssignCaptaincy = canAssignCaptaincy;
         _canManageTeam = canManageTeam;
+        _canManageCompetitionBooking = canManageCompetition;
         _canViewTeam = canViewTeam;
       });
     } catch (e) {
@@ -6537,6 +6559,19 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                   const SizedBox(height: 16),
                 ],
 
+                if (_canManageCompetitionBooking) ...[
+                  FilledButton.icon(
+                    icon: const Icon(Icons.event_available),
+                    label: const Text('Manage competition booking'),
+                    onPressed: () async {
+                      final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => CompetitionFixtureManagementScreen(fixtureId: widget.fixtureId)));
+                      if (!mounted) return;
+                      if (changed == true) _didChangeFixture = true;
+                      await _refreshDetails();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Text(
                   matchHeader,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -6692,7 +6727,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 const SizedBox(height: 20),
 
                 if (!isEventStyleFixture &&
-                    _canEditFixtureLabel &&
+                    _canViewFixtureSettings &&
                     (isPreselectFixture || !isWorkflowLocked)) ...[
                   Card(
                     child: Padding(

@@ -55,6 +55,12 @@ class ClubMemberPickerPage extends StatefulWidget {
   final Set<String> initialSelectedIds;
   final Set<String> excludeMemberProfileIds;
 
+  /// Optional display data for callers that also need the confirmed names.
+  /// The route continues to return member IDs for existing callers.
+  final ValueChanged<List<ClubMemberPickerMember>>? onMembersSelected;
+  final bool reviewSelectionOrder;
+  final int? selectionGroupSize;
+
   const ClubMemberPickerPage({
     super.key,
     required this.clubId,
@@ -67,6 +73,9 @@ class ClubMemberPickerPage extends StatefulWidget {
     this.allowMultiple = false,
     this.initialSelectedIds = const {},
     this.excludeMemberProfileIds = const {},
+    this.onMembersSelected,
+    this.reviewSelectionOrder = false,
+    this.selectionGroupSize,
   });
 
   @override
@@ -84,8 +93,10 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
 
   late MemberPickerSectionFilter _section;
   late Set<String> _selectedIds;
+  late List<String> _selectionOrder;
 
   List<ClubMemberPickerMember> _members = [];
+  final Map<String, ClubMemberPickerMember> _knownMembers = {};
 
   String _memberDisplayTitle(ClubMemberPickerMember member) {
     final preferred = (member.preferredPosition ?? '').trim();
@@ -100,6 +111,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
     super.initState();
     _section = widget.initialSectionFilter;
     _selectedIds = {...widget.initialSelectedIds};
+    _selectionOrder = widget.initialSelectedIds.toList();
     _loadMembers();
   }
 
@@ -169,6 +181,9 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
 
       setState(() {
         _members = loaded;
+        for (final member in loaded) {
+          _knownMembers[member.memberProfileId] = member;
+        }
         _loading = false;
       });
     } catch (e) {
@@ -194,7 +209,11 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
   }
 
   void _toggleMember(String memberProfileId) {
+    if (widget.selectionGroupSize != null) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    }
     if (!widget.allowMultiple) {
+      _notifySelection([memberProfileId]);
       Navigator.of(context).pop(<String>[memberProfileId]);
       return;
     }
@@ -202,14 +221,143 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
     setState(() {
       if (_selectedIds.contains(memberProfileId)) {
         _selectedIds.remove(memberProfileId);
+        _selectionOrder.remove(memberProfileId);
       } else {
         _selectedIds.add(memberProfileId);
+        _selectionOrder.add(memberProfileId);
       }
     });
   }
 
-  void _returnSelection() {
-    Navigator.of(context).pop(_selectedIds.toList());
+  Future<void> _returnSelection() async {
+    final ordered = List<String>.of(_selectionOrder);
+    final groupSize = widget.selectionGroupSize;
+    final isPairs = groupSize == 2;
+    if (groupSize != null &&
+        (ordered.isEmpty || ordered.length % groupSize != 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isPairs
+                ? 'Select an even number of players for complete pairs. Your selections are still here.'
+                : 'Select complete groups of $groupSize players. Your selections are still here.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (widget.reviewSelectionOrder && ordered.isNotEmpty) {
+      FocusScope.of(context).unfocus();
+      var editPlayers = groupSize == null;
+      final teams = groupSize == null ? 0 : ordered.length ~/ groupSize;
+      final approved = await showDialog<bool>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, update) => AlertDialog(
+            title: Text(
+              groupSize == null
+                  ? 'Confirm player order'
+                  : 'Confirm $teams ${isPairs ? (teams == 1 ? 'pair' : 'pairs') : (teams == 1 ? 'team' : 'teams')}',
+            ),
+            content: SizedBox(
+              width: 540,
+              height: (MediaQuery.sizeOf(context).height * .55)
+                  .clamp(180, 440)
+                  .toDouble(),
+              child: Column(
+                children: [
+                  Text(
+                    groupSize == null
+                        ? 'This is the order that will be saved. Drag a player to change their position.'
+                        : 'Consecutive selections form each ${isPairs ? 'pair' : 'team'}. Check the partnerships before saving.',
+                  ),
+                  if (groupSize != null)
+                    TextButton.icon(
+                      onPressed: () => update(() => editPlayers = !editPlayers),
+                      icon: const Icon(Icons.swap_vert),
+                      label: Text(
+                        editPlayers
+                            ? 'Review partnerships'
+                            : 'Change partners/order',
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: groupSize != null && !editPlayers
+                        ? ListView.builder(
+                            itemCount: teams,
+                            itemBuilder: (context, i) => Card(
+                              child: ListTile(
+                                leading: Text('${i + 1}'),
+                                title: Text(
+                                  '${isPairs ? 'Pair' : 'Team'} ${i + 1}',
+                                ),
+                                subtitle: Text(
+                                  ordered
+                                      .skip(i * groupSize)
+                                      .take(groupSize)
+                                      .map(
+                                        (id) =>
+                                            _knownMembers[id]?.displayName ??
+                                            'Selected member',
+                                      )
+                                      .join(' / '),
+                                ),
+                              ),
+                            ),
+                          )
+                        : ReorderableListView.builder(
+                            itemCount: ordered.length,
+                            onReorderItem: (from, to) => update(
+                              () => ordered.insert(to, ordered.removeAt(from)),
+                            ),
+                            itemBuilder: (context, i) => ListTile(
+                              key: ValueKey(ordered[i]),
+                              leading: Text('${i + 1}'),
+                              title: Text(
+                                _knownMembers[ordered[i]]?.displayName ??
+                                    'Selected member',
+                              ),
+                              subtitle: groupSize == null
+                                  ? null
+                                  : Text(
+                                      '${isPairs ? 'Pair' : 'Team'} ${i ~/ groupSize + 1} · player ${i % groupSize + 1}',
+                                    ),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Keep selecting'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(
+                  groupSize == null
+                      ? 'Add ${ordered.length} players'
+                      : 'Save $teams ${isPairs ? (teams == 1 ? 'pair' : 'pairs') : (teams == 1 ? 'team' : 'teams')}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (approved != true || !mounted) return;
+    }
+    if (!mounted) return;
+    _notifySelection(ordered);
+    Navigator.of(context).pop(ordered);
+  }
+
+  void _notifySelection(List<String> ids) {
+    widget.onMembersSelected?.call([
+      for (final id in ids)
+        if (_knownMembers[id] != null) _knownMembers[id]!,
+    ]);
   }
 
   void _clearSelection() {
@@ -238,7 +386,7 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
 
     return ListView.separated(
       itemCount: _members.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final member = _members[index];
         final selected = _selectedIds.contains(member.memberProfileId);
@@ -248,7 +396,9 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
           leading: CircleAvatar(
             child: Text(
               member.displayName.isNotEmpty
-                  ? member.displayName.characters.first.toUpperCase()
+                  ? widget.reviewSelectionOrder && selected
+                        ? '${_selectionOrder.indexOf(member.memberProfileId) + 1}'
+                        : member.displayName.characters.first.toUpperCase()
                   : '?',
             ),
           ),
@@ -281,7 +431,9 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
           if (widget.allowMultiple)
             TextButton(
               onPressed: _returnSelection,
-              child: const Text('Return'),
+              child: Text(
+                widget.reviewSelectionOrder ? 'Review order' : 'Return',
+              ),
             ),
         ],
       ),
@@ -307,6 +459,14 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  if (widget.selectionGroupSize != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Select players in ${widget.selectionGroupSize == 2 ? 'pair' : 'team'} order · ${_selectionOrder.length} selected',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
                   TextField(
                     autofocus: true,
                     controller: _searchController,
@@ -326,6 +486,15 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
                         : _buildList(),
                   ),
                   const SizedBox(height: 12),
+                  if (widget.reviewSelectionOrder && _selectionOrder.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'First: ${_knownMembers[_selectionOrder.first]?.displayName ?? 'Selected member'} · Last: ${_knownMembers[_selectionOrder.last]?.displayName ?? 'Selected member'}',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
                   Row(
                     children: [
                       Expanded(
@@ -350,7 +519,11 @@ class _ClubMemberPickerPageState extends State<ClubMemberPickerPage> {
                           child: FilledButton.icon(
                             onPressed: _returnSelection,
                             icon: const Icon(Icons.check),
-                            label: Text('Return ${_selectedIds.length}'),
+                            label: Text(
+                              widget.reviewSelectionOrder
+                                  ? 'Review ${_selectedIds.length}'
+                                  : 'Return ${_selectedIds.length}',
+                            ),
                           ),
                         ),
                       ],

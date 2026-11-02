@@ -1,3 +1,4 @@
+import '../reports/club_usage.dart';
 import '../communications/club_options_button.dart';
 import 'diary_view_bar.dart';
 import 'package:intl/intl.dart';
@@ -27,7 +28,12 @@ class DiaryDayScreen extends StatefulWidget {
   State<DiaryDayScreen> createState() => _DiaryDayScreenState();
 }
 
-class _DiaryDayScreenState extends State<DiaryDayScreen> {
+class _DiaryDayScreenState extends State<DiaryDayScreen>
+    with ClubScreenTracking<DiaryDayScreen> {
+  @override
+  String get usageClubId => widget.clubId;
+  @override
+  String get usageScreen => 'Day View';
   final _client = Supabase.instance.client;
 
   late DateTime _date;

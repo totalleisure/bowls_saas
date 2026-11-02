@@ -1,3 +1,4 @@
+import '../reports/club_usage.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -226,6 +227,7 @@ class _AuthNavigationHostState extends State<AuthNavigationHost>
       key: ValueKey(_navigationGeneration),
       debugShowCheckedModeBanner: false,
       title: 'Bowls SaaS',
+      navigatorObservers: [clubUsageObserver],
       theme: ThemeData(useMaterial3: true),
       // Ignore external route names: entry always passes through this gate.
       initialRoute: '/',
@@ -307,7 +309,8 @@ class _AuthenticatedMembershipBoundaryState
         final allowed =
             !pending && !snapshot.hasError && snapshot.data?.allowed == true;
         if (!pending &&
-            !(snapshot.hasError && membershipConnectionFailed(snapshot.error))) {
+            !(snapshot.hasError &&
+                membershipConnectionFailed(snapshot.error))) {
           _retainNavigation = allowed;
         }
 
@@ -333,13 +336,14 @@ class _AuthenticatedMembershipBoundaryState
             else if (snapshot.hasError)
               _AccessMessagePage(
                 title: membershipConnectionFailed(snapshot.error)
-                    ? 'Unable to connect' : 'Unable to verify membership',
-                message:
-                    membershipConnectionFailed(snapshot.error)
-                        ? 'The app could not reach the Bowls Club service. Check your Wi-Fi or mobile data connection, then tap Try again. You do not need to sign out.'
-                        : 'Your membership could not be checked. Please try again.',
+                    ? 'Unable to connect'
+                    : 'Unable to verify membership',
+                message: membershipConnectionFailed(snapshot.error)
+                    ? 'The app could not reach the Bowls Club service. Check your Wi-Fi or mobile data connection, then tap Try again. You do not need to sign out.'
+                    : 'Your membership could not be checked. Please try again.',
                 icon: membershipConnectionFailed(snapshot.error)
-                    ? Icons.wifi_off_rounded : Icons.lock_outline,
+                    ? Icons.wifi_off_rounded
+                    : Icons.lock_outline,
                 onRetry: _retry,
                 onSignOut: widget.onSignOut,
               )

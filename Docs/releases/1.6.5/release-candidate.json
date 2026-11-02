@@ -1,0 +1,26 @@
+{
+  "version": "1.6.5",
+  "build": 30,
+  "branch": "release/1.6.5",
+  "production_project": "xfjelvvfoguzukgvxchh",
+  "publication_enabled": true,
+  "production_emails": "Real eligible entrants; publishing requires an explicit Admin confirmation. No competitions were published during preparation.",
+  "staging_emails": "Seven approved test addresses only",
+  "what_to_test": [
+    "Check production entries and draw order against Club printed records.",
+    "Check PDF preview, badge, rules and print formats.",
+    "Check paid indicators, round deadlines and walkovers.",
+    "After checking records, explicitly publish each competition to send real player emails.",
+    "Check player Dashboard arrangement, rink booking, score submission and Admin confirmation."
+  ],
+  "mac_build_commands": [
+    "git fetch origin",
+    "git switch release/1.6.5",
+    "git pull --ff-only origin release/1.6.5",
+    "flutter pub get",
+    "flutter build ipa --release --build-name=1.6.5 --build-number=30 -t lib/main.dart",
+    "open build/ios/archive/Runner.xcarchive"
+  ],
+  "future_builds": "Keep build-name 1.6.5 and increment build-number 31, 32, 33 as needed.",
+  "store_status": "No iOS archive/upload performed from Windows."
+}

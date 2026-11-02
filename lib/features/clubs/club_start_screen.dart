@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:uuid/uuid.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -27,6 +30,55 @@ class ClubStartPreference {
   static String key(String userId, String clubId) =>
       'club.start.v1.$userId.$clubId';
 
+  static final _syncing = <String>{};
+  static Future<void> _queueReport(
+    String userId,
+    String clubId,
+    String? view,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        '${key(userId, clubId)}.pending-report',
+        jsonEncode({'id': const Uuid().v4(), 'view': view}),
+      );
+      unawaited(flushReport(userId, clubId));
+    } catch (_) {
+      // Local preference remains usable even if reporting storage is unavailable.
+    }
+  }
+
+  static Future<void> flushReport(String userId, String clubId) async {
+    final pendingKey = '${key(userId, clubId)}.pending-report';
+    if (!_syncing.add(pendingKey)) return;
+    try {
+      final client = Supabase.instance.client;
+      if (client.auth.currentUser?.id != userId) return;
+      final prefs = await SharedPreferences.getInstance();
+      while (true) {
+        if (client.auth.currentUser?.id != userId) return;
+        final raw = prefs.getString(pendingKey);
+        if (raw == null) break;
+        final pending = jsonDecode(raw) as Map<String, dynamic>;
+        await client
+            .rpc(
+              'record_club_start_choice',
+              params: {
+                'p_club_id': clubId,
+                'p_event_id': pending['id'],
+                'p_view': pending['view'],
+              },
+            )
+            .timeout(const Duration(seconds: 8));
+        if (prefs.getString(pendingKey) == raw) await prefs.remove(pendingKey);
+      }
+    } catch (_) {
+      // Retry the latest explicit choice at next Club entry. Never block navigation.
+    } finally {
+      _syncing.remove(pendingKey);
+    }
+  }
+
   /// Null means the member has not explicitly chosen a supported starting view.
   static Future<ClubStartView?> loadSaved(String userId, String clubId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -49,19 +101,22 @@ class ClubStartPreference {
         'Your starting screen could not be saved. Please try again.',
       );
     }
+    await _queueReport(userId, clubId, null);
   }
 
   static Future<void> save(
     String userId,
     String clubId,
-    ClubStartView view,
-  ) async {
+    ClubStartView view, {
+    bool explicit = true,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     if (!await prefs.setString(key(userId, clubId), view.name)) {
       throw StateError(
         'Your starting screen could not be saved. Please try again.',
       );
     }
+    if (explicit) await _queueReport(userId, clubId, view.name);
   }
 }
 
@@ -119,6 +174,7 @@ class _ClubStartScreenState extends State<ClubStartScreen> {
   }
 
   Future<ClubStartView?> _loadEntryChoice() async {
+    unawaited(ClubStartPreference.flushReport(widget.userId, widget.clubId));
     final choice = await ClubStartPreference.loadSaved(
       widget.userId,
       widget.clubId,
@@ -130,6 +186,7 @@ class _ClubStartScreenState extends State<ClubStartScreen> {
         widget.userId,
         widget.clubId,
         ClubStartView.dashboard,
+        explicit: false,
       );
     }
     return choice;

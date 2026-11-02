@@ -1,17 +1,21 @@
 import 'mail_attachments.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:convert';
 
 class MailingListMessageScreen extends StatefulWidget {
   final String clubId;
   final String mailingListId;
   final String mailingListName;
+  final bool totalLeisureByDefault;
 
   const MailingListMessageScreen({
     super.key,
     required this.clubId,
     required this.mailingListId,
     required this.mailingListName,
+    this.totalLeisureByDefault = false,
   });
 
   @override
@@ -30,6 +34,9 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
   bool _listIsActive = false;
   bool _sendApp = true;
   bool _sendEmail = true;
+  bool _isSuperuser = false;
+  bool _fromTotalLeisure = false;
+  String? _sendRequestId, _sendSignature;
 
   int _activeMemberCount = 0;
   int _emailRecipientCount = 0;
@@ -73,6 +80,7 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
 
     try {
       final supabase = Supabase.instance.client;
+      final isSuperuser = await supabase.rpc('is_app_superuser') == true;
 
       final listRow = await supabase
           .from('mailing_lists')
@@ -142,6 +150,10 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
 
       setState(() {
         _listIsActive = listRow['is_active'] == true;
+        _isSuperuser = isSuperuser;
+        _fromTotalLeisure =
+            isSuperuser && (widget.totalLeisureByDefault || _fromTotalLeisure);
+        if (widget.totalLeisureByDefault) _sendApp = false;
         _activeMemberCount = activeCount;
         _emailRecipientCount = emailCount;
 
@@ -182,6 +194,11 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                   Text('Active list members: $_activeMemberCount'),
                   Text('App messages to create: $appCount'),
                   Text('Emails to queue: $emailCount'),
+                  Text(
+                    _fromTotalLeisure
+                        ? 'Sender: Total Leisure (your superuser account is recorded)'
+                        : 'Sender: Club message',
+                  ),
                   if (_attachments.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     const Text('Attachments included with each email:'),
@@ -287,16 +304,27 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
     });
 
     try {
+      final params = <String, dynamic>{
+        'p_mailing_list_id': widget.mailingListId,
+        'p_subject': subject,
+        'p_message': message,
+        'p_send_app': _sendApp,
+        'p_send_email': _sendEmail,
+        'p_attachments': _attachments.map((a) => a.toJson()).toList(),
+      };
+      if (_fromTotalLeisure) {
+        final signature = jsonEncode(params);
+        if (_sendSignature != signature) {
+          _sendRequestId = const Uuid().v4();
+          _sendSignature = signature;
+        }
+        params['p_request_id'] = _sendRequestId;
+      }
       final rawResult = await Supabase.instance.client.rpc(
-        'queue_mailing_list_message_with_attachments',
-        params: {
-          'p_mailing_list_id': widget.mailingListId,
-          'p_subject': subject,
-          'p_message': message,
-          'p_send_app': _sendApp,
-          'p_send_email': _sendEmail,
-          'p_attachments': _attachments.map((a) => a.toJson()).toList(),
-        },
+        _fromTotalLeisure
+            ? 'queue_total_leisure_message'
+            : 'queue_mailing_list_message_with_attachments',
+        params: params,
       );
 
       final result = rawResult is Map
@@ -422,6 +450,17 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                   const SizedBox(height: 12),
                 ],
                 _summaryCard(),
+                if (_isSuperuser)
+                  SwitchListTile(
+                    title: const Text('Send from Total Leisure'),
+                    subtitle: const Text(
+                      'Uses the Total Leisure App branding and the existing App mailbox. Your account remains recorded as the sender.',
+                    ),
+                    value: _fromTotalLeisure,
+                    onChanged: _sending
+                        ? null
+                        : (v) => setState(() => _fromTotalLeisure = v),
+                  ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _subjectController,
@@ -446,6 +485,9 @@ class _MailingListMessageScreenState extends State<MailingListMessageScreen> {
                     labelText: 'Message',
                     alignLabelWithHint: true,
                     border: OutlineInputBorder(),
+                    helperText:
+                        'Emails use the Club App layout and footer. Use ## for headings and - for bullet points.',
+                    helperMaxLines: 3,
                   ),
                 ),
                 const SizedBox(height: 16),

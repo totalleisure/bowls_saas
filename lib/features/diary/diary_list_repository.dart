@@ -55,6 +55,13 @@ class DiaryListRepository {
   final SupabaseClient client;
   final String clubId;
   DiaryListRepository(this.client, this.clubId);
+  Future<Map<String, dynamic>?> loadFixture(String fixtureId) async =>
+      await client
+          .from('fixtures')
+          .select(diaryFixtureSelection)
+          .eq('club_id', clubId)
+          .eq('id', fixtureId)
+          .maybeSingle();
   Future<List<Map<String, dynamic>>> loadTypes() async => [
     ...await loadDiaryPages(
       (offset) => client

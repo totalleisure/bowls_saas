@@ -1,3 +1,4 @@
+import '../reports/club_usage.dart';
 import '../communications/club_options_button.dart';
 import 'diary_view_bar.dart';
 import 'package:flutter/material.dart';
@@ -52,7 +53,12 @@ class RinkDayViewScreen extends StatefulWidget {
   State<RinkDayViewScreen> createState() => _RinkDayViewScreenState();
 }
 
-class _RinkDayViewScreenState extends State<RinkDayViewScreen> {
+class _RinkDayViewScreenState extends State<RinkDayViewScreen>
+    with ClubScreenTracking<RinkDayViewScreen> {
+  @override
+  String get usageClubId => widget.clubId;
+  @override
+  String get usageScreen => 'Rinks View';
   late DateTime _selectedDate;
 
   final _client = Supabase.instance.client;

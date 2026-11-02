@@ -1,3 +1,4 @@
+import '../reports/club_usage.dart';
 import '../fixtures/next_fixture_reminder_button.dart';
 import '../communications/club_options_button.dart';
 import 'diary_view_bar.dart';
@@ -31,7 +32,12 @@ class MonthOverviewScreen extends StatefulWidget {
   State<MonthOverviewScreen> createState() => _MonthOverviewScreenState();
 }
 
-class _MonthOverviewScreenState extends State<MonthOverviewScreen> {
+class _MonthOverviewScreenState extends State<MonthOverviewScreen>
+    with ClubScreenTracking<MonthOverviewScreen> {
+  @override
+  String get usageClubId => widget.clubId;
+  @override
+  String get usageScreen => 'Month View';
   static const _windowTitle = MethodChannel('bowls/window_title');
   Future<void> _updateWindowTitle({bool reset = false}) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;

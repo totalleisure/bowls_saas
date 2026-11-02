@@ -1,3 +1,4 @@
+import '../competitions/personal_competition_matches.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
@@ -14,17 +15,40 @@ import 'create_fixture_page.dart';
 import 'fixture_details_page.dart';
 import 'fixture_display.dart';
 import '../clubs/club_access.dart';
+import '../diary/diary_list_repository.dart';
+import '../competitions/competition_repository.dart';
+import '../competitions/widgets/competition_arrangement_card.dart';
+import '../competitions/screens/competition_arrangement_screen.dart';
+
+const _fixtureListColumns =
+    'id, start_at, is_home, section, rinks_required, players_per_rink, orientation, '
+    'requires_rsvp, team_id, team_name, competition_type_id, '
+    'captain_member_profile_id, vice_captain_member_profile_id, '
+    'cancelled_at, '
+    'competition_type:competition_types!fixtures_competition_type_id_fkey('
+    'id, name, is_internal, selection_mode, uses_rinks, '
+    'colour_scheme:fixture_colour_schemes('
+    'id, name, background_hex, foreground_hex'
+    ')'
+    '), '
+    'team:teams(name), '
+    'venue:venues!fixtures_venue_id_fkey(name), '
+    'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
+    'fixture_rinks(format), '
+    'green_areas(name, discipline, orientation_mode)';
 
 class FixturesScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
   final bool memberBookingsOnly;
+  final Widget Function(String)? fixturePageBuilder;
 
   const FixturesScreen({
     super.key,
     required this.clubId,
     required this.clubName,
     this.memberBookingsOnly = false,
+    this.fixturePageBuilder,
   });
 
   @override
@@ -32,6 +56,7 @@ class FixturesScreen extends StatefulWidget {
 }
 
 class _FixturesScreenState extends State<FixturesScreen> {
+  final _scroll = ScrollController();
   bool _loading = true;
   bool _showPast = false;
   String? _error;
@@ -43,6 +68,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
   Color _clubYellow = const Color(0xFFFFEB3B);
 
   String? _currentMemberId;
+  Set<String> _involvedFixtureIds = {};
 
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
@@ -51,10 +77,9 @@ class _FixturesScreenState extends State<FixturesScreen> {
   bool _loadingPermissions = true;
   bool _canWrite = false;
 
-  bool get _canSeeAllMemberFixtures =>
-      _isSuperuser || _isClubAdmin || _isSelector;
-
   List<Map<String, dynamic>> _fixtures = [];
+  List<({CompetitionData data, CompetitionRow match})> _competitionsToArrange =
+      [];
 
   late final FixturesRepository _repo;
 
@@ -63,6 +88,68 @@ class _FixturesScreenState extends State<FixturesScreen> {
     super.initState();
     _repo = FixturesRepository(Supabase.instance.client);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshFixture(String id) async {
+    try {
+      var query = _client
+          .from('fixtures')
+          .select(_fixtureListColumns)
+          .eq('club_id', widget.clubId)
+          .eq('id', id);
+      if (!_showPast) {
+        query = query.gte('start_at', DateTime.now().toUtc().toIso8601String());
+      }
+      final row = await query.maybeSingle();
+      if (widget.memberBookingsOnly && row != null && !_isInvolved(row)) return;
+      if (!mounted) return;
+      final index = _fixtures.indexWhere((f) => f['id'].toString() == id);
+      if (index < 0) return;
+      final offset = _scroll.hasClients ? _scroll.offset : null;
+      setState(() {
+        if (row == null) {
+          _fixtures.removeAt(index);
+        } else {
+          _fixtures[index] = Map<String, dynamic>.from(row);
+        }
+        _fixtures.sort((a, b) {
+          final order = DateTime.parse(
+            a['start_at'].toString(),
+          ).compareTo(DateTime.parse(b['start_at'].toString()));
+          return order != 0
+              ? order
+              : a['id'].toString().compareTo(b['id'].toString());
+        });
+      });
+      if (offset != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scroll.hasClients) {
+            _scroll.jumpTo(
+              offset.clamp(
+                _scroll.position.minScrollExtent,
+                _scroll.position.maxScrollExtent,
+              ),
+            );
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This fixture could not be refreshed. Your list position has been kept. Use Refresh to try again.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadUserPermissions() async {
@@ -118,37 +205,48 @@ class _FixturesScreenState extends State<FixturesScreen> {
 
       var q = client
           .from('fixtures')
-          .select(
-            'id, start_at, is_home, section, rinks_required, players_per_rink, orientation, '
-            'requires_rsvp, team_id, team_name, competition_type_id, '
-            'captain_member_profile_id, vice_captain_member_profile_id, '
-            'cancelled_at, '
-            'competition_type:competition_types!fixtures_competition_type_id_fkey('
-            'id, name, is_internal, selection_mode, uses_rinks, '
-            'colour_scheme:fixture_colour_schemes('
-            'id, name, background_hex, foreground_hex'
-            ')'
-            '), '
-            'team:teams(name), '
-            'venue:venues!fixtures_venue_id_fkey(name), '
-            'opponent_venue:venues!fixtures_opponent_venue_id_fkey(name), '
-            'fixture_rinks(format), '
-            'green_areas(name, discipline, orientation_mode)',
-          )
+          .select(_fixtureListColumns)
           .eq('club_id', widget.clubId);
 
-      if (widget.memberBookingsOnly &&
-          !_canSeeAllMemberFixtures &&
-          _currentMemberId != null) {
-        q = q.eq('captain_member_profile_id', _currentMemberId!);
+      if (widget.memberBookingsOnly && _currentMemberId != null) {
+        final selections = await loadDiaryPages(
+          (offset) => client
+              .from('team_selection_members')
+              .select(
+                'id,team_selections!inner(fixture_id,status,fixture:fixtures!inner(club_id))',
+              )
+              .eq('member_profile_id', _currentMemberId!)
+              .eq('is_selected', true)
+              .inFilter('acceptance', ['accepted', 'pending'])
+              .eq('team_selections.status', 'published')
+              .eq('team_selections.fixture.club_id', widget.clubId)
+              .order('id')
+              .range(offset, offset + 499)
+              .count(CountOption.exact),
+        );
+        _involvedFixtureIds = selections
+            .map((r) => (r['team_selections'] as Map)['fixture_id'].toString())
+            .toSet();
       }
 
       if (!_showPast) {
         q = q.gte('start_at', nowIso);
       }
 
+      final arrangements = <({CompetitionData data, CompetitionRow match})>[];
+      if (widget.memberBookingsOnly && _currentMemberId != null) {
+        arrangements.addAll(
+          (await loadPersonalCompetitionMatches(
+            CompetitionRepository(client),
+            widget.clubId,
+            _currentMemberId!,
+          )).where((item) => competitionNeedsArrangement(item.match)),
+        );
+      }
       final rows = await q.order('start_at');
-      final fixtures = List<Map<String, dynamic>>.from(rows);
+      final fixtures = List<Map<String, dynamic>>.from(
+        rows,
+      ).where((row) => !widget.memberBookingsOnly || _isInvolved(row)).toList();
 
       if (fixtures.isNotEmpty) {
         debugPrint('First fixture row: ${fixtures.first}');
@@ -161,6 +259,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
       setState(() {
         _myClubName = myClubName;
         _fixtures = fixtures;
+        _competitionsToArrange = arrangements;
         _loading = false;
       });
     } catch (e) {
@@ -203,7 +302,11 @@ class _FixturesScreenState extends State<FixturesScreen> {
                 onPressed: () => Navigator.of(context).pop(),
               )
             : null,
-        title: Text(widget.memberBookingsOnly ? 'Member Fixtures' : 'Fixtures'),
+        title: Text(
+          widget.memberBookingsOnly
+              ? 'My Fixture Bookings and Competitions'
+              : 'Fixtures',
+        ),
         actions: <Widget>[
           IconButton(
             icon: Icon(_showPast ? Icons.visibility_off : Icons.visibility),
@@ -232,7 +335,7 @@ class _FixturesScreenState extends State<FixturesScreen> {
   }
 
   Widget _buildGroupedFixtureList() {
-    if (_fixtures.isEmpty) {
+    if (_fixtures.isEmpty && !widget.memberBookingsOnly) {
       return Center(
         child: Text(
           _canWrite ? 'No fixtures yet. Tap + to create one.' : 'No fixtures.',
@@ -253,8 +356,58 @@ class _FixturesScreenState extends State<FixturesScreen> {
     final keys = groups.keys.toList()..sort();
 
     return ListView.builder(
-      itemCount: keys.length,
-      itemBuilder: (_, idx) {
+      key: PageStorageKey(
+        'fixtures-${widget.clubId}-${widget.memberBookingsOnly}',
+      ),
+      controller: _scroll,
+      itemCount: keys.length + (widget.memberBookingsOnly ? 1 : 0),
+      itemBuilder: (_, index) {
+        if (widget.memberBookingsOnly && index == 0) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Competitions to be Arranged',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (_competitionsToArrange.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text('No competition matches awaiting arrangement.'),
+                  ),
+                for (final item in _competitionsToArrange)
+                  CompetitionArrangementCard(
+                    data: item.data,
+                    match: item.match,
+                    onTap: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => CompetitionArrangementScreen(
+                            data: item.data,
+                            match: item.match,
+                          ),
+                        ),
+                      );
+                      if (mounted) await _load();
+                    },
+                  ),
+                const SizedBox(height: 20),
+                Text(
+                  "My Fixtures I'm Involved with",
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (_fixtures.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text('No fixtures.'),
+                  ),
+              ],
+            ),
+          );
+        }
+        final idx = index - (widget.memberBookingsOnly ? 1 : 0);
         final dateKey = keys[idx];
         final fixtures = groups[dateKey]!;
         final parts = dateKey.split('-'); // yyyy-mm-dd
@@ -281,6 +434,12 @@ class _FixturesScreenState extends State<FixturesScreen> {
     );
   }
 
+  bool _isInvolved(Map<String, dynamic> row) =>
+      _currentMemberId != null &&
+      (row['captain_member_profile_id'] == _currentMemberId ||
+          row['vice_captain_member_profile_id'] == _currentMemberId ||
+          _involvedFixtureIds.contains(row['id']));
+
   String _friendlyDate(DateTime d) {
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const months = [
@@ -302,20 +461,23 @@ class _FixturesScreenState extends State<FixturesScreen> {
 
   Widget _fixtureTile(Map<String, dynamic> f) {
     return UnifiedFixtureCard(
+      key: ValueKey('fixture:${f['id']}'),
       fixture: f,
       myClubName: _myClubName,
       onTap: () async {
         final changed = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
-            builder: (_) => FixtureDetailsPage(fixtureId: f['id'].toString()),
+            builder: (_) =>
+                widget.fixturePageBuilder?.call(f['id'].toString()) ??
+                FixtureDetailsPage(fixtureId: f['id'].toString()),
           ),
         );
 
         if (!context.mounted) return;
 
         if (changed == true) {
-          await _load();
+          await _refreshFixture(f['id'].toString());
         }
       },
     );

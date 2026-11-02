@@ -7,11 +7,13 @@ import 'mailing_list_message_screen.dart';
 class MailingListsScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
+  final bool totalLeisureByDefault;
 
   const MailingListsScreen({
     super.key,
     required this.clubId,
     required this.clubName,
+    this.totalLeisureByDefault = false,
   });
 
   @override
@@ -136,6 +138,7 @@ class _MailingListsScreenState extends State<MailingListsScreen> {
           clubId: widget.clubId,
           mailingListId: listId,
           mailingListName: listName,
+          totalLeisureByDefault: widget.totalLeisureByDefault,
         ),
       ),
     );

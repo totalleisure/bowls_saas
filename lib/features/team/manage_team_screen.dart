@@ -85,15 +85,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
   bool _canForceAccept = false;
   bool _canAddPeople = false;
 
-  bool get effectiveReadOnly => widget.readOnly || !_canEditSelection || _confirmingTeamChanges;
+  bool get _fixtureReadOnly => widget.readOnly || widget.fixture['cancelled_at'] != null;
 
-  bool get _canModifySelection => !widget.readOnly && _canEditSelection && !_confirmingTeamChanges;
-  bool get _canSendReminders => !widget.readOnly && _canEditSelection &&
+  bool get effectiveReadOnly => _fixtureReadOnly || !_canEditSelection || _confirmingTeamChanges;
+
+  bool get _canModifySelection => !_fixtureReadOnly && _canEditSelection && !_confirmingTeamChanges;
+  bool get _canSendReminders => !_fixtureReadOnly && _canEditSelection &&
       _status == 'published' && !_hasStagedChanges && !_confirmingTeamChanges;
   bool _publishing = false;
 
-  bool get _canPublishTeam => !_publishing && !widget.readOnly && _canPublish && !_hasStagedChanges && !_confirmingTeamChanges;
-  bool get _canForceAcceptSelection => !widget.readOnly && _canForceAccept && !_hasStagedChanges && !_confirmingTeamChanges;
+  bool get _canPublishTeam => !_publishing && !_fixtureReadOnly && _canPublish && !_hasStagedChanges && !_confirmingTeamChanges;
+  bool get _canForceAcceptSelection => !_fixtureReadOnly && _canForceAccept && !_hasStagedChanges && !_confirmingTeamChanges;
   bool get _usesPublishedCompositionStaging =>
       _status == 'published' &&
       !_isPreselectFixture &&

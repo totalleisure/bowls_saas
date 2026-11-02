@@ -1,0 +1,41 @@
+do $test$
+declare a record; ordinary uuid; ids uuid[]; c uuid; e uuid; n int; settings jsonb;
+begin
+ select cm.club_id,mp.user_id into strict a from public.club_memberships cm join public.member_profiles mp on mp.id=cm.member_profile_id where cm.role='admin' and cm.is_active and mp.user_id is not null limit 1;
+ select array_agg(x.member_profile_id) into ids from (select member_profile_id from public.club_memberships where club_id=a.club_id and is_active and role::text<>'guest' order by member_profile_id limit 3) x;
+ settings:='{"playing_format":"singles","section":"open","scoring":"First to 21","players_per_entry":1,"booking_minutes":150,"time_limit_mode":"none"}';
+ perform set_config('request.jwt.claim.sub',a.user_id::text,true);
+ c:=public.create_club_competition(a.club_id,'TEST bulk rollback','Test',settings);
+ n:=public.add_competition_singles(c,ids); assert n=3,'Did not add all selected singles';
+ assert (select count(*) from public.competition_entry_members where competition_id=c)=3,'Wrong memberships';
+ n:=public.add_competition_singles(c,ids); assert n=0,'Retry duplicated entries';
+ select id into strict e from public.competition_entries where competition_id=c order by id limit 1;
+ perform public.update_competition_entry_options(e,true);
+ perform public.update_competition_entry_options(e,null,-3,true);
+ assert exists(select 1 from public.competition_entries where id=e and handicap=-3 and payment_status='paid'),'Negative handicap or paid lost';
+ perform public.update_competition_entry_options(e,null,4,true);
+ assert exists(select 1 from public.competition_entries where id=e and handicap=4 and payment_status='paid'),'Positive handicap';
+ perform public.update_competition_entry_options(e,false);
+ assert exists(select 1 from public.competition_entries where id=e and handicap=4 and payment_status='unpaid'),'Paid update changed handicap';
+ perform public.update_competition_entry_options(e,null,null,true);
+ assert (select handicap is null from public.competition_entries where id=e),'Clearing handicap failed';
+ begin perform public.add_competition_singles(c,array[gen_random_uuid()]); raise exception 'Invalid player allowed'; exception when raise_exception then if sqlerrm='Invalid player allowed' then raise; end if; end;
+ select mp.user_id into strict ordinary from public.club_memberships cm join public.member_profiles mp on mp.id=cm.member_profile_id where cm.club_id=a.club_id and cm.is_active and cm.role='member' and mp.user_id is not null and not exists(select 1 from public.app_superusers su where su.user_id=mp.user_id) limit 1;
+ perform set_config('request.jwt.claim.sub',ordinary::text,true);
+ begin perform public.add_competition_singles(c,ids); raise exception 'Member mutation allowed'; exception when insufficient_privilege then null; end;
+ begin perform public.update_competition_entry_options(e,true); raise exception 'Member metadata mutation allowed'; exception when insufficient_privilege then null; end;
+ perform set_config('request.jwt.claim.sub','',true);
+ begin perform public.update_competition_entry_options(e,true); raise exception 'Anonymous mutation allowed'; exception when insufficient_privilege then null; end;
+ perform set_config('request.jwt.claim.sub',a.user_id::text,true);
+ perform public.build_competition_draw(c,array(select id from public.competition_entries where competition_id=c order by id));
+ perform public.update_competition_entry_options(e,true);
+ assert (select payment_status='paid' from public.competition_entries where id=e),'Payment locked after draw';
+ begin perform public.update_competition_entry_options(e,null,2,true); raise exception 'Handicap changed after draw'; exception when raise_exception then if sqlerrm='Handicap changed after draw' then raise; end if; end;
+ begin perform public.add_competition_singles(c,ids); raise exception 'Entries added after draw'; exception when raise_exception then if sqlerrm='Entries added after draw' then raise; end if; end;
+ -- Any invalid member rejects the whole batch, without partial entries.
+ c:=public.create_club_competition(a.club_id,'TEST atomic rollback','Test',settings);
+ begin perform public.add_competition_singles(c,array[ids[1],gen_random_uuid(),ids[2]]); raise exception 'Invalid batch allowed'; exception when raise_exception then if sqlerrm='Invalid batch allowed' then raise; end if; end;
+ assert not exists(select 1 from public.competition_entries where competition_id=c),'Partial batch retained';
+ assert not has_function_privilege('anon','public.add_competition_singles(uuid,uuid[])','execute'),'Anonymous bulk grant';
+end $test$;
+select 'PASS: bulk singles, retry deduplication, atomic failure, signed handicaps, independent paid state, permissions and draw locks' result;

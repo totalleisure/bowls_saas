@@ -151,7 +151,7 @@ void main() {
         role == 'guest' ? findsNothing : findsOneWidget,
       );
       expect(
-        find.text('My fixture bookings'),
+        find.text('My Fixture Bookings and Competitions'),
         role == 'guest' ? findsNothing : findsOneWidget,
       );
       expect(

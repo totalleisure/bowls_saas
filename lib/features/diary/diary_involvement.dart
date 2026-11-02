@@ -57,6 +57,25 @@ class DiaryInvolvementRepository {
   final String clubId;
   final Future<String?> Function()? memberIdLoader;
   DiaryInvolvementRepository(this.client, this.clubId, {this.memberIdLoader});
+  Future<DiaryInvolvement> loadFixture(String fixtureId) async {
+    final member = await _memberId();
+    if (member == null) return const DiaryInvolvement();
+    final rows = await loadDiaryPages(
+      (offset) => client
+          .from('team_selection_members')
+          .select(_personalSelection)
+          .eq('member_profile_id', member)
+          .eq('is_selected', true)
+          .eq('team_selections.status', 'published')
+          .eq('team_selections.fixture.club_id', clubId)
+          .eq('team_selections.fixture.id', fixtureId)
+          .order('id', ascending: true)
+          .range(offset, offset + 499)
+          .count(CountOption.exact),
+    );
+    return DiaryInvolvement.fromRows(member, rows);
+  }
+
   String? _cachedUser;
   String? _cachedMember;
   Future<String?> _memberId() async {

@@ -8,6 +8,7 @@ import '../communications/mailing_lists_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../competitions/screens/competition_type_list_screen.dart';
+import '../competitions/screens/competitions_screen.dart';
 import '../admin/superuser_screen.dart';
 import 'club_access.dart';
 
@@ -145,6 +146,20 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
                   ),
                 );
               },
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.emoji_events_outlined),
+              title: const Text('Competitions'),
+              subtitle: const Text('Seasons, entries, draws and results'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => CompetitionsScreen(
+                  clubId: widget.clubId,
+                  clubName: widget.clubName,
+                ),
+              )),
             ),
           ),
           Card(

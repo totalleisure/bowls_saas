@@ -1,3 +1,8 @@
+import '../competitions/competition_repository.dart';
+import '../competitions/personal_competition_matches.dart';
+import '../competitions/widgets/competition_arrangement_card.dart';
+import '../competitions/screens/competition_arrangement_screen.dart';
+import '../reports/club_usage.dart';
 import '../fixtures/selection_response_stage.dart';
 import '../fixtures/widgets/fixture_response_panel.dart';
 import '../dashboard/dashboard_filter_store.dart';
@@ -40,7 +45,12 @@ class ClubDashboardScreen extends StatefulWidget {
   State<ClubDashboardScreen> createState() => _ClubDashboardScreenState();
 }
 
-class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
+class _ClubDashboardScreenState extends State<ClubDashboardScreen>
+    with ClubScreenTracking<ClubDashboardScreen> {
+  @override
+  String get usageClubId => widget.clubId;
+  @override
+  String get usageScreen => 'Dashboard';
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
   bool _isSelector = false;
@@ -82,6 +92,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
   List<Map<String, dynamic>> _needsAcceptance = [];
   List<Map<String, dynamic>> _pendingReminderFixtures = [];
   List<Map<String, dynamic>> _upcomingAccepted = [];
+  List<PersonalCompetitionMatch> _competitionsToArrange = [];
+  List<CompetitionRow> _arrangedCompetitionFixtures = [];
   List<Map<String, dynamic>> _fixturesManaging = [];
   List<Map<String, dynamic>> _openSessionsAndEvents = [];
 
@@ -340,8 +352,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     return labels;
   }
 
-  Map<String, dynamic>? _physicalVenueForFixture(Map<String, dynamic> fixture) =>
-      VenueActionsService.fixtureVenue(fixture);
+  Map<String, dynamic>? _physicalVenueForFixture(
+    Map<String, dynamic> fixture,
+  ) => VenueActionsService.fixtureVenue(fixture);
 
   bool _fixtureHasCoordinates(Map<String, dynamic> fixture) {
     final venue = _physicalVenueForFixture(fixture);
@@ -815,7 +828,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
             .eq('is_selected', true)
             .eq('team_selections.status', 'published')
             .eq('team_selections.fixture.club_id', widget.clubId)
-            .gte('team_selections.fixture.start_at', DateTime.now().toUtc().toIso8601String()),
+            .gte(
+              'team_selections.fixture.start_at',
+              DateTime.now().toUtc().toIso8601String(),
+            ),
         client
             .from('clubs')
             .select('name, primary_color_hex, secondary_color_hex')
@@ -895,7 +911,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
       // Keep all response states: accepting must not reopen availability.
       final selectedRows = List<Map<String, dynamic>>.from(dashboardRows[2]);
-      final selectedPublishedFixtureIds = publishedSelectionFixtureIds(selectedRows);
+      final selectedPublishedFixtureIds = publishedSelectionFixtureIds(
+        selectedRows,
+      );
       final rawNeeds = selectedRows
           .where((row) => row['acceptance'] == 'pending')
           .toList();
@@ -924,6 +942,20 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       final fixturesRows = dashboardRows[6];
 
       final allFixtures = List<Map<String, dynamic>>.from(fixturesRows);
+      final personalCompetitionMatches = await loadPersonalCompetitionMatches(
+        CompetitionRepository(client),
+        widget.clubId,
+        myId,
+      );
+      final competitionsToArrange = personalCompetitionMatches
+          .where((item) => competitionNeedsArrangement(item.match))
+          .toList();
+      final arrangedCompetitionFixtures = upcomingCompetitionFixturesArrangedBy(
+        personalCompetitionMatches,
+        allFixtures,
+        myId,
+        DateTime.now(),
+      );
 
       debugPrint(
         'DASH sample: ${allFixtures.isNotEmpty ? allFixtures.first : "none"}',
@@ -983,7 +1015,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
         if (!_isEligibleForFixtureSection(f)) return false;
 
-        return matchesDashboardFilter(f, protectedSection: !myAvailabilityByFixtureId.containsKey(f['id']));
+        return matchesDashboardFilter(
+          f,
+          protectedSection: !myAvailabilityByFixtureId.containsKey(f['id']),
+        );
       }).toList();
 
       final canManagePreselect = _isSuperuser || _isClubAdmin || _isSelector;
@@ -1182,6 +1217,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
       if (!mounted) return;
 
       final hasDashboardContent =
+          competitionsToArrange.isNotEmpty ||
+          arrangedCompetitionFixtures.isNotEmpty ||
           needsAcceptance.isNotEmpty ||
           toRsvp.isNotEmpty ||
           awaitingSelection.isNotEmpty ||
@@ -1220,12 +1257,23 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
         _pendingReminderFixtures = [
           for (final row in rawNeeds)
             if ((row['team_selections'] as Map?)?['status'] == 'published' &&
-                ((row['team_selections'] as Map?)?['fixture'] as Map?)?['club_id'] == widget.clubId)
-              {...Map<String, dynamic>.from((row['team_selections'] as Map)['fixture'] as Map),
-                '_reminderAcceptance': 'pending'},
+                ((row['team_selections'] as Map?)?['fixture']
+                        as Map?)?['club_id'] ==
+                    widget.clubId)
+              {
+                ...Map<String, dynamic>.from(
+                  (row['team_selections'] as Map)['fixture'] as Map,
+                ),
+                '_reminderAcceptance': 'pending',
+              },
         ];
         _needsAcceptance = needsAcceptance;
-        _upcomingAccepted = upcomingAccepted;
+        _upcomingAccepted = acceptedFixturesWithoutCompetitionDuplicates(
+          upcomingAccepted,
+          arrangedCompetitionFixtures,
+        );
+        _competitionsToArrange = competitionsToArrange;
+        _arrangedCompetitionFixtures = arrangedCompetitionFixtures;
         _fixturesManaging = fixturesManaging;
 
         _nextMatch = nextMatch;
@@ -1347,8 +1395,8 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
     rsvpCount: _toRsvp.length,
     openFixture: _openFixtureById,
     venueResolver: _physicalVenueForFixture,
-    travelBuilder: (fixture, colour) => _buildFixtureTravelActions(
-      fixture: fixture, foregroundColor: colour),
+    travelBuilder: (fixture, colour) =>
+        _buildFixtureTravelActions(fixture: fixture, foregroundColor: colour),
   ).show();
 
   Widget _buildSectionHeader(String title) {
@@ -1511,22 +1559,22 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
                           ),
                           const SizedBox(height: 8),
                           Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                _buildAvailabilityButton(
-                                  label: 'Available',
-                                  isSelected: myStatus == 'yes',
-                                  selectedColor: Colors.green,
-                                  onTap: onAvailableTap,
-                                ),
-                                _buildAvailabilityButton(
-                                  label: 'Not available',
-                                  isSelected: myStatus == 'no',
-                                  selectedColor: Colors.red,
-                                  onTap: onNotAvailableTap,
-                                ),
-                              ],
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _buildAvailabilityButton(
+                                label: 'Available',
+                                isSelected: myStatus == 'yes',
+                                selectedColor: Colors.green,
+                                onTap: onAvailableTap,
+                              ),
+                              _buildAvailabilityButton(
+                                label: 'Not available',
+                                isSelected: myStatus == 'no',
+                                selectedColor: Colors.red,
+                                onTap: onNotAvailableTap,
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -1640,7 +1688,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
           ),
           if (_canWrite)
             IconButton(
-              tooltip: 'My fixture bookings',
+              tooltip: 'My Fixture Bookings and Competitions',
               icon: const Icon(Icons.event_available),
               onPressed: () async {
                 final changed = await Navigator.of(context).push<bool>(
@@ -1737,6 +1785,51 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
               children: [
                 _buildActiveFilterSummary(),
+                _buildSectionHeader('Competitions to be Arranged'),
+                const SizedBox(height: 6),
+                if (_competitionsToArrange.isEmpty)
+                  _buildEmptyState(
+                    '   No competition matches awaiting arrangement.',
+                  )
+                else
+                  for (final item in _competitionsToArrange)
+                    CompetitionArrangementCard(
+                      data: item.data,
+                      match: item.match,
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => CompetitionArrangementScreen(
+                              data: item.data,
+                              match: item.match,
+                            ),
+                          ),
+                        );
+                        if (mounted) await _load();
+                      },
+                    ),
+                _buildSectionDivider(),
+                _buildSectionHeader(
+                  'Competition Fixtures you have arranged (upcoming)',
+                ),
+                const SizedBox(height: 6),
+                if (_arrangedCompetitionFixtures.isEmpty)
+                  _buildEmptyState(
+                    '   No upcoming competition fixtures arranged by you.',
+                  )
+                else
+                  for (final fixture in _arrangedCompetitionFixtures)
+                    _buildFixtureCard(
+                      fixture: fixture,
+                      title: fixtureTitleUnified(
+                        fixture,
+                        myClubName: _myClubName,
+                      ),
+                      subtitle: fixtureSubtitleUnified(fixture),
+                      actionHint: 'Tap to view details',
+                      onTap: () => _openFixtureById(fixture['id'].toString()),
+                    ),
+                _buildSectionDivider(),
                 _buildSectionHeader('Fixtures needing your Acceptance'),
                 const SizedBox(height: 6),
                 if (_needsAcceptance.isEmpty)
@@ -1851,12 +1944,15 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen> {
 
                     return UnifiedFixtureCard(
                       key: ValueKey('dashboard-rsvp-$fixtureId'),
-                      fixture: f, myClubName: _myClubName,
+                      fixture: f,
+                      myClubName: _myClubName,
                       onTap: () => _openFixtureById(fixtureId),
                       responseBuilder: (foreground) => FixtureResponsePanel(
-                        embedded: true, foregroundColor: foreground,
+                        embedded: true,
+                        foregroundColor: foreground,
                         status: myStatus,
-                        onResponse: (status) => _setTeamAvailability(fixtureId, status),
+                        onResponse: (status) =>
+                            _setTeamAvailability(fixtureId, status),
                       ),
                     );
                   }),

@@ -1,3 +1,4 @@
+import '../reports/club_usage.dart';
 import '../fixtures/next_fixture_reminder_button.dart';
 import 'diary_involvement.dart';
 import '../communications/club_options_button.dart';
@@ -31,6 +32,9 @@ class DiaryListScreen extends StatefulWidget {
   final Future<Map<String, dynamic>?> Function()? nextMatchLoader;
   final String? userId;
   final DateTime Function()? now;
+  final Future<Map<String, dynamic>?> Function(String)? fixtureLoader;
+  final Future<DiaryInvolvement> Function(String)? fixtureInvolvementLoader;
+  final Widget Function(String)? fixturePageBuilder;
   const DiaryListScreen({
     super.key,
     required this.clubId,
@@ -44,12 +48,20 @@ class DiaryListScreen extends StatefulWidget {
     this.involvementLoader,
     this.nextMatchLoader,
     this.now,
+    this.fixtureLoader,
+    this.fixtureInvolvementLoader,
+    this.fixturePageBuilder,
   });
   @override
   State<DiaryListScreen> createState() => _DiaryListScreenState();
 }
 
-class _DiaryListScreenState extends State<DiaryListScreen> {
+class _DiaryListScreenState extends State<DiaryListScreen>
+    with ClubScreenTracking<DiaryListScreen> {
+  @override
+  String get usageClubId => widget.clubId;
+  @override
+  String get usageScreen => 'List View';
   bool _shownEntryReminder = false;
   final _scroll = ScrollController();
   final _search = TextEditingController();
@@ -403,12 +415,97 @@ class _DiaryListScreenState extends State<DiaryListScreen> {
       );
       return;
     }
+    final id = row['id'] as String;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => FixtureDetailsPage(fixtureId: row['id'] as String),
+        builder: (_) =>
+            widget.fixturePageBuilder?.call(id) ??
+            FixtureDetailsPage(fixtureId: id),
       ),
     );
-    if (mounted) await _reload();
+    if (mounted) await _refreshFixture(id);
+  }
+
+  Future<void> _refreshFixture(String id) async {
+    try {
+      final fresh =
+          await (widget.fixtureLoader?.call(id) ?? _repository.loadFixture(id));
+      if (!mounted) return;
+      Map<String, dynamic>? updated;
+      if (fresh != null) {
+        final start = parseClubTime(fresh['start_at'] as String);
+        if (!start.isBefore(_from) && start.isBefore(_until)) {
+          List<String> badges;
+          try {
+            final personal =
+                await (widget.fixtureInvolvementLoader?.call(id) ??
+                    (widget.entriesLoader != null
+                        ? Future.value(const DiaryInvolvement())
+                        : _personal.loadFixture(id)));
+            badges = personal.badgesFor(fresh);
+          } catch (_) {
+            badges = fresh['cancelled_at'] != null
+                ? []
+                : List<String>.from(
+                    _entries
+                            .where(
+                              (e) => e['_maintenance'] != true && e['id'] == id,
+                            )
+                            .firstOrNull?['_involvement'] ??
+                        [],
+                  );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Personal markers for this fixture could not be refreshed. Use Refresh to try again.',
+                  ),
+                ),
+              );
+            }
+          }
+          updated = {...fresh, '_involvement': badges};
+        }
+      }
+      if (!mounted) return;
+      final index = _entries.indexWhere(
+        (e) => e['_maintenance'] != true && e['id'] == id,
+      );
+      if (index < 0) return;
+      if (jsonEncode(_entries[index]) == jsonEncode(updated)) return;
+      final offset = _scroll.hasClients ? _scroll.offset : null;
+      setState(() {
+        if (updated == null) {
+          _entries.removeAt(index);
+        } else {
+          _entries[index] = updated;
+        }
+      });
+      // Keep the live list/controller mounted, including when the item was
+      // deleted, moved, cancelled, or no longer matches the current filters.
+      if (offset != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scroll.hasClients) {
+            _scroll.jumpTo(
+              offset.clamp(
+                _scroll.position.minScrollExtent,
+                _scroll.position.maxScrollExtent,
+              ),
+            );
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This fixture could not be refreshed. Your list position has been kept. Use Refresh to try again.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   List<Widget> _datedCards(List<Map<String, dynamic>> rows) {
@@ -432,6 +529,9 @@ class _DiaryListScreenState extends State<DiaryListScreen> {
       }
       children.add(
         DiaryEntryCard(
+          key: ValueKey(
+            '${row['_maintenance'] == true ? 'maintenance' : 'fixture'}:${row['id']}',
+          ),
           entry: row,
           clubName: widget.clubName,
           onTap: () => _open(row),
@@ -476,9 +576,11 @@ class _DiaryListScreenState extends State<DiaryListScreen> {
             icon: const Icon(Icons.refresh),
           ),
           NextFixtureReminderButton(
-            clubId: widget.clubId, clubName: widget.clubName,
+            clubId: widget.clubId,
+            clubName: widget.clubName,
             showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
-            onAutomaticOpen: () => _shownEntryReminder = true),
+            onAutomaticOpen: () => _shownEntryReminder = true,
+          ),
           ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
         ],
         bottom: DiaryViewBar(
@@ -785,15 +887,19 @@ class DiaryEntryCard extends StatelessWidget {
       if (maintenance && end != null)
         'Until ${DateFormat('d MMM, HH:mm').format(end)}',
     ];
-    final foreground = isCancelled ? Colors.grey.shade800 : _colour(
-      scheme['foreground_hex'],
-      Theme.of(context).colorScheme.onSurface,
-    );
+    final foreground = isCancelled
+        ? Colors.grey.shade800
+        : _colour(
+            scheme['foreground_hex'],
+            Theme.of(context).colorScheme.onSurface,
+          );
     return Card(
-      color: isCancelled ? Colors.grey.shade300 : _colour(
-        scheme['background_hex'],
-        Theme.of(context).colorScheme.surfaceContainerLow,
-      ),
+      color: isCancelled
+          ? Colors.grey.shade300
+          : _colour(
+              scheme['background_hex'],
+              Theme.of(context).colorScheme.surfaceContainerLow,
+            ),
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: InkWell(
         onTap: onTap,
