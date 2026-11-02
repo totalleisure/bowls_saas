@@ -1,6 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { assembleCompetitionEmail, competitionPublicationHtml, requireCompetitionRecipients, requireCompetitionTestRecipients, COMPETITION_TEST_RECIPIENTS } from "../_shared/competition_publication_email.mjs";
-import { dispatchCompetitionPublication } from "../_shared/competition_publication_dispatch.mjs";
 const headers={"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"POST, OPTIONS"};
 const reply=(status:number,body:unknown)=>new Response(JSON.stringify(body),{status,headers});
 const check=(r:any)=>{if(r.error)throw new Error(r.error.message);return r.data;};
@@ -26,24 +25,11 @@ Deno.serve(async(req)=>{
    if(!body.competitionId)return reply(400,{error:'Select a competition'});
    check(await db.from('club_competitions').select('id').eq('id',body.competitionId).eq('club_id',clubId).single());
    if(body.action==='publish')check(await db.rpc('prepare_competition_publication',{p_competition_id:body.competitionId,p_actor_user_id:actor}));
-   let summary=check(await db.rpc('competition_publication_summary',{p_competition_id:body.competitionId,p_actor_user_id:actor}));
-   let outcomes:any[]=[];
-   if(body.action!=='publication_status'&&summary.event_id) {
-    const event=check(await db.from('competition_publication_events').select('snapshot').eq('id',summary.event_id).single());
-    const deliveries=check(await db.rpc('claim_competition_publication_deliveries',{p_event_id:summary.event_id,p_actor_user_id:actor}));
-    outcomes=await dispatchCompetitionPublication({projectRef:ref,snapshot:event.snapshot,deliveries,
-     saveMessage:async(delivery:any,message:any)=>check(await db.from('competition_publication_deliveries').update({subject:message.subject,html:message.html}).eq('id',delivery.id).eq('status','claimed')),
-     send:async(recipient:string,message:any)=>{
-      requireCompetitionRecipients(ref,[recipient]);
-      const response=await fetch(url+'/functions/v1/send-graph-email',{method:'POST',headers:{Authorization:'Bearer '+Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),'Content-Type':'application/json'},body:JSON.stringify({to:[recipient],subject:(ref==='egxdkaotepgfjmszxlyn'?'[STAGING TEST] ':'')+message.subject,html:message.html})});
-      if(!response.ok)throw new Error('Email transport did not confirm delivery');
-     },
-     finish:async(delivery:any,status:string)=>check(await db.from('competition_publication_deliveries').update({status,sent_at:status==='sent'?new Date().toISOString():null}).eq('id',delivery.id).eq('status','claimed')),
-    });
-    summary=check(await db.rpc('competition_publication_summary',{p_competition_id:body.competitionId,p_actor_user_id:actor}));
-   }
-   return reply(200,{...summary,outcomes,stagingOnly:ref==='egxdkaotepgfjmszxlyn'});
+   const summary=check(await db.rpc('competition_publication_summary',{p_competition_id:body.competitionId,p_actor_user_id:actor}));
+   // Transport is performed by the scheduled worker in a shared, bounded batch.
+   return reply(200,{...summary,outcomes:[],stagingOnly:ref==='egxdkaotepgfjmszxlyn'});
   }
+
   if(body.action==='send_test') {
    const recipients=requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',body.recipients);
    const preview=check(await db.from('competition_publication_previews').select('*').eq('id',body.previewId).eq('club_id',clubId).eq('actor_user_id',actor).single());

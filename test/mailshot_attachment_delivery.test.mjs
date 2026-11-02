@@ -7,6 +7,7 @@ const files = [
 ];
 let sent;
 const fakeFetch = async (url, options) => {
+  if (url.includes('/reserve_outbound_mail_slot')) return Response.json({allowed:true});
   if (url.includes('oauth2')) return Response.json({ access_token: 'test-token' });
   assert.ok(url.includes('/sendMail'));
   sent = JSON.parse(options.body);

@@ -299,6 +299,12 @@ serve(async (req) => {
         }
 
         if (!sendRes.ok) {
+          if (sendRes.status === 429) {
+            await supabase.from("email_queue").update({
+              status: "pending", last_error: "Deferred: 20-per-minute mail limit reached",
+            }).eq("id", email.id);
+            break;
+          }
           throw new Error(
             String(sendData?.error ?? "Unknown send-graph-email error"),
           );

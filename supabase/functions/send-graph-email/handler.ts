@@ -36,6 +36,18 @@ export async function handleRequest(req: Request, env: (name: string) => string 
       return json(500, { error: "Missing Microsoft Graph environment variables" });
     }
 
+    // All callers share one rolling 20-per-minute budget, including competition mail.
+    const supabaseUrl = env("SUPABASE_URL");
+    if (!supabaseUrl) return json(500, { error: "Missing server configuration" });
+    const slotRes = await fetch(`${supabaseUrl}/rest/v1/rpc/reserve_outbound_mail_slot`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const slot = await slotRes.json();
+    if (!slotRes.ok) return json(503, { error: "Mail rate limiter unavailable" });
+    if (!slot.allowed) return json(429, { error: "Mail rate limit reached; queued for later", retry_after_seconds: slot.retry_after_seconds ?? 60 });
+
     const tokenRes = await fetch(
       `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
       {
