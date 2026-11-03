@@ -1,3 +1,4 @@
+import '../scorecards/scorecard_recovery_host.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -355,6 +356,11 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
       appBar: AppBar(
         title: const Text('My clubs'),
         actions: [
+          IconButton(
+            tooltip: 'Offline scorecards',
+            icon: const Icon(Icons.scoreboard_outlined),
+            onPressed: () => openOfflineScorecards(context),
+          ),
           IconButton(
             tooltip: 'Refresh clubs',
             onPressed: _loading ? null : _load,

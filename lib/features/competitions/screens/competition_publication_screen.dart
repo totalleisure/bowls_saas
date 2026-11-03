@@ -23,6 +23,7 @@ class _CompetitionPublicationScreenState
     extends State<CompetitionPublicationScreen> {
   Map<String, dynamic>? preview;
   String? error, recipient, memberId, status;
+  bool noEntries = false;
   bool busy = false;
   @override
   void initState() {
@@ -52,6 +53,7 @@ class _CompetitionPublicationScreenState
       busy = true;
       preview = null;
       error = null;
+      noEntries = false;
       status = null;
       memberId = id;
     });
@@ -60,11 +62,23 @@ class _CompetitionPublicationScreenState
       if (mounted) {
         setState(() {
           preview = data;
-          recipient = (data['testRecipients'] as List).first.toString();
+          final recipients = data['testRecipients'] as List? ?? [];
+          recipient = recipients.isEmpty ? null : recipients.first.toString();
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = e.toString());
+      final details = e is FunctionException ? e.details : null;
+      final message = details is Map
+          ? '${details['error'] ?? ''}'
+          : e.toString();
+      if (mounted) {
+        setState(() {
+          noEntries = message.toLowerCase().contains('no competition entries');
+          error = noEntries
+              ? null
+              : 'Unable to load the email preview. Please try again or choose another player.';
+        });
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -88,7 +102,7 @@ class _CompetitionPublicationScreenState
     final yes = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Send staging test email?'),
+        title: const Text('Send test email?'),
         content: Text(
           'Send this player’s preview only to $recipient. No emails or notifications will be sent to the competition players.',
         ),
@@ -177,6 +191,15 @@ class _CompetitionPublicationScreenState
             ],
           ),
           if (busy) const LinearProgressIndicator(),
+          if (noEntries)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'This member has no entries in this competition, so there is no player email to preview. Choose another player. No email has been sent.',
+                ),
+              ),
+            ),
           if (error != null)
             Padding(
               padding: const EdgeInsets.all(12),

@@ -94,11 +94,12 @@ class _CompetitionPublishScreenState extends State<CompetitionPublishScreen> {
       final value = await request('publish');
       if (mounted) setState(() => status = value);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => error =
               'The request did not complete: $e. Check publication and delivery status before retrying.',
         );
+      }
       try {
         final value = await request('publication_status');
         if (mounted) setState(() => status = value);
@@ -126,106 +127,141 @@ class _CompetitionPublishScreenState extends State<CompetitionPublishScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+      body: Column(
         children: [
-          Card(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                staging
-                    ? 'STAGING: publication emails are limited to approved test addresses belonging to players entered in this competition. All other recipients are skipped.'
-                    : 'PRODUCTION: publishing sends real emails to eligible players entered in this competition. Check the draw and recipient totals before confirming.',
-              ),
-            ),
-          ),
-          if (busy) const LinearProgressIndicator(),
-          if (error != null)
-            SelectableText(
-              error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          if (data != null) ...[
-            Text(
-              '${data['competitionName']}',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            ListTile(
-              title: const Text('Competition status'),
-              subtitle: Text(
-                published ? 'Published' : 'Draft — organisers only',
-              ),
-              leading: Icon(
-                published ? Icons.check_circle : Icons.edit_outlined,
-              ),
-            ),
-            ListTile(
-              title: const Text('Players entered'),
-              trailing: Text('${data['total_players']}'),
-            ),
-            ListTile(
-              title: Text(
-                staging
-                    ? 'Eligible test addresses'
-                    : 'Eligible player email addresses',
-              ),
-              trailing: Text('${data['eligible_count']}'),
-            ),
-            ListTile(
-              title: const Text(
-                'Skipped: other addresses / inactive / duplicates',
-              ),
-              trailing: Text('${data['restricted_count']}'),
-            ),
-            ListTile(
-              title: const Text('Skipped: no email address'),
-              trailing: Text('${data['missing_email_count']}'),
-            ),
-            const Divider(),
-            Text(
-              'Publication email delivery',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            Text(
-              'Sent: ${data['sent']} · Pending: ${data['pending']} · Unconfirmed: ${(data['claimed'] as num? ?? 0) + (data['uncertain'] as num? ?? 0)}',
-            ),
-            if (prepared && (data['eligible_count'] as num? ?? 0) == 0)
-              const Text(
-                '0 emails sent: no entrants have an eligible approved test address.',
-              ),
-            if ((data['claimed'] as num? ?? 0) +
-                    (data['uncertain'] as num? ?? 0) >
-                0)
-              const Text(
-                'Some deliveries could not be confirmed. Check the test mailboxes. These deliveries will not be retried automatically.',
-              ),
-            for (final row in data['recipients'] as List? ?? [])
-              ListTile(
-                title: Text('${row['recipient']}'),
-                trailing: Text('${row['status']}'),
-              ),
-            const SizedBox(height: 16),
-            if (!prepared || pending > 0)
-              FilledButton.icon(
-                onPressed: busy ? null : publish,
-                icon: const Icon(Icons.publish),
-                label: Text(
-                  !published
-                      ? 'Publish competition and send emails'
-                      : prepared
-                      ? 'Send pending publication emails'
-                      : 'Send publication emails',
+          if (data != null)
+            Card(
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!prepared)
+                      FilledButton.icon(
+                        onPressed: busy ? null : publish,
+                        icon: const Icon(Icons.publish),
+                        label: Text(
+                          published
+                              ? 'Send publication emails'
+                              : 'Publish competition and send emails',
+                        ),
+                      )
+                    else ...[
+                      Text(
+                        'Sent: ${data['sent']} · Pending: $pending',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        pending > 0
+                            ? 'Emails are sending automatically in batches of up to 20. You can leave this screen. Refresh to check progress; there is no need to send again.'
+                            : 'No publication emails are waiting to be sent.',
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: busy ? null : refresh,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Refresh delivery status'),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            if (prepared &&
-                pending == 0 &&
-                (data['claimed'] as num? ?? 0) +
-                        (data['uncertain'] as num? ?? 0) ==
-                    0)
-              const Text(
-                'Publication processing complete. Previously sent publication emails will not be sent again.',
-              ),
-          ],
+            ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      staging
+                          ? 'STAGING: publication emails are limited to approved test addresses belonging to players entered in this competition. All other recipients are skipped.'
+                          : 'PRODUCTION: publishing sends real emails to eligible players entered in this competition. Check the draw and recipient totals before confirming.',
+                    ),
+                  ),
+                ),
+                if (busy) const LinearProgressIndicator(),
+                if (error != null)
+                  SelectableText(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                if (data != null) ...[
+                  Text(
+                    '${data['competitionName']}',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  ListTile(
+                    title: const Text('Competition status'),
+                    subtitle: Text(
+                      published ? 'Published' : 'Draft — organisers only',
+                    ),
+                    leading: Icon(
+                      published ? Icons.check_circle : Icons.edit_outlined,
+                    ),
+                  ),
+                  ListTile(
+                    title: const Text('Players entered'),
+                    trailing: Text('${data['total_players']}'),
+                  ),
+                  ListTile(
+                    title: Text(
+                      staging
+                          ? 'Eligible test addresses'
+                          : 'Eligible player email addresses',
+                    ),
+                    trailing: Text('${data['eligible_count']}'),
+                  ),
+                  ListTile(
+                    title: const Text(
+                      'Skipped: other addresses / inactive / duplicates',
+                    ),
+                    trailing: Text('${data['restricted_count']}'),
+                  ),
+                  ListTile(
+                    title: const Text('Skipped: no email address'),
+                    trailing: Text('${data['missing_email_count']}'),
+                  ),
+                  const Divider(),
+                  Text(
+                    'Publication email delivery',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  Text(
+                    'Unconfirmed deliveries: ${(data['claimed'] as num? ?? 0) + (data['uncertain'] as num? ?? 0)}',
+                  ),
+                  if (prepared && (data['eligible_count'] as num? ?? 0) == 0)
+                    const Text(
+                      '0 emails sent: no entrants have an eligible email address for this environment.',
+                    ),
+                  if ((data['claimed'] as num? ?? 0) +
+                          (data['uncertain'] as num? ?? 0) >
+                      0)
+                    const Text(
+                      'Some deliveries could not be confirmed. Check the test mailboxes. These deliveries will not be retried automatically.',
+                    ),
+                  for (final row in data['recipients'] as List? ?? [])
+                    ListTile(
+                      title: Text('${row['recipient']}'),
+                      trailing: Text('${row['status']}'),
+                    ),
+                  const SizedBox(height: 16),
+                  if (prepared &&
+                      pending == 0 &&
+                      (data['claimed'] as num? ?? 0) +
+                              (data['uncertain'] as num? ?? 0) ==
+                          0)
+                    const Text(
+                      'Publication processing complete. Previously sent publication emails will not be sent again.',
+                    ),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
     );

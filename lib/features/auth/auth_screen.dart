@@ -1,3 +1,4 @@
+import '../scorecards/scorecard_recovery_host.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -728,6 +729,13 @@ class _AuthScreenState extends State<AuthScreen> {
     final buttonHeight = isDesktop ? 56.0 : 52.0;
 
     return Scaffold(
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'offline-scorecards',
+        onPressed: () => openOfflineScorecards(context),
+        icon: const Icon(Icons.scoreboard_outlined),
+        label: const Text('Offline scorecards'),
+      ),
       body: Stack(
         children: [
           Positioned.fill(

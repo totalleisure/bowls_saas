@@ -682,6 +682,24 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
           backgroundColor: palette.background,
           foregroundColor: palette.foreground,
           actions: [
+            if (widget.canManage && publicationEnabled)
+              PopupMenuButton<String>(
+                tooltip: 'Competition admin tools',
+                onSelected: (_) => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CompetitionPublicationScreen(
+                      clubId: widget.clubId,
+                      competitionId: widget.competitionId,
+                    ),
+                  ),
+                ),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'test-email',
+                    child: Text('Test tools: preview player email'),
+                  ),
+                ],
+              ),
             if (widget.canManage && d.rounds.isNotEmpty)
               IconButton(
                 tooltip: 'Print competition bracket',
@@ -893,22 +911,6 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                                 ? 'Publication emails / status'
                                 : 'Publish competition',
                           ),
-                        ),
-                      if (widget.canManage && publicationEnabled)
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.mark_email_read_outlined),
-                          label: const Text('Preview player email (test only)'),
-                          onPressed: busy
-                              ? null
-                              : () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        CompetitionPublicationScreen(
-                                          clubId: widget.clubId,
-                                          competitionId: widget.competitionId,
-                                        ),
-                                  ),
-                                ),
                         ),
                       for (final r in d.orderedRounds) ...[
                         ListTile(

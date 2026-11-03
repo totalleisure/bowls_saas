@@ -125,4 +125,37 @@ void main() {
       expect(find.byType(FilledButton), findsNothing);
     },
   );
+  testWidgets(
+    'Pending delivery controls stay visible above a long list and refresh never republishes',
+    (t) async {
+      final calls = <String>[];
+      await open(t, (body) async {
+        calls.add(body['action'] as String);
+        return {
+          ...summary(published: true, prepared: true, pending: 40),
+          'recipients': List.generate(
+            100,
+            (i) => {'recipient': 'player$i@example.org', 'status': 'pending'},
+          ),
+        };
+      });
+      expect(find.text('Send pending publication emails'), findsNothing);
+      expect(
+        find.textContaining('Emails are sending automatically'),
+        findsOneWidget,
+      );
+      final refresh = find.widgetWithText(
+        OutlinedButton,
+        'Refresh delivery status',
+      );
+      expect(refresh.hitTestable(), findsOneWidget);
+      await t.drag(find.byType(ListView), const Offset(0, -2000));
+      await t.pumpAndSettle();
+      expect(refresh.hitTestable(), findsOneWidget);
+      await t.tap(refresh);
+      await t.pumpAndSettle();
+      expect(calls, ['publication_status', 'publication_status']);
+      expect(t.takeException(), isNull);
+    },
+  );
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:bowls_saas/features/competitions/screens/competition_publication_screen.dart';
 
 void main() {
@@ -56,7 +57,11 @@ void main() {
     expect(calls.single['action'], 'preview');
     expect(find.text('Email for Wayne Sayers'), findsOneWidget);
     expect(find.text('Opponent: Opponent'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Your team contact details'), 200, scrollable: find.byType(Scrollable).first);
+    await tester.scrollUntilVisible(
+      find.text('Your team contact details'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     expect(find.text('Your team contact details'), findsOneWidget);
     expect(find.text('My Partner'), findsOneWidget);
@@ -74,7 +79,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(button);
     await tester.pumpAndSettle();
-    expect(find.text('Send staging test email?'), findsOneWidget);
+    expect(find.text('Send test email?'), findsOneWidget);
     expect(calls.length, 1);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
@@ -92,4 +97,30 @@ void main() {
       findsOneWidget,
     );
   });
+  testWidgets(
+    'No-entry function exception is a helpful empty state, not a raw error',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CompetitionPublicationScreen(
+            clubId: 'club',
+            competitionId: 'competition',
+            request: (_) async => throw FunctionException(
+              status: 400,
+              details: {'error': 'This member has no competition entries'},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('This member has no entries in this competition'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('FunctionException'), findsNothing);
+      expect(find.text('Send test copy'), findsNothing);
+      expect(find.text('Choose player'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

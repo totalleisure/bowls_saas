@@ -1,3 +1,4 @@
+import '../scorecards/scorecard_recovery_host.dart';
 import '../reports/club_usage.dart';
 import 'dart:async';
 
@@ -396,6 +397,11 @@ class _AccessMessagePage extends StatelessWidget {
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Try again'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => openOfflineScorecards(context),
+                icon: const Icon(Icons.scoreboard_outlined),
+                label: const Text('Open offline scorecards'),
               ),
               TextButton(onPressed: onSignOut, child: const Text('Sign out')),
             ],

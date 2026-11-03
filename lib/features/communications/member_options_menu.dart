@@ -1,3 +1,5 @@
+import '../scorecards/scorecard_recovery_host.dart';
+import '../scorecards/scorecard_screen.dart';
 import 'package:flutter/material.dart';
 import '../auth/account_security_screen.dart';
 import '../clubs/club_start_screen.dart';
@@ -13,6 +15,7 @@ enum MemberOptionsAction {
   month,
   list,
   competitions,
+  scorecards,
   startingScreen,
   welcome,
   membershipDetails,
@@ -47,6 +50,7 @@ Future<void> showMemberOptionsMenu({
         MemberOptionsAction.month => Colors.teal,
         MemberOptionsAction.list => Colors.blue,
         MemberOptionsAction.competitions => Colors.amber,
+        MemberOptionsAction.scorecards => Colors.indigo,
         MemberOptionsAction.startingScreen => Colors.deepPurple,
         MemberOptionsAction.welcome => Colors.green,
         MemberOptionsAction.membershipDetails => Colors.cyan,
@@ -187,6 +191,11 @@ Future<void> showMemberOptionsMenu({
                 Icons.notifications_outlined,
                 'Notifications',
               ),
+              item(
+                MemberOptionsAction.scorecards,
+                Icons.scoreboard_outlined,
+                'Electronic Scorecards (offline)',
+              ),
               item(MemberOptionsAction.guide, Icons.help_outline, 'User Guide'),
               if (allowAdmin)
                 item(
@@ -201,6 +210,10 @@ Future<void> showMemberOptionsMenu({
     },
   );
   if (!context.mounted || action == null) return;
+  if (action == MemberOptionsAction.scorecards) {
+    openOfflineScorecards(context);
+    return;
+  }
   if (action == MemberOptionsAction.welcome) {
     await showClubWelcome(context, clubId, clubName, userId: userId);
     return;
@@ -234,6 +247,7 @@ Future<void> showMemberOptionsMenu({
       clubId: clubId,
       clubName: clubName,
     ),
+    MemberOptionsAction.scorecards => const ScorecardsScreen(),
     MemberOptionsAction.accountSecurity => const AccountSecurityScreen(),
     MemberOptionsAction.volunteerLists => MemberMailingListsScreen(
       clubId: clubId,
