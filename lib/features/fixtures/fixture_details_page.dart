@@ -1,3 +1,6 @@
+import 'widgets/fixture_time_picker.dart';
+import '../competitions/widgets/competition_deadline_warning.dart';
+import '../scorecards/fixture_scorecard_screen.dart';
 import 'widgets/preselect_leave_guard.dart';
 import '../competitions/screens/competition_fixture_management_screen.dart';
 import 'widgets/fixture_information_dialog.dart';
@@ -53,6 +56,9 @@ String _formatLocalDisplay(DateTime dt) {
 
 enum _CancelFixtureChoice { cancel, reschedule }
 
+// Cancellation and rescheduling are currently unavailable in the app.
+const _showFixtureCancellationOptions = false;
+
 class FixtureDetailsPage extends StatefulWidget {
   final String fixtureId;
   const FixtureDetailsPage({super.key, required this.fixtureId});
@@ -86,6 +92,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _canAssignCaptaincy = false;
   bool _canManageTeam = false;
   bool _canManageCompetitionBooking = false;
+  String? _competitionPlayBy;
   bool _canViewTeam = false;
 
   bool _loading = true;
@@ -241,6 +248,33 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _selectedCompetitionIsInternal =>
       _selectedCompetitionType?['is_internal'] == true;
 
+  bool get _canRescheduleMemberBooking =>
+      _selectedCompetitionIsInternal &&
+      _selectedCompetitionType?['bookable_by_members'] == true &&
+      _selectedCompetitionType?['uses_rinks'] != false &&
+      _selectedCompetitionSelectionMode == 'preselect' &&
+      !_isCancelledFixture &&
+      (_canManageCompetitionBooking || _canEditFixtureOperationalDetails);
+
+  Future<void> _rescheduleMemberBooking() async {
+    if (!_canRescheduleMemberBooking) return;
+    if (_canManageCompetitionBooking) {
+      final changed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => CompetitionFixtureManagementScreen(
+            fixtureId: widget.fixtureId,
+          ),
+        ),
+      );
+      if (!mounted) return;
+      if (changed == true) _didChangeFixture = true;
+      await _refreshDetails();
+    } else {
+      // Move the same booking, without creating a cancelled predecessor.
+      await _editStartTime();
+    }
+  }
+
   /// WORKFLOW (this replaces the old logic)
   bool get _usesSimpleBookingWorkflow =>
       _selectedCompetitionIsInternal &&
@@ -296,6 +330,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _canViewMemberPreselectFixture {
+    // Club members can follow every fixture; assignment grants no extra viewing
+    // rights here. Editing remains guarded separately below.
+    if (_usesSimpleBookingWorkflow && _canViewTeam) return true;
     if (!_usesSimpleBookingWorkflow) return false;
 
     if (_canMaintainMemberPreselectFixture ||
@@ -505,6 +542,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _saveFixtureDetails({bool includeDressCode = false}) async {
     if (_savingTeam || !_canEditFixtureLabel) return;
+    var persistedLabel = _teamNameCtrl.text.trim();
 
     setState(() => _savingTeam = true);
 
@@ -519,6 +557,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           orElse: () => <String, dynamic>{},
         );
         final selectedTeamName = (selectedTeam['name'] ?? '').toString().trim();
+        persistedLabel = selectedTeamName;
 
         await _fixturesRepository.updateFixtureTeam(
           fixtureId: widget.fixtureId,
@@ -526,29 +565,24 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           teamName: selectedTeamName.isEmpty ? null : selectedTeamName,
         );
       } else {
-        final label = _teamNameCtrl.text.trim();
-        if (includeDressCode) {
-          await _client
-              .from('fixtures')
-              .update({
-                'team_name': label.isEmpty ? null : label,
-                'dress_code': _dressCodeValue(_dressCode),
-              })
-              .eq('id', widget.fixtureId);
-        } else {
-          await _fixturesRepository.updateFixtureTeam(
-            fixtureId: widget.fixtureId,
-            teamId: null,
-            teamName: label.isEmpty ? null : label,
-          );
+        final label = persistedLabel;
+        final saved = Map<String,dynamic>.from(await _client.rpc('save_fixture_label_safe', params: {
+          'p_fixture_id': widget.fixtureId,
+          'p_label': label,
+          'p_expected_label': _savedFixtureLabel,
+          'p_dress_code': includeDressCode ? _dressCodeValue(_dressCode) : null,
+        }) as Map);
+        if (saved['id'] != widget.fixtureId || (saved['team_name'] ?? '') != label) {
+          throw StateError('The fixture label was not saved. Please try again.');
         }
+
       }
 
       if (!mounted) return;
       setState(() {
         _didChangeFixture = true;
         _savedTeamId = _selectedTeamId;
-        _savedFixtureLabel = _teamNameCtrl.text.trim();
+        _savedFixtureLabel = persistedLabel;
         _fixture?['team_id'] = _selectedTeamId;
         _fixture?['team_name'] = _savedFixtureLabel;
         if (includeDressCode) {
@@ -569,7 +603,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canCancelFixture {
     final isCancelled = _fixture?['cancelled_at'] != null;
 
-    return _canWrite &&
+    return _showFixtureCancellationOptions && _canWrite &&
         !isCancelled &&
         (_canEditAdminFixtureDetails ||
             _ownsFixture ||
@@ -585,7 +619,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final isCancelled = _fixture?['cancelled_at'] != null;
     final replacementId = _fixture?['rescheduled_to_fixture_id']?.toString();
 
-    return _canWrite &&
+    return _showFixtureCancellationOptions && _canWrite &&
         isCancelled &&
         (replacementId == null || replacementId.isEmpty) &&
         (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper || _ownsFixture);
@@ -2169,6 +2203,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _refreshFixtureRecord() async {
+    final pendingLabel = _fixture != null &&
+        _teamNameCtrl.text.trim() != _savedFixtureLabel
+        ? _teamNameCtrl.text : null;
     final f = await _client
         .from('fixtures')
         .select(
@@ -2251,10 +2288,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     setState(() {
       _fixture = Map<String, dynamic>.from(f);
-      _teamNameCtrl.text = (_fixture?['team_name'] ?? '').toString();
+      final savedLabel = (_fixture?['team_name'] ?? '').toString();
+      _teamNameCtrl.text = pendingLabel ?? savedLabel;
       _dressCode = _normaliseDressCode(_fixture?['dress_code']);
       _selectedTeamId = _fixture?['team_id']?.toString();
-      _savedFixtureLabel = _teamNameCtrl.text.trim();
+      _savedFixtureLabel = savedLabel.trim();
       _savedDressCode = _dressCode;
       _savedTeamId = _selectedTeamId;
 
@@ -2436,29 +2474,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final currentLocal = parseClubTime(currentStartAtStr);
 
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: currentLocal,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2035),
-    );
-
-    if (pickedDate == null || !mounted) return;
-
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(currentLocal),
-    );
-
-    if (pickedTime == null || !mounted) return;
-
-    final newLocal = DateTime(
-      pickedDate.year,
-      pickedDate.month,
-      pickedDate.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    );
+    final window = await pickFixtureStart(context, start: currentLocal, end: _endAtLocal);
+    if (window == null || !mounted) return;
+    final newLocal = window.start;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -2486,13 +2504,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     });
 
     try {
-      await _changeFixtureTime(
-        newLocal,
-        newLocal.add(
-          (_endAtLocal ?? currentLocal.add(const Duration(hours: 2)))
-              .difference(currentLocal),
-        ),
-      );
+      await _changeFixtureTime(newLocal, window.end);
 
       _didChangeFixture = true;
 
@@ -2529,6 +2541,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       _canAssignCaptaincy = false;
       _canManageTeam = false;
       _canManageCompetitionBooking = false;
+      _competitionPlayBy = null;
       _canViewTeam = false;
     }
 
@@ -2544,8 +2557,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       final access = await loadClubAccess(clubId: clubId, client: _client);
 
       var canManageCompetition = false;
+      String? competitionPlayBy;
       try {
         final competitionAccess = Map<String,dynamic>.from(await _client.rpc('competition_fixture_access', params: {'p_fixture_id': widget.fixtureId}) as Map);
+        competitionPlayBy = competitionAccess['play_by']?.toString();
         canManageCompetition = access.canWrite && !_isCancelledFixture && competitionAccess['can_manage'] == true;
       } catch (e) {
         debugPrint('Competition booking permissions unavailable: $e');
@@ -2619,6 +2634,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         _canAssignCaptaincy = canAssignCaptaincy;
         _canManageTeam = canManageTeam;
         _canManageCompetitionBooking = canManageCompetition;
+        _competitionPlayBy = competitionPlayBy;
         _canViewTeam = canViewTeam;
       });
     } catch (e) {
@@ -2661,6 +2677,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     }
     if (!mounted) return;
     final canDelete = preview['can_delete'] == true;
+    final captainMemberDelete = preview['captain_member_delete'] == true;
     final canForceDelete = preview['can_force_delete'] == true;
     final rsvps = preview['rsvps'] ?? 0;
     final selected = preview['selected_members'] ?? 0;
@@ -2681,12 +2698,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  canDelete
+                  captainMemberDelete
+                      ? 'Delete ${_fixture?['team_name'] ?? 'this fixture'} on ${_startAtLocal == null ? '' : DateFormat('d MMM yyyy HH:mm').format(_startAtLocal!)} and release its booked rinks? Selected players and markers will be told that the fixture has been cancelled, including anyone who has confirmed.'
+                      : canDelete
                       ? 'No players are attached. This fixture can be deleted.'
-                      : 'Players are attached, so ordinary deletion is not allowed. You can cancel or reschedule it. As a superuser, you can Force Delete it.',
+                      : 'Players are attached, so ordinary deletion is not allowed. As a superuser, you can Force Delete it.',
                 ),
                 const SizedBox(height: 10),
-                Text(
+                if (!captainMemberDelete) Text(
                   'Linked records: $rsvps RSVPs, $selected selected members, '
                   '$emailRows email queue rows, $notificationRows notification queue rows.',
                 ),
@@ -3349,33 +3368,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _editStartTime() async {
     final startLocal = parseClubTime(_fixture!['start_at'].toString());
-    final endLocal = parseClubTime(_fixture!['end_at'].toString());
+    final endLocal = _endAtLocal ?? startLocal.add(const Duration(hours: 2));
 
-    final currentDuration = endLocal.difference(startLocal);
-
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: startLocal,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2035),
-    );
-    if (pickedDate == null || !mounted) return;
-
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(startLocal),
-    );
-    if (pickedTime == null || !mounted) return;
-
-    final newStart = DateTime(
-      pickedDate.year,
-      pickedDate.month,
-      pickedDate.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    );
-
-    final newEnd = newStart.add(currentDuration);
+    final window = await pickFixtureStart(context, start: startLocal, end: endLocal);
+    if (window == null || !mounted) return;
+    final newStart = window.start;
+    final newEnd = window.end;
 
     if (newStart.isAtSameMomentAs(startLocal)) return;
 
@@ -3686,6 +3684,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _changeFixtureTime(DateTime start, DateTime end) async {
+    final oldStart = parseClubTime(_fixture!['start_at'].toString());
+    final timingError = fixtureTimingError(start, end,
+      requireFuture: !DateUtils.isSameDay(start, oldStart) ||
+          start.hour != oldStart.hour || start.minute != oldStart.minute);
+    if (timingError != null) throw StateError(timingError);
     await _client.rpc(
       'change_fixture_time_safe',
       params: {
@@ -6429,6 +6432,13 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
               onPressed: _repeatingFixture ? null : _openRepeatFixturePlanner,
             ),
 
+          if (_canRescheduleMemberBooking)
+            IconButton(
+              tooltip: 'Reschedule booking',
+              icon: const Icon(Icons.event_repeat),
+              onPressed: _rescheduleMemberBooking,
+            ),
+
           if (_canRescheduleFixture)
             IconButton(
               tooltip: 'Reschedule fixture',
@@ -6515,6 +6525,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                         Expanded(child: Text(lockedFixtureLabel,
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             color: fixtureTypeFg, fontWeight: FontWeight.w700))),
+                        if (isInternalFixtureType && isPreselectFixture && usesRinks && competitionType?['bookable_by_members'] == true)
+                          Padding(padding: const EdgeInsets.only(left: 8), child: OutlinedButton.icon(
+                            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => FixtureScorecardScreen(fixtureId: widget.fixtureId))),
+                            icon: const Icon(Icons.scoreboard_outlined, size: 18), label: const Text('Score Card'),
+                            style: OutlinedButton.styleFrom(backgroundColor: const Color(0xfffff3b0), foregroundColor: const Color(0xff3a3210), side: const BorderSide(color: Color(0xff655516), width: 1.5)),
+                          )),
                         if (isPublished && canViewTeam && !isOpenSessionFixture && !_usesSimpleBookingWorkflow)
                           OutlinedButton.icon(onPressed: _openTeamFromFixture,
                             icon: const Icon(Icons.groups_outlined),
@@ -6533,6 +6549,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                     ],
                   ),
                 ),
+
+                CompetitionDeadlineWarning(scheduledClubTime: when, playBy: _competitionPlayBy),
 
                 if (showAcceptance)
                   FixtureResponsePanel(
@@ -7094,67 +7112,19 @@ class _RescheduleFixturePageState extends State<_RescheduleFixturePage> {
   }
 
   Future<void> _pickStartDateTime() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _startAtLocal,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2035),
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_startAtLocal),
-    );
-    if (time == null || !mounted) return;
-
-    final newStart = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-
+    final window = await pickFixtureStart(context, start: _startAtLocal, end: _endAtLocal);
+    if (window == null || !mounted) return;
     setState(() {
-      final duration = _endAtLocal.difference(_startAtLocal);
-      _startAtLocal = newStart;
-      if (!_endAtLocal.isAfter(newStart)) {
-        _endAtLocal = newStart.add(
-          duration.isNegative || duration == Duration.zero
-              ? const Duration(hours: 2)
-              : duration,
-        );
-      }
+      _startAtLocal = window.start;
+      _endAtLocal = window.end;
       _error = null;
     });
   }
 
   Future<void> _pickEndDateTime() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _endAtLocal,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2035),
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_endAtLocal),
-    );
-    if (time == null || !mounted) return;
-
-    setState(() {
-      _endAtLocal = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      );
-      _error = null;
-    });
+    final end = await pickFixtureEndTime(context, start: _startAtLocal, end: _endAtLocal);
+    if (end == null || !mounted) return;
+    setState(() { _endAtLocal = end; _error = null; });
   }
 
   Future<void> _reschedule() async {
@@ -7169,14 +7139,9 @@ class _RescheduleFixturePageState extends State<_RescheduleFixturePage> {
       return;
     }
 
-    if (!_endAtLocal.isAfter(_startAtLocal)) {
-      setState(() => _error = 'End date/time must be after start date/time.');
-      return;
-    }
-
-    final nowClubLocal = toClubTime(DateTime.now());
-    if (_startAtLocal.isBefore(nowClubLocal)) {
-      setState(() => _error = 'A fixture cannot be rescheduled into the past.');
+    final timingError = fixtureTimingError(_startAtLocal, _endAtLocal);
+    if (timingError != null) {
+      setState(() => _error = timingError);
       return;
     }
 

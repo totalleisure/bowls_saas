@@ -1,3 +1,4 @@
+import '../widgets/competition_deadline_warning.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -138,8 +139,18 @@ class _CompetitionFixtureManagementScreenState
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Update competition booking?'),
-        content: Text(
-          '${DateFormat('EEE d MMM yyyy, HH:mm').format(selected.start)} – ${DateFormat('HH:mm').format(selected.end)}\n${selected.green['name']} · Rink ${selected.rinkLabels.join(', ')}',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${DateFormat('EEE d MMM yyyy, HH:mm').format(selected.start)} – ${DateFormat('HH:mm').format(selected.end)}\n${selected.green['name']} · Rink ${selected.rinkLabels.join(', ')}',
+            ),
+            CompetitionDeadlineWarning(
+              scheduledClubTime: selected.start,
+              playBy: fixture['play_by']?.toString(),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -223,6 +234,12 @@ class _CompetitionFixtureManagementScreenState
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   Text('${fixture['round']}'),
+                  CompetitionDeadlineWarning(
+                    scheduledClubTime: parseClubTime(
+                      fixture['start_at'].toString(),
+                    ),
+                    playBy: fixture['play_by']?.toString(),
+                  ),
                   const SizedBox(height: 16),
                   Card(
                     child: Padding(

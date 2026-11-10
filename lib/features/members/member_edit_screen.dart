@@ -1,11 +1,13 @@
 import 'enable_member_login_dialog.dart';
 import 'package:flutter/material.dart';
+import 'admin_confirmation_email_action.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/account_security_screen.dart';
 import 'profile_photo_avatar.dart';
 import 'profile_photo_service.dart';
 import 'admin_password_reset_dialog.dart';
+import 'admin_email_change_dialog.dart';
 
 class MemberEditScreen extends StatefulWidget {
   final String memberProfileId;
@@ -171,20 +173,42 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
     return 'assets/images/blank_bg_phone_2.png';
   }
 
-  Widget _captainManagedAccess() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    const Text('Captain-managed member — contact by telephone. No login or email.'),
-    if (widget.canManageMembers && widget.initialActive)
-      OutlinedButton.icon(icon: const Icon(Icons.person_add_alt_1), label: const Text('Enable app login'),
-        onPressed: _saving ? null : () async {
-          if (_hasUnsavedChanges) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Save member edits before enabling app login.')));
-            return;
-          }
-          final enabled = await showDialog<bool>(context: context, barrierDismissible: false,
-            builder: (_) => EnableMemberLoginDialog(clubId: widget.clubId, memberProfileId: widget.memberProfileId));
-          if (enabled == true && mounted) Navigator.pop(context, true);
-        }),
-  ]);
+  Widget _captainManagedAccess() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Captain-managed member — contact by telephone. No login or email.',
+      ),
+      if (widget.canManageMembers && widget.initialActive)
+        OutlinedButton.icon(
+          icon: const Icon(Icons.person_add_alt_1),
+          label: const Text('Enable app login'),
+          onPressed: _saving
+              ? null
+              : () async {
+                  if (_hasUnsavedChanges) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Save member edits before enabling app login.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  final enabled = await showDialog<bool>(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => EnableMemberLoginDialog(
+                      clubId: widget.clubId,
+                      memberProfileId: widget.memberProfileId,
+                    ),
+                  );
+                  if (enabled == true && mounted) Navigator.pop(context, true);
+                },
+        ),
+    ],
+  );
 
   Future<void> _save() async {
     if (_saving) return;
@@ -478,6 +502,25 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       return;
     }
 
+    if (widget.canManageMembers) {
+      final changedEmail = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AdminEmailChangeDialog(
+          clubId: widget.clubId,
+          memberProfileId: widget.memberProfileId,
+          memberName: '${_firstName.text} ${_lastName.text}'.trim(),
+          currentEmail: _email.text,
+        ),
+      );
+      if (changedEmail != null && mounted) {
+        setState(() => _email.text = changedEmail);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Login email changed to $changedEmail')),
+        );
+      }
+      return;
+    }
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -500,7 +543,10 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
 
   Widget _resetPasswordButton() => Align(
     alignment: Alignment.centerLeft,
-    child: OutlinedButton.icon(
+    child: Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: OutlinedButton.icon(
+      style: memberAccountActionStyle(context),
       onPressed: () => showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -512,6 +558,7 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
       ),
       icon: const Icon(Icons.lock_reset),
       label: const Text('Reset member password'),
+      ),
     ),
   );
 
@@ -664,11 +711,14 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
             Align(
               alignment: Alignment.centerLeft,
               child: OutlinedButton.icon(
+                style: memberAccountActionStyle(context),
                 onPressed: _openEmailAction,
                 icon: const Icon(Icons.alternate_email),
                 label: Text(
                   widget.isOwnRecord
                       ? 'Change login email'
+                      : widget.canManageMembers
+                      ? 'Change member login email'
                       : 'Assist with email change',
                 ),
               ),
@@ -833,13 +883,20 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
-            onPressed: _openEmailAction,
+            style: memberAccountActionStyle(context),
+                onPressed: _openEmailAction,
             icon: const Icon(Icons.lock_outline),
             label: const Text('Manage login & security'),
           ),
           if (widget.canManageMembers) ...[
             const SizedBox(height: 8),
             _resetPasswordButton(),
+          if (widget.canManageMembers && !_captainManaged)
+            AdminConfirmationEmailAction(
+              key: ValueKey('confirmation-${_email.text}'),
+              clubId: widget.clubId,
+              memberProfileId: widget.memberProfileId,
+            ),
           ],
         ]),
     ];
@@ -1078,20 +1135,29 @@ class _MemberEditScreenState extends State<MemberEditScreen> {
                             Align(
                               alignment: Alignment.centerLeft,
                               child: OutlinedButton.icon(
-                                onPressed: _openEmailAction,
+                                style: memberAccountActionStyle(context),
+                onPressed: _openEmailAction,
                                 icon: const Icon(Icons.alternate_email),
                                 label: Text(
                                   widget.isOwnRecord
                                       ? 'Change login email'
+                                      : widget.canManageMembers
+                                      ? 'Change member login email'
                                       : 'Assist with email change',
                                 ),
                               ),
                             ),
                           ],
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 6),
 
                           if (widget.canManageMembers && !_captainManaged)
                             _resetPasswordButton(),
+                          if (widget.canManageMembers && !_captainManaged)
+                            AdminConfirmationEmailAction(
+                              key: ValueKey('confirmation-${_email.text}'),
+                              clubId: widget.clubId,
+                              memberProfileId: widget.memberProfileId,
+                            ),
                           const SizedBox(height: 8),
 
                           _fieldWithDirectoryOption(

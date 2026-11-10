@@ -877,4 +877,54 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets(
+    'Competition rules edit validates and saves optional last-jack allowance',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 3200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repo = FakeCompetitions();
+      final initial = sample().competition;
+      initial['settings'] = <String, dynamic>{
+        ...Map<String, dynamic>.from(initial['settings'] as Map),
+        'time_limit_mode': 'minutes',
+        'time_limit_minutes': 150,
+        'last_jack_before_end_minutes': 10,
+      };
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CompetitionSetupScreen(
+            clubId: 'club',
+            repository: repo,
+            initial: initial,
+            structureLocked: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final field = find.widgetWithText(
+        TextFormField,
+        'Last jack — minutes before time limit',
+      );
+      await tester.ensureVisible(field);
+      expect(find.textContaining('within 140 minutes'), findsOneWidget);
+      await tester.enterText(field, '150');
+      await tester.ensureVisible(find.text('Save competition'));
+      await tester.tap(find.text('Save competition'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Must be less than the playing time limit'),
+        findsOneWidget,
+      );
+      expect(repo.createdSettings, isNull);
+      await tester.ensureVisible(field);
+      await tester.enterText(field, '10');
+      await tester.ensureVisible(find.text('Save competition'));
+      await tester.tap(find.text('Save competition'));
+      await tester.pumpAndSettle();
+      expect(repo.createdSettings?['last_jack_before_end_minutes'], 10);
+      expect(repo.createdSettings?['time_limit_minutes'], 150);
+    },
+  );
 }

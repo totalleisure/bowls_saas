@@ -657,6 +657,39 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
     });
   }
 
+  void viewDrawPdf() {
+    final d = data!;
+    if (d.competition['status'] != 'published' || d.rounds.isEmpty) return;
+    final layout =
+        d.matchesForRound(d.orderedRounds.first['id'].toString()).length <= 32
+        ? CompetitionPrintLayout.compactA4
+        : CompetitionPrintLayout.readableA4;
+    const orientation = CompetitionPrintOrientation.landscape;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text('${d.competition['name']} — Draw PDF')),
+          body: PdfPreview(
+            pdfFileName: 'Competition-draw.pdf',
+            initialPageFormat: competitionPageFormat(layout, orientation),
+            canChangePageFormat: false,
+            canChangeOrientation: false,
+            canDebug: false,
+            allowPrinting: false,
+            allowSharing: false,
+            build: (format) => buildCompetitionDrawPdf(
+              d,
+              layout: layout,
+              orientation: orientation,
+              blankWinnerLabels: false,
+              pageFormat: format,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = data;
@@ -705,6 +738,12 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                 tooltip: 'Print competition bracket',
                 onPressed: busy ? null : printDraw,
                 icon: const Icon(Icons.print_outlined),
+              ),
+            if (!widget.canManage && published && d.rounds.isNotEmpty)
+              IconButton(
+                tooltip: 'View draw PDF',
+                onPressed: busy ? null : viewDrawPdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined),
               ),
           ],
           bottom: TabBar(
@@ -939,6 +978,7 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                                   (m) =>
                                       m['status'] != 'bye' &&
                                       (widget.canManage ||
+                                          published ||
                                           ownEntryIds.contains(
                                             m['side_a_entry_id'],
                                           ) ||
@@ -979,7 +1019,7 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                               onTap: busy ? null : () => showMatch(m),
                             ),
                           ),
-                        if (widget.canManage &&
+                        if ((widget.canManage || published) &&
                             d.matches.any(
                               (m) =>
                                   m['round_id'] == r['id'] &&
@@ -1068,6 +1108,14 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                               : 'Not yet confirmed',
                         ),
                       ),
+                      if (settings['time_limit_mode'] == 'minutes' &&
+                          settings['last_jack_before_end_minutes'] != null)
+                        ListTile(
+                          title: const Text('Last jack'),
+                          subtitle: Text(
+                            '${settings['last_jack_before_end_minutes']} minutes before the time limit (${(settings['time_limit_minutes'] as num).toInt() - (settings['last_jack_before_end_minutes'] as num).toInt()} minutes from starting)',
+                          ),
+                        ),
                       for (final round in d.orderedRounds)
                         ListTile(
                           title: Text('${round['name']} rules'),
@@ -1386,11 +1434,7 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
     );
     final pending = match['status'] == 'result_pending';
     final canEdit =
-        playable && (widget.canManage || (widget.canSubmit && !pending));
-    final unchanged =
-        scoreA.text == '${match['score_a']}' &&
-        scoreB.text == '${match['score_b']}' &&
-        winner == match['proposed_winner_entry_id'];
+        playable && !pending && (widget.canManage || widget.canSubmit);
     return Card(
       key: const ValueKey('competition-result-card'),
       color: tint,
@@ -1480,22 +1524,22 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
                 onPressed: busy ? null : () => submit(),
                 child: const Text('Submit result for confirmation'),
               ),
-              if (pending && widget.canManage) ...[
-                if (!unchanged)
-                  const Text(
-                    'Submit any amended scores before confirming the result.',
-                  ),
-                OutlinedButton(
-                  onPressed: busy || !unchanged
-                      ? null
-                      : () => submit(confirm: true),
-                  child: Text(
-                    'Confirm ${match['score_a']}–${match['score_b']} · ${d.entrant(match['proposed_winner_entry_id'])} wins',
-                  ),
-                ),
-              ],
             ],
-            if (widget.canManage && playable)
+            if (pending && widget.canManage) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Check the submitted scores and winner, then confirm to advance the winner.',
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: busy ? null : () => submit(confirm: true),
+                child: const Text('Confirm result and advance winner'),
+              ),
+              const Text(
+                'For shared scorecard corrections, open the shared card and choose Return to scorer for correction from More match actions.',
+              ),
+            ],
+            if (widget.canManage && playable && !pending)
               OutlinedButton.icon(
                 onPressed: busy ? null : awardWalkover,
                 icon: const Icon(Icons.flag_outlined),

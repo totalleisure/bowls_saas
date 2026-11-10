@@ -27,6 +27,7 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
       'booking',
       'woods',
       'limit',
+      'lastJack',
       'rules',
       'eligibility',
       'dress',
@@ -65,6 +66,7 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
         'booking': 'booking_minutes',
         'woods': 'woods_per_player',
         'limit': 'time_limit_minutes',
+        'lastJack': 'last_jack_before_end_minutes',
         'rules': 'rules',
         'eligibility': 'eligibility',
         'dress': 'dress',
@@ -116,7 +118,14 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),
+        helperText: key == 'lastJack'
+            ? 'Optional. Leave blank if no separate last-jack deadline applies.'
+            : null,
+        helperMaxLines: 2,
       ),
+      onChanged: key == 'limit' || key == 'lastJack'
+          ? (_) => setState(() {})
+          : null,
       maxLines: lines,
       keyboardType: maxNumber != null
           ? TextInputType.number
@@ -129,6 +138,13 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
                 int.parse(v) < 1 ||
                 int.parse(v) > maxNumber)) {
           return 'Enter 1–$maxNumber';
+        }
+        if (key == 'lastJack' && v != null && v.trim().isNotEmpty) {
+          final offset = int.tryParse(v.trim());
+          final limit = int.tryParse(fields['limit']!.text.trim());
+          if (offset != null && limit != null && offset >= limit) {
+            return 'Must be less than the playing time limit';
+          }
         }
         return null;
       },
@@ -183,6 +199,9 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
         'time_limit_mode': timeMode,
         'time_limit_minutes': timeMode == 'minutes'
             ? int.parse(fields['limit']!.text)
+            : null,
+        'last_jack_before_end_minutes': timeMode == 'minutes'
+            ? int.tryParse(fields['lastJack']!.text.trim())
             : null,
         'woods_per_player': int.tryParse(fields['woods']!.text),
         for (final k in [
@@ -338,6 +357,24 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
                   required: true,
                   maxNumber: 1440,
                 ),
+              if (timeMode == 'minutes') ...[
+                input(
+                  'lastJack',
+                  'Last jack — minutes before time limit',
+                  maxNumber: 1439,
+                ),
+                if (int.tryParse(fields['limit']!.text) != null &&
+                    int.tryParse(fields['lastJack']!.text) != null &&
+                    int.parse(fields['lastJack']!.text) > 0 &&
+                    int.parse(fields['lastJack']!.text) <
+                        int.parse(fields['limit']!.text))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      'Last jack must be delivered within ${int.parse(fields['limit']!.text) - int.parse(fields['lastJack']!.text)} minutes of starting. The end already underway can still be completed.',
+                    ),
+                  ),
+              ],
               input(
                 'booking',
                 'Rink-booking duration in minutes',

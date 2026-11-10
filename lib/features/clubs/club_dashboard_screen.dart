@@ -950,11 +950,17 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
       final competitionsToArrange = personalCompetitionMatches
           .where((item) => competitionNeedsArrangement(item.match))
           .toList();
-      final arrangedCompetitionFixtures = upcomingCompetitionFixturesArrangedBy(
+      final arrangedCompetitionFixtures = upcomingPersonalCompetitionFixtures(
         personalCompetitionMatches,
         allFixtures,
-        myId,
         DateTime.now(),
+        {
+          for (final row in selectedRows)
+            if ((row['team_selections'] as Map?)?['fixture'] is Map)
+              ((row['team_selections'] as Map)['fixture'] as Map)['id']
+                  .toString(): (row['acceptance'] ?? 'pending')
+                  .toString(),
+        },
       );
 
       debugPrint(
@@ -1809,14 +1815,10 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
                       },
                     ),
                 _buildSectionDivider(),
-                _buildSectionHeader(
-                  'Competition Fixtures you have arranged (upcoming)',
-                ),
+                _buildSectionHeader('Your upcoming competition fixtures'),
                 const SizedBox(height: 6),
                 if (_arrangedCompetitionFixtures.isEmpty)
-                  _buildEmptyState(
-                    '   No upcoming competition fixtures arranged by you.',
-                  )
+                  _buildEmptyState('   No upcoming competition fixtures.')
                 else
                   for (final fixture in _arrangedCompetitionFixtures)
                     _buildFixtureCard(
@@ -1826,6 +1828,23 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
                         myClubName: _myClubName,
                       ),
                       subtitle: fixtureSubtitleUnified(fixture),
+                      trailing: _buildResponsePill(
+                        label: switch (fixture['_competitionAcceptance']) {
+                          'accepted' => 'Accepted',
+                          'declined' => 'Declined',
+                          _ => 'Pending',
+                        },
+                        backgroundColor:
+                            switch (fixture['_competitionAcceptance']) {
+                              'accepted' => Colors.green,
+                              'declined' => Colors.red,
+                              _ => Colors.orange.shade100,
+                            },
+                        foregroundColor:
+                            fixture['_competitionAcceptance'] == 'pending'
+                            ? Colors.orange.shade900
+                            : Colors.white,
+                      ),
                       actionHint: 'Tap to view details',
                       onTap: () => _openFixtureById(fixture['id'].toString()),
                     ),

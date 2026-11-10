@@ -1,3 +1,4 @@
+import '../widgets/competition_deadline_warning.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -149,8 +150,18 @@ class _CompetitionArrangementScreenState
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirm competition fixture?'),
-        content: Text(
-          '${widget.data.competition['name']}\n${DateFormat('EEE d MMM yyyy, HH:mm').format(selected.start)} – ${DateFormat('HH:mm').format(selected.end)}\n${selected.green['name']} · Rink ${selected.rinkLabels.join(', ')}',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${widget.data.competition['name']}\n${DateFormat('EEE d MMM yyyy, HH:mm').format(selected.start)} – ${DateFormat('HH:mm').format(selected.end)}\n${selected.green['name']} · Rink ${selected.rinkLabels.join(', ')}',
+            ),
+            CompetitionDeadlineWarning(
+              scheduledClubTime: selected.start,
+              playBy: round['play_by']?.toString(),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -264,6 +275,10 @@ class _CompetitionArrangementScreenState
                         ),
                       ),
                     ),
+                    CompetitionDeadlineWarning(
+                      scheduledClubTime: choice?.start,
+                      playBy: round['play_by']?.toString(),
+                    ),
                     if (error != null)
                       Padding(
                         padding: const EdgeInsets.all(12),
@@ -328,15 +343,6 @@ class _CompetitionArrangementScreenState
                                   '${choice!.green['name']} · Rink ${choice!.rinkLabels.join(', ')}',
                                   textAlign: TextAlign.center,
                                 ),
-                                if (round['play_by'] != null &&
-                                    choice!.start.isAfter(
-                                      DateTime.parse(
-                                        round['play_by'].toString(),
-                                      ).add(const Duration(days: 1)),
-                                    ))
-                                  const Text(
-                                    'This date is after the play-by deadline. Please agree this with the Competitions Manager.',
-                                  ),
                                 const SizedBox(height: 12),
                                 FilledButton(
                                   onPressed: saving ? null : confirm,

@@ -1,3 +1,5 @@
+import 'fixture_scorecard_availability.dart';
+import 'scorecard_match_summary.dart';
 import 'package:flutter/gestures.dart';
 import 'scorecard_table.dart';
 import 'dart:async';
@@ -9,11 +11,19 @@ import 'scorecard.dart';
 import 'scorecard_repository.dart';
 import 'scorecard_setup.dart';
 import 'scorecard_pdf.dart';
+import 'shared_scorecard_api.dart';
+import 'shared_scorecard_screen.dart';
 
 class ScorecardsScreen extends StatefulWidget {
-  const ScorecardsScreen({super.key, this.repository, this.onClose});
+  const ScorecardsScreen({
+    super.key,
+    this.repository,
+    this.onClose,
+    this.initialCard,
+  });
   final ScorecardRepository? repository;
   final VoidCallback? onClose;
+  final Scorecard? initialCard;
   @override
   State<ScorecardsScreen> createState() => _ScorecardsScreenState();
 }
@@ -26,7 +36,9 @@ class _ScorecardsScreenState extends State<ScorecardsScreen> {
   @override
   void initState() {
     super.initState();
-    load();
+    load().then((_) {
+      if (mounted && widget.initialCard != null) open(widget.initialCard!);
+    });
   }
 
   Future<void> load() async {
@@ -104,7 +116,7 @@ class _ScorecardsScreenState extends State<ScorecardsScreen> {
           child: Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              'Offline scorecards · saved on this device\nCreate a manual game, record ends and signatures, then export a PDF. These cards are not synchronised or submitted to Club competitions yet. Anyone using this device can open them.',
+              'Scorecards saved on this device\nManual cards are independent local records. Shared fixture cards upload from the designated scorer’s device; both sides agree through the fixture before result submission. Anyone using this device can open its local copies.',
             ),
           ),
         ),
@@ -138,7 +150,11 @@ class _ScorecardsScreenState extends State<ScorecardsScreen> {
             child: ListTile(
               title: Text(c.title),
               subtitle: Text(
-                '${c.date} · ${c.sideA} ${c.totalA} – ${c.totalB} ${c.sideB}\n${c.complete ? "Finished" : "In progress"} · saved on this device',
+                '${c.date} · ${c.sideA} ${c.totalA} – ${c.totalB} ${c.sideB}\n${c.resultConfirmed
+                    ? "Admin confirmed"
+                    : c.complete
+                    ? "Finished"
+                    : "In progress"} · saved on this device',
               ),
               isThreeLine: true,
               trailing: const Icon(Icons.chevron_right),
@@ -155,9 +171,11 @@ class ScorecardScreen extends StatefulWidget {
     super.key,
     required this.card,
     required this.repository,
+    this.sharedApi,
   });
   final Scorecard card;
   final ScorecardRepository repository;
+  final SharedScorecardApi? sharedApi;
   @override
   State<ScorecardScreen> createState() => _ScorecardScreenState();
 }
@@ -172,12 +190,23 @@ class _ScorecardScreenState extends State<ScorecardScreen>
   final warned = <int>{};
   int? editingEnd;
   int draftA = 0, draftB = 0;
+  late final sharedApi = widget.sharedApi ?? SharedScorecardApi();
+  bool syncing = false;
+  int uploadedSequence = -1;
+  String? uploadError;
+  String? remotePhase;
+  String? correctionMessage;
+  Future<void>? syncTask;
+  bool get isShared => SharedScorecardApi.isShared(card);
+  String? get requestedCorrection =>
+      card.fixtureLink?['sharedCorrectionRequest'] as String?;
   @override
   void initState() {
     super.initState();
     card = widget.card;
     WidgetsBinding.instance.addObserver(this);
     timer = Timer.periodic(const Duration(seconds: 1), (_) => tick());
+    if (isShared) unawaited(syncShared());
   }
 
   @override
@@ -195,6 +224,11 @@ class _ScorecardScreenState extends State<ScorecardScreen>
   void tick() {
     if (!mounted) return;
     setState(() => now = DateTime.now().toUtc());
+    if (isShared &&
+        now.second % 5 == 0 &&
+        (uploadedSequence < card.saveVersion || now.second % 10 == 0)) {
+      unawaited(syncShared());
+    }
     if (card.startedAt != null &&
         !card.complete &&
         card.lastJackMinutes != null) {
@@ -208,8 +242,88 @@ class _ScorecardScreenState extends State<ScorecardScreen>
     }
   }
 
+  Future<void> syncShared() {
+    if (!isShared || !mounted) return Future.value();
+    return syncTask ??= uploadShared().whenComplete(() => syncTask = null);
+  }
+
+  Future<void> uploadShared() async {
+    final saved = Scorecard.fromJson(
+      jsonDecode(jsonEncode(card.toJson())) as Map<String, dynamic>,
+    );
+    setState(() => syncing = true);
+    try {
+      Map<String, dynamic> result;
+      try {
+        result = card.resultConfirmed
+            ? await sharedApi.call(
+                'shared_scorecard_state',
+                SharedScorecardApi.location(card),
+              )
+            : await sharedApi.sync(saved);
+      } catch (uploadFailure) {
+        // A submitted card may reject an old device upload. Read its final state.
+        final latest = await sharedApi.call(
+          'shared_scorecard_state',
+          SharedScorecardApi.location(card),
+        );
+        if ((latest['shared'] as Map?)?['competitionStatus'] != 'completed') {
+          rethrow;
+        }
+        result = latest;
+      }
+      final cloud = Map<String, dynamic>.from(result['shared'] as Map? ?? {});
+      await widget.repository.rememberConfirmation(cloud);
+      if (mounted) {
+        setState(() {
+          final metadata = SharedScorecardApi.confirmationMetadata(cloud);
+          if (metadata.isNotEmpty) {
+            card.fixtureLink = {...card.fixtureLink!, ...metadata};
+          }
+          uploadedSequence = saved.saveVersion;
+          uploadError = null;
+          remotePhase = (result['shared'] as Map?)?['phase'] as String?;
+          correctionMessage =
+              (result['shared'] as Map?)?['correctionNote'] as String?;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => uploadError = '$e');
+    } finally {
+      if (mounted) setState(() => syncing = false);
+    }
+  }
+
+  Future<void> reviewShared() async {
+    await syncShared();
+    if (uploadedSequence < card.saveVersion && uploadError == null) {
+      await syncShared();
+    }
+    if (!mounted) return;
+    if (uploadedSequence < card.saveVersion) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The latest scores are still saved only on this device. Reconnect and sync before final review.',
+          ),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SharedScorecardScreen(
+          fixtureId: '${card.fixtureLink!['fixtureId']}',
+          rinkId: '${card.fixtureLink!['fixtureRinkId']}',
+          api: sharedApi,
+          repository: widget.repository,
+        ),
+      ),
+    );
+  }
+
   Future<void> apply(void Function(Scorecard) edit) async {
-    if (saving) return;
+    if (saving || card.resultConfirmed) return;
     setState(() {
       saving = true;
       error = null;
@@ -219,12 +333,29 @@ class _ScorecardScreenState extends State<ScorecardScreen>
         jsonDecode(jsonEncode(card.toJson())) as Map<String, dynamic>,
       );
       edit(next);
+      if (next.complete &&
+          next.fixtureLink?['sharedCorrectionRequest'] != null) {
+        next.fixtureLink = {...next.fixtureLink!}
+          ..remove('sharedCorrectionRequest');
+      }
+      if (isShared && card.complete && !next.complete) {
+        // Invalidate cloud agreements BEFORE permitting a local correction.
+        // An offline scorer can finish, but cannot reopen a finished shared card.
+        await syncShared();
+        if (uploadedSequence < card.saveVersion) {
+          throw StateError(
+            'Connect and upload the finished card before reopening.',
+          );
+        }
+        await sharedApi.reopen(card);
+      }
       await widget.repository.save(next);
       if (mounted) {
         setState(() {
           card = next;
           now = DateTime.now().toUtc();
         });
+        if (isShared) unawaited(syncShared());
       }
     } catch (e) {
       if (mounted) {
@@ -239,7 +370,7 @@ class _ScorecardScreenState extends State<ScorecardScreen>
   }
 
   void selectEnd(int index) {
-    if (saving || card.complete) return;
+    if (saving || card.complete || card.resultConfirmed) return;
     setState(() {
       editingEnd = card.ends[index]['a'] == null ? null : index;
       draftA = card.ends[index]['a'] as int? ?? 0;
@@ -271,7 +402,10 @@ class _ScorecardScreenState extends State<ScorecardScreen>
       setState(() => saving = true);
       try {
         await widget.repository.save(updated);
-        if (mounted) setState(() => card = updated);
+        if (mounted) {
+          setState(() => card = updated);
+          if (isShared) unawaited(syncShared());
+        }
       } catch (e) {
         if (mounted) setState(() => error = 'Not saved: $e');
       } finally {
@@ -284,9 +418,15 @@ class _ScorecardScreenState extends State<ScorecardScreen>
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Finish and review scorecard?'),
+        title: Text(
+          requestedCorrection != null
+              ? 'Review corrected final score'
+              : isShared
+              ? 'Finish match?'
+              : 'Finish and review scorecard?',
+        ),
         content: Text(
-          '${card.sideA}: ${card.totalA}\n${card.sideB}: ${card.totalB}\n\n${card.endInProgress ? "The automatically started end has no score and will be removed. If it has been played, cancel and record its score first.\n\n" : ""}Both sides can sign after reviewing. This does not submit a competition result.',
+          '${card.sideA}: ${card.totalA}\n${card.sideB}: ${card.totalB}\n\n${card.endInProgress ? "The automatically started end has no score and will be removed. If it has been played, cancel and record its score first.\n\n" : ""}${isShared ? "Confirm the final score, then both sides review and agree. ${card.fixtureLink?['competitionMatchId'] != null ? 'Admin confirmation is still required before progression.' : ''}" : "Both sides can sign after reviewing. This does not submit a competition result."}',
         ),
         actions: [
           TextButton(
@@ -295,13 +435,78 @@ class _ScorecardScreenState extends State<ScorecardScreen>
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Finish scorecard'),
+            child: Text(
+              requestedCorrection != null
+                  ? 'Send corrected score for agreement'
+                  : isShared
+                  ? 'Confirm final score'
+                  : 'Finish scorecard',
+            ),
           ),
         ],
       ),
     );
-    if (yes == true) await apply((c) => c.finish(DateTime.now().toUtc()));
+    if (yes == true) {
+      await apply((c) => c.finish(DateTime.now().toUtc()));
+      if (mounted && isShared && card.complete && error == null) {
+        await reviewShared();
+      }
+    }
   }
+
+  Widget sharedNextAction(bool canFinish) => SafeArea(
+    top: false,
+    child: Material(
+      elevation: 6,
+      child: Align(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  requestedCorrection != null && !card.complete
+                      ? 'Correct the requested end · Both sides must agree again'
+                      : card.resultConfirmed
+                      ? 'Admin confirmed · Scorecard locked'
+                      : uploadedSequence >= card.saveVersion
+                      ? 'Shared card up to date'
+                      : 'Saved on this device · Upload pending',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                FilledButton(
+                  onPressed: saving || syncing
+                      ? null
+                      : card.complete
+                      ? reviewShared
+                      : canFinish
+                      ? confirmFinish
+                      : null,
+                  child: Text(
+                    card.resultConfirmed
+                        ? 'View confirmed result'
+                        : card.complete
+                        ? 'Review result'
+                        : requestedCorrection != null
+                        ? 'Finish corrected score'
+                        : 'Finish match',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 
   Future<void> sign(bool side) async {
     final result = await Navigator.of(context).push<SignatureResult>(
@@ -309,6 +514,9 @@ class _ScorecardScreenState extends State<ScorecardScreen>
         builder: (_) => SignatureScreen(
           sideName: side ? card.sideA : card.sideB,
           score: '${card.totalA} : ${card.totalB}',
+          initialName:
+              (side ? card.signatureA : card.signatureB)?['name']?.toString() ??
+              (side ? card.suggestedSignerA : card.suggestedSignerB),
         ),
       ),
     );
@@ -326,10 +534,44 @@ class _ScorecardScreenState extends State<ScorecardScreen>
   Widget build(BuildContext context) {
     final deadline = card.deadlineReached(now);
     final elapsed = card.elapsedSeconds(now);
+    final pendingClaim = card.fixtureLink?['sharedPendingClaim'] == true;
+    final scoringAvailable =
+        !card.resultConfirmed &&
+        !pendingClaim &&
+        (card.fixtureLink == null ||
+            fixtureScoringDayReached(card.fixtureLink!, nowUtc: now));
+    final canFinish =
+        !card.resultConfirmed &&
+        !card.complete &&
+        editingEnd == null &&
+        card.ends.isNotEmpty &&
+        (!card.endInProgress || card.ends.last['automatic'] == true);
     return Scaffold(
+      bottomNavigationBar: isShared
+          ? sharedNextAction(canFinish)
+          : card.fixtureLink == null
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(
+                  isShared
+                      ? 'Shared fixture card · Offline saves on this scoring device'
+                      : 'Fixture linked · Saved on this device · Live sharing not enabled yet',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ),
+            ),
       appBar: AppBar(
         title: Text(card.title),
         actions: [
+          if (isShared)
+            IconButton(
+              onPressed: syncing ? null : reviewShared,
+              icon: const Icon(Icons.cloud_sync),
+              tooltip: 'View shared match',
+            ),
           IconButton(
             onPressed: saving
                 ? null
@@ -361,26 +603,52 @@ class _ScorecardScreenState extends State<ScorecardScreen>
             child: Column(
               children: [
                 Text(
-                  '${card.sideA}  ${card.totalA} : ${card.totalB}  ${card.sideB}',
+                  isShared
+                      ? '${card.totalA} : ${card.totalB}'
+                      : '${card.sideA}  ${card.totalA} : ${card.totalB}  ${card.sideB}',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 Text(
                   '${card.complete ? "Finished" : "End ${card.ends.length}${card.endInProgress ? " in progress" : " completed"}"} · Saved on this device',
                 ),
-                if (card.startedAt != null)
+                if (isShared)
                   Text(
-                    'Elapsed ${clock(elapsed)}${card.lastJackMinutes != null ? " · Last jack ${clock(card.lastJackMinutes! * 60 - elapsed)}" : ""}',
+                    card.resultConfirmed
+                        ? 'Admin confirmed · Scorecard locked'
+                        : remotePhase == 'correction_requested'
+                        ? 'Correction requested — reopen online to amend'
+                        : remotePhase == 'submitted'
+                        ? 'Submitted for Admin confirmation'
+                        : uploadedSequence >= card.saveVersion
+                        ? 'Saved on this device and uploaded to the shared card'
+                        : 'Saved on this device — waiting to sync',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                if (card.resultConfirmed && card.confirmedWinner != null)
+                  Text(
+                    'Winner: ${card.confirmedWinner}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                if (card.durationMinutes != null && card.startedAt != null)
+                if (card.startedAt != null)
+                  Text(
+                    'Elapsed ${clock(elapsed)}${!card.complete && !card.resultConfirmed && card.lastJackMinutes != null ? " · Last jack ${clock(card.lastJackMinutes! * 60 - elapsed)}" : ""}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                if (!card.complete &&
+                    !card.resultConfirmed &&
+                    card.durationMinutes != null &&
+                    card.startedAt != null)
                   Text(
                     'Playing time remaining: ${clock(card.durationMinutes! * 60 - elapsed)}',
                   ),
               ],
             ),
           ),
-          if (deadline && !card.complete)
+          if (deadline && !card.complete && !card.resultConfirmed)
             AnimatedContainer(
               duration: const Duration(milliseconds: 400),
               width: double.infinity,
@@ -397,6 +665,12 @@ class _ScorecardScreenState extends State<ScorecardScreen>
               ),
             ),
           if (saving) const LinearProgressIndicator(),
+          if (card.startedAt == null &&
+              card.fixtureLink?['competitionId'] != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Text(card.playingSummary, textAlign: TextAlign.center),
+            ),
           if (error != null)
             Padding(
               padding: const EdgeInsets.all(8),
@@ -405,20 +679,26 @@ class _ScorecardScreenState extends State<ScorecardScreen>
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
-          if (!card.complete)
+          if (!card.complete && !card.resultConfirmed)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Column(
                 children: [
                   if (card.startedAt == null)
                     FilledButton.icon(
-                      onPressed: saving
+                      onPressed: saving || !scoringAvailable
                           ? null
                           : () => apply(
                               (c) => c.startMatch(DateTime.now().toUtc()),
                             ),
                       icon: const Icon(Icons.play_arrow),
-                      label: const Text('Start match timer'),
+                      label: Text(
+                        pendingClaim
+                            ? 'Complete the shared-card claim online'
+                            : scoringAvailable
+                            ? 'Start match timer'
+                            : 'Scorecard available on the day of the Fixture',
+                      ),
                     )
                   else ...[
                     if (editingEnd == null && !card.endInProgress)
@@ -476,82 +756,127 @@ class _ScorecardScreenState extends State<ScorecardScreen>
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
+                if (requestedCorrection != null && !card.complete)
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Editing requested correction',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text(requestedCorrection!),
+                          const Text(
+                            'Tap the played end below, change its score and accept it. Then choose Finish corrected score.',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ScorecardTable(
                   card: card,
                   showHeader: false,
                   selectedEnd:
                       editingEnd ??
                       (card.endInProgress ? card.ends.length - 1 : null),
-                  onSelect: saving || card.complete ? null : selectEnd,
+                  onSelect: saving || card.complete || card.resultConfirmed
+                      ? null
+                      : selectEnd,
                 ),
-                if (!card.complete &&
-                    editingEnd == null &&
-                    card.ends.isNotEmpty &&
-                    (!card.endInProgress ||
-                        card.ends.last['automatic'] == true))
-                  OutlinedButton(
+                if (isShared) ...[
+                  if (correctionMessage != null)
+                    Text('Correction requested: $correctionMessage'),
+                  if (uploadError != null)
+                    const Text(
+                      'Upload unavailable. Scores are safe on this device; reviewers see the last upload. Reconnect before agreement.',
+                    ),
+                ],
+                if (!isShared && canFinish)
+                  FilledButton(
                     onPressed: saving ? null : confirmFinish,
                     child: const Text('Finish and review'),
                   ),
                 if (card.complete) ...[
-                  const Text(
-                    'Review the totals, then ask one representative from each side to sign. Signatures acknowledge this scorecard; they do not confirm a competition result.',
+                  Text(
+                    card.resultConfirmed
+                        ? 'Admin confirmed the result. This scorecard is locked.'
+                        : isShared
+                        ? 'Each side reviews and agrees from its own account. Use Review result to continue. The App uploads automatically when connected.'
+                        : 'Review the totals, then ask one representative from each side to sign. Signatures acknowledge this scorecard; they do not confirm a competition result.',
                   ),
-                  for (final side in [true, false])
-                    OutlinedButton.icon(
-                      onPressed: saving ? null : () => sign(side),
-                      icon: Icon(
-                        (side ? card.signatureA : card.signatureB) == null
-                            ? Icons.draw
-                            : Icons.verified_outlined,
+                  if (!isShared)
+                    for (final side in [true, false])
+                      OutlinedButton.icon(
+                        onPressed: saving ? null : () => sign(side),
+                        icon: Icon(
+                          (side ? card.signatureA : card.signatureB) == null
+                              ? Icons.draw
+                              : Icons.verified_outlined,
+                        ),
+                        label: Text(
+                          '${side ? card.sideA : card.sideB}: ${(side ? card.signatureA : card.signatureB)?['name'] ?? "Sign scorecard"}',
+                        ),
                       ),
-                      label: Text(
-                        '${side ? card.sideA : card.sideB}: ${(side ? card.signatureA : card.signatureB)?['name'] ?? "Sign scorecard"}',
+                  if (!card.resultConfirmed)
+                    TextButton(
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              final yes = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: Text(
+                                    isShared
+                                        ? 'Reopen and clear agreements?'
+                                        : 'Reopen and clear signatures?',
+                                  ),
+                                  content: const Text(
+                                    'You can correct earlier ends. Both sides must approve the revised scorecard again. Shared cards require a connection to clear previous agreements before reopening.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      child: const Text('Reopen'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (yes == true) await apply((c) => c.reopen());
+                            },
+                      child: Text(
+                        isShared
+                            ? 'Reopen to correct scores (clears agreements)'
+                            : 'Reopen to correct scores (clears signatures)',
                       ),
                     ),
-                  TextButton(
-                    onPressed: saving
-                        ? null
-                        : () async {
-                            final yes = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text(
-                                  'Reopen and clear signatures?',
-                                ),
-                                content: const Text(
-                                  'You can correct earlier ends. Both sides must sign the revised scorecard again.',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  FilledButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: const Text('Reopen'),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (yes == true) await apply((c) => c.reopen());
-                          },
-                    child: const Text(
-                      'Reopen to correct scores (clears signatures)',
-                    ),
-                  ),
                 ],
                 ExpansionTile(
-                  title: const Text('Players and match details'),
+                  collapsedBackgroundColor: const Color(0xffdce8f7),
+                  backgroundColor: const Color(0xffedf3fb),
+                  collapsedShape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: const BorderSide(color: Color(0xffa5bddc)),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: const BorderSide(color: Color(0xffa5bddc)),
+                  ),
+                  childrenPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text(
+                    'Players and Match Details',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
                   children: [
-                    ListTile(
-                      title: Text(
-                        '${card.sideA}: ${card.playersA}\n${card.sideB}: ${card.playersB}',
-                      ),
-                      subtitle: Text(
-                        '${card.date} · ${card.venue} · Rink ${card.rink}\n${card.format} · ${card.woods} woods\n${card.notes}',
-                      ),
-                    ),
+                    ScorecardMatchSummary(card: card),
                     if (!card.complete)
                       TextButton(
                         onPressed: saving ? null : details,
@@ -559,22 +884,83 @@ class _ScorecardScreenState extends State<ScorecardScreen>
                       ),
                   ],
                 ),
+                const SizedBox(height: 8),
                 ExpansionTile(
-                  title: const Text('Correction / change history'),
+                  collapsedBackgroundColor: const Color(0xffdce8f7),
+                  backgroundColor: const Color(0xffedf3fb),
+                  collapsedShape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: const BorderSide(color: Color(0xffa5bddc)),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: const BorderSide(color: Color(0xffa5bddc)),
+                  ),
+                  title: const Text(
+                    'Correction / Change History',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
                   children: [
-                    for (final e in card.history.reversed)
-                      ListTile(
-                        dense: true,
-                        title: Text('${e['action']}'),
-                        subtitle: Text(
-                          '${e['at']}\n${e['before'] ?? ""} → ${e['after'] ?? ""}',
+                    for (final (index, e) in card.history.reversed.indexed)
+                      Container(
+                        decoration: BoxDecoration(
+                          color: index.isEven
+                              ? Colors.white
+                              : const Color(0xffd4e0ef),
+                          border: const Border(
+                            bottom: BorderSide(color: Color(0xffb7c7dc)),
+                          ),
+                        ),
+                        child: ListTile(
+                          dense: true,
+                          title: Text('${e['action']}'),
+                          subtitle: Text(
+                            [
+                              e['at'],
+                              if (e['before'] != null &&
+                                  '${e['before']}'.isNotEmpty)
+                                'Before: ${e['before']}',
+                              if (e['after'] != null &&
+                                  '${e['after']}'.isNotEmpty)
+                                'After: ${e['after']}',
+                            ].join('\n'),
+                          ),
                         ),
                       ),
                   ],
                 ),
-                const Text(
-                  'Standalone card • no cloud backup or competition submission. Export a PDF before removing the App or clearing its data. Timer alerts require this screen to remain visible.',
-                ),
+                if (!isShared)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '• No cloud score backup or competition result submission.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          '• Export a PDF before removing the App or clearing its data.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          '• Timer alerts require this screen to remain visible.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -595,14 +981,15 @@ class SignatureScreen extends StatefulWidget {
     super.key,
     required this.sideName,
     required this.score,
+    this.initialName = '',
   });
-  final String sideName, score;
+  final String sideName, score, initialName;
   @override
   State<SignatureScreen> createState() => _SignatureScreenState();
 }
 
 class _SignatureScreenState extends State<SignatureScreen> {
-  final name = TextEditingController();
+  late final name = TextEditingController(text: widget.initialName);
   final strokes = <List<Map<String, double>>>[];
   final canvasKey = GlobalKey();
   int? activePointer;

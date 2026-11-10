@@ -1,5 +1,6 @@
 import 'local_scorecard_store.dart';
 import 'scorecard.dart';
+import 'shared_scorecard_api.dart';
 
 class ScorecardRepository {
   ScorecardRepository({LocalScorecardStore? store})
@@ -22,6 +23,13 @@ class ScorecardRepository {
           .toList();
       final index = cards.indexWhere((j) => j['id'] == card.id);
       if (index >= 0 &&
+          (cards[index]['fixtureLink'] as Map?)?['sharedConfirmed'] == true &&
+          !card.resultConfirmed) {
+        throw StateError(
+          'Admin confirmed this result. Reopen the saved card to view it.',
+        );
+      }
+      if (index >= 0 &&
           (cards[index]['saveVersion'] as int? ?? 0) != card.saveVersion) {
         throw StateError(
           'This card was saved from another open screen. Reopen the latest saved card before editing.',
@@ -35,6 +43,30 @@ class ScorecardRepository {
       }
       await _store.write(cards);
       card.saveVersion++;
+    });
+    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
+  /// Cache server confirmation without changing scores or the upload sequence.
+  Future<void> rememberConfirmation(Map<String, dynamic> shared) {
+    final metadata = SharedScorecardApi.confirmationMetadata(shared);
+    if (metadata.isEmpty || shared['id'] == null) return Future.value();
+    final result = _tail.then((_) async {
+      final rows = (await _store.read())
+          .map((j) => Map<String, dynamic>.from(j as Map))
+          .toList();
+      var changed = false;
+      for (final row in rows) {
+        final link = Map<String, dynamic>.from(
+          row['fixtureLink'] as Map? ?? {},
+        );
+        if (link['sharedCardId'] != shared['id']) continue;
+        if (metadata.entries.every((e) => link[e.key] == e.value)) continue;
+        row['fixtureLink'] = {...link, ...metadata};
+        changed = true;
+      }
+      if (changed) await _store.write(rows);
     });
     _tail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;

@@ -1,6 +1,6 @@
+import '../../fixtures/widgets/fixture_time_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../../core/utils/date_format.dart';
 import '../../../core/utils/hex_color.dart';
 import '../competition_repository.dart';
 import '../competition_arrangement_repository.dart';
@@ -11,58 +11,17 @@ Future<({DateTime start, DateTime end})?> pickCompetitionWindow(
   DateTime? end,
   int minutes = 150,
 }) async {
-  final now = parseClubTime(DateTime.now().toUtc().toIso8601String());
-  final first = DateTime(now.year, now.month, now.day);
-  final initial = start == null || start.isBefore(first) ? first : start;
-  final date = await showDatePicker(
-    context: context,
-    initialDate: initial,
-    firstDate: first,
-    lastDate: first.add(const Duration(days: 730)),
-  );
-  if (date == null || !context.mounted) return null;
-  final time = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.fromDateTime(
-      start ?? first.add(const Duration(hours: 10)),
-    ),
-    helpText: 'Match start time',
-  );
-  if (time == null || !context.mounted) return null;
-  final newStart = DateTime(
-    date.year,
-    date.month,
-    date.day,
-    time.hour,
-    time.minute,
-  );
-  final duration = start != null && end != null
-      ? end.difference(start)
-      : Duration(minutes: minutes);
-  final finish = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.fromDateTime(newStart.add(duration)),
-    helpText: 'Match end time',
-  );
+  final window = await pickFixtureStart(context, start: start, end: end,
+    defaultDuration: Duration(minutes: minutes));
+  if (window == null || !context.mounted) return null;
+  final finish = await pickFixtureEndTime(context, start: window.start, end: window.end);
   if (finish == null || !context.mounted) return null;
-  final newEnd = DateTime(
-    date.year,
-    date.month,
-    date.day,
-    finish.hour,
-    finish.minute,
-  );
-  if (!newEnd.isAfter(newStart) || !newStart.isAfter(now)) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Choose a future start time and an end time after the start.',
-        ),
-      ),
-    );
+  final error = fixtureTimingError(window.start, finish);
+  if (error != null) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
     return null;
   }
-  return (start: newStart, end: newEnd);
+  return (start: window.start, end: finish);
 }
 
 class CompetitionRinkSelectionScreen extends StatefulWidget {

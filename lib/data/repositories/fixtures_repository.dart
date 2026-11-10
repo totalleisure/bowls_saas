@@ -90,7 +90,7 @@ class FixturesRepository {
           'team_id': teamId,
           'team_name': teamName,
         })
-        .eq('id', fixtureId);
+        .eq('id', fixtureId).select('id').single();
   }
 
   Future<void> updateFixtureLabel({

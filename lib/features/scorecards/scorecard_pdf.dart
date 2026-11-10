@@ -36,6 +36,7 @@ Future<Uint8List> scorecardPdf(
     theme: pw.ThemeData.withFont(base: regular, bold: bold),
   );
   final pageCount = scorecardPdfPageCount(card);
+  final title = card.title.trim().isEmpty ? 'Scorecard' : card.title;
   const mm = PdfPageFormat.mm;
   const width = 91 * mm;
   final red = PdfColor.fromHex('#fff4f3'), blue = PdfColor.fromHex('#f1f6fc');
@@ -48,7 +49,12 @@ Future<Uint8List> scorecardPdf(
     child: pw.FittedBox(
       fit: pw.BoxFit.scaleDown,
       alignment: pw.Alignment.topLeft,
-      child: pw.SizedBox(width: width, child: child),
+      // FittedBox divides by the child dimensions when painting. Empty text
+      // can have zero height, so reserve a finite minimum before scaling.
+      child: pw.ConstrainedBox(
+        constraints: const pw.BoxConstraints(minHeight: 1),
+        child: pw.SizedBox(width: width, child: child),
+      ),
     ),
   );
   int runningA = card.handicapA, runningB = card.handicapB;
@@ -136,23 +142,16 @@ Future<Uint8List> scorecardPdf(
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                 children: [
-                  pw.SizedBox(
-                    height: 12 * mm,
-                    child: pw.FittedBox(
-                      fit: pw.BoxFit.scaleDown,
-                      alignment: pw.Alignment.topLeft,
-                      child: pw.SizedBox(
-                        width: width,
-                        child: pw.Text(
-                          card.title,
-                          style: pw.TextStyle(
-                            fontSize: 11,
-                            fontWeight: pw.FontWeight.bold,
-                            color: ink,
-                          ),
-                        ),
+                  fitted(
+                    pw.Text(
+                      title,
+                      style: pw.TextStyle(
+                        fontSize: 11,
+                        fontWeight: pw.FontWeight.bold,
+                        color: ink,
                       ),
                     ),
+                    12 * mm,
                   ),
                   fitted(
                     pw.Column(
@@ -217,9 +216,9 @@ Future<Uint8List> scorecardPdf(
                               ),
                           ],
                         ),
-                        if (card.notes.isNotEmpty)
+                        if (card.playerNotes.isNotEmpty)
                           pw.Text(
-                            'Conditions: ${card.notes}',
+                            'Notes: ${card.playerNotes}',
                             style: const pw.TextStyle(fontSize: 6.5),
                           ),
                       ],
@@ -338,7 +337,7 @@ Future<Uint8List> scorecardPdf(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
             pw.Text(
-              card.title,
+              title,
               style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
             ),
             pw.Text(

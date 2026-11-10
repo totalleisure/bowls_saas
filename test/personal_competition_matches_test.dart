@@ -4,6 +4,39 @@ import 'package:bowls_saas/features/competitions/personal_competition_matches.da
 import 'internal_competitions_test.dart' show FakeCompetitions, sample;
 
 void main() {
+  test('Opponent competition remains visible through every response state', () {
+    final fixture = <String, dynamic>{
+      'id': 'booked',
+      'captain_member_profile_id': 'opponent',
+      'start_at': '2026-12-01T10:00:00Z',
+    };
+    final matches = <PersonalCompetitionMatch>[
+      (data: sample(), match: {'fixture_id': 'booked'}),
+    ];
+    for (final state in ['pending', 'accepted', 'declined']) {
+      final displayed = upcomingPersonalCompetitionFixtures(
+        matches,
+        [fixture],
+        DateTime.utc(2026, 11, 1),
+        {'booked': state},
+      );
+      expect(displayed.single['_competitionAcceptance'], state);
+      expect(
+        acceptedFixturesWithoutCompetitionDuplicates([fixture], displayed),
+        isEmpty,
+      );
+      expect(fixture.containsKey('_competitionAcceptance'), isFalse);
+    }
+    expect(
+      upcomingPersonalCompetitionFixtures(
+        matches,
+        [fixture],
+        DateTime.utc(2026, 11, 1),
+        {},
+      ).single['_competitionAcceptance'],
+      'pending',
+    );
+  });
   test(
     'An off-App match leaves arrangement lists when its result is recorded',
     () {
@@ -59,7 +92,7 @@ void main() {
     expect(competitionNeedsArrangement(matches.single.match), isFalse);
   });
   test(
-    'Upcoming arranged competition fixtures exclude ordinary, other creators, past and cancelled',
+    'Personal competition fixtures include opponents and exclude ordinary, past and cancelled',
     () {
       final data = sample();
       final matches = <PersonalCompetitionMatch>[
@@ -77,7 +110,7 @@ void main() {
         'start_at': start,
         'cancelled_at': cancelled ? '2026-11-01' : null,
       };
-      final selected = upcomingCompetitionFixturesArrangedBy(
+      final selected = upcomingPersonalCompetitionFixtures(
         matches,
         [
           fixture('mine'),
@@ -86,10 +119,14 @@ void main() {
           fixture('past', start: '2026-10-01T10:00:00Z'),
           fixture('cancelled', cancelled: true),
         ],
-        'me',
         DateTime.utc(2026, 11, 1),
+        {'mine': 'accepted', 'other': 'declined'},
       );
-      expect(selected.map((f) => f['id']), ['mine']);
+      expect(selected.map((f) => f['id']), ['mine', 'other']);
+      expect(selected.map((f) => f['_competitionAcceptance']), [
+        'accepted',
+        'declined',
+      ]);
     },
   );
 }

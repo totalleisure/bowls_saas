@@ -5,6 +5,7 @@ import '../auth/account_security_screen.dart';
 import '../clubs/club_start_screen.dart';
 import '../clubs/club_home_screen.dart';
 import '../fixtures/fixtures_screen.dart';
+import '../fixtures/member_fixture_creation_page.dart';
 import '../competitions/screens/competitions_screen.dart';
 import '../help/player_help_screen.dart';
 import '../notifications/notifications_page.dart';
@@ -22,6 +23,7 @@ enum MemberOptionsAction {
   accountSecurity,
   volunteerLists,
   bookings,
+  memberFixtureBooking,
   notifications,
   guide,
   admin,
@@ -57,6 +59,7 @@ Future<void> showMemberOptionsMenu({
         MemberOptionsAction.accountSecurity => Colors.blueGrey,
         MemberOptionsAction.volunteerLists => Colors.green,
         MemberOptionsAction.bookings => Colors.teal,
+        MemberOptionsAction.memberFixtureBooking => Colors.teal,
         MemberOptionsAction.notifications => Colors.orange,
         MemberOptionsAction.guide => Colors.purple,
         MemberOptionsAction.admin => Colors.deepOrange,
@@ -199,6 +202,12 @@ Future<void> showMemberOptionsMenu({
               item(MemberOptionsAction.guide, Icons.help_outline, 'User Guide'),
               if (allowAdmin)
                 item(
+                  MemberOptionsAction.memberFixtureBooking,
+                  Icons.add_location_alt_outlined,
+                  'Member Fixture booking',
+                ),
+              if (allowAdmin)
+                item(
                   MemberOptionsAction.admin,
                   Icons.settings,
                   'Club administration',
@@ -243,6 +252,10 @@ Future<void> showMemberOptionsMenu({
     return;
   }
   final Widget page = switch (action) {
+    MemberOptionsAction.memberFixtureBooking => MemberFixtureCreationPage(
+      clubId: clubId,
+      clubName: clubName,
+    ),
     MemberOptionsAction.competitions => CompetitionsScreen(
       clubId: clubId,
       clubName: clubName,

@@ -1,3 +1,4 @@
+import 'widgets/fixture_time_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/utils/date_format.dart';
@@ -42,6 +43,8 @@ class RepeatExistingFixtureService {
       final end = start.add(duration);
 
       try {
+        final timingError = fixtureTimingError(start, end);
+        if (timingError != null) throw StateError(timingError);
         final fixtureId = await client.rpc(
           'create_repeated_fixture_from_source',
           params: {

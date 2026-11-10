@@ -59,7 +59,9 @@ class _ScorecardRecoveryHostState extends State<ScorecardRecoveryHost> {
     }
   }
 
-  void open() => setState(() {
+  Scorecard? selectedCard;
+  void open([Scorecard? card]) => setState(() {
+    selectedCard = card;
     local = true;
     recovering = false;
   });
@@ -158,7 +160,11 @@ class _ScorecardRecoveryHostState extends State<ScorecardRecoveryHost> {
                         ),
                       ),
                     )
-                  : ScorecardsScreen(repository: repository, onClose: close),
+                  : ScorecardsScreen(
+                      repository: repository,
+                      onClose: close,
+                      initialCard: selectedCard,
+                    ),
             ),
         ],
       ),
@@ -168,19 +174,25 @@ class _ScorecardRecoveryHostState extends State<ScorecardRecoveryHost> {
 
 class _LocalScorecardAccess extends InheritedWidget {
   const _LocalScorecardAccess({required this.open, required super.child});
-  final VoidCallback open;
+  final void Function([Scorecard? card]) open;
   @override
   bool updateShouldNotify(covariant _LocalScorecardAccess oldWidget) => false;
 }
 
-void openOfflineScorecards(BuildContext context) {
+void openOfflineScorecards(
+  BuildContext context, {
+  Scorecard? card,
+  ScorecardRepository? repository,
+}) {
   final access = context.getInheritedWidgetOfExactType<_LocalScorecardAccess>();
   if (access != null) {
-    access.open();
+    access.open(card);
     return;
   }
-  Navigator.of(
-    context,
-    rootNavigator: true,
-  ).push(MaterialPageRoute<void>(builder: (_) => const ScorecardsScreen()));
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute<void>(
+      builder: (_) =>
+          ScorecardsScreen(initialCard: card, repository: repository),
+    ),
+  );
 }

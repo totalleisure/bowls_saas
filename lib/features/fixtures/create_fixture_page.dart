@@ -1,3 +1,4 @@
+import 'widgets/fixture_time_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -14,6 +15,7 @@ import 'package:bowls_saas/core/helpers/member_picker_helpers.dart';
 import 'package:bowls_saas/core/widgets/club_member_picker_page.dart';
 
 import 'fixture_details_page.dart';
+import 'member_fixture_creation_page.dart';
 import 'repeat_fixture_planner_page.dart';
 import 'widgets/venue_picker_header.dart';
 import 'widgets/match_fee_field.dart';
@@ -209,6 +211,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   Future<void> _loadAndChooseFixtureType() async {
     await _load();
+    if (widget.memberBookingMode || !_canSeeAllFixtureTypes) return;
     if (!mounted || !_canWrite || _error != null || _fixtureTypes.isEmpty) return;
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
@@ -224,6 +227,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     try {
       await _loadUserPermissions();
       if (!_canWrite) return;
+      if (widget.memberBookingMode || !_canSeeAllFixtureTypes) return;
 
       await _loadVenues();
       await _loadFixtureTypes();
@@ -586,6 +590,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     final startAt = _combineRepeatDateWithOriginalTime(repeatDate.date);
     final duration = _endAtLocal!.difference(_startAtLocal!);
     final endAt = startAt.add(duration);
+    final timingError = fixtureTimingError(startAt, endAt);
+    if (timingError != null) throw Exception(timingError);
 
     if (!usesRinks) {
       if (_teamNameCtrl.text.trim().isEmpty) {
@@ -3450,70 +3456,22 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   Future<void> _pickEndDateTime() async {
-    final now = DateTime.now();
-    final initialDate =
-        _endAtLocal ??
-        _startAtLocal?.add(const Duration(hours: 2)) ??
-        now.add(const Duration(hours: 2));
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(now.year - 1),
-      lastDate: DateTime(now.year + 5),
-    );
-    if (date == null) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initialDate),
-    );
-    if (time == null) return;
-
-    setState(() {
-      _endAtLocal = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      );
-    });
+    if (_startAtLocal == null) {
+      await _pickDateTime();
+      if (!mounted || _startAtLocal == null) return;
+    }
+    final end = await pickFixtureEndTime(context, start: _startAtLocal!, end: _endAtLocal);
+    if (end == null || !mounted) return;
+    setState(() => _endAtLocal = end);
     _loadRinkAvailability();
   }
 
   Future<void> _pickDateTime() async {
-    final now = DateTime.now();
-    final initialDate = _startAtLocal ?? now;
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(now.year - 1),
-      lastDate: DateTime(now.year + 5),
-    );
-    if (date == null) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initialDate),
-    );
-    if (time == null) return;
-
+    final window = await pickFixtureStart(context, start: _startAtLocal, end: _endAtLocal, latestEnd: widget.initialRinkBooking?.latestEndAt);
+    if (window == null || !mounted) return;
     setState(() {
-      _startAtLocal = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      );
-
-      // Default end time to start + 2 hours if not set yet,
-      // or if end is not after the new start.
-      if (_endAtLocal == null || !_endAtLocal!.isAfter(_startAtLocal!)) {
-        _endAtLocal = _startAtLocal!.add(const Duration(hours: 2));
-      }
+      _startAtLocal = window.start;
+      _endAtLocal = window.end;
     });
     _loadRinkAvailability();
   }
@@ -3759,9 +3717,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (_endAtLocal == null) {
         throw Exception('Please select an end date/time.');
       }
-      if (!_endAtLocal!.isAfter(_startAtLocal!)) {
-        throw Exception('The end time must be after the start time.');
-      }
+      final timingError = fixtureTimingError(_startAtLocal!, _endAtLocal!);
+      if (timingError != null) throw Exception(timingError);
 
       final selectedFixtureType = _fixtureTypeById(_fixtureTypeId);
       final isInternalFixtureType = selectedFixtureType?['is_internal'] == true;
@@ -4721,6 +4678,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   @override
   Widget build(BuildContext context) {
+    // Only ordinary members take the availability-led route. Admin creation
+    // retains its existing form, type picker, setup and save routines.
+    if (!_loading && _canWrite && (widget.memberBookingMode || !_canSeeAllFixtureTypes)) {
+      return MemberFixtureCreationPage(
+        clubId: widget.clubId, clubName: widget.clubName,
+        initialDate: widget.initialRinkBooking?.startAt,
+        initialGreenId: widget.initialRinkBooking?.greenAreaId,
+        initialRinkLabel: widget.initialRinkBooking?.rinkLabel,
+      );
+    }
     if (!_loading && !_canWrite) {
       return Scaffold(
         appBar: AppBar(title: const Text('Fixture booking')),

@@ -1,0 +1,9 @@
+This update makes member bookings and match management easier:
+
+• Book a rink directly from an availability view, with clearer dates and fixture labels.
+• Use fixture-linked scorecards, shared score review, agreement and correction workflows.
+• Find your competition fixtures in clearer lists, whoever arranged the match.
+• Add fixtures to your calendar and receive calendar updates when bookings move or are cancelled. Your calendar may ask you to confirm updates.
+• Club administrators can help members change their login email and resend registration confirmations.
+
+Also includes improvements to fixture timing, member visibility, account controls and booking reliability.

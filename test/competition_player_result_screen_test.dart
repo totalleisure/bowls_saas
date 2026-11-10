@@ -16,6 +16,8 @@ class ResultRepository extends CompetitionRepository {
         ),
       );
   int submissions = 0, confirmations = 0;
+  // Mutable rows model server responses changing after submission.
+  // ignore: prefer_const_constructors
   final data = CompetitionData(
     {
       'id': 'c',
@@ -143,27 +145,17 @@ void main() {
     },
   );
   testWidgets(
-    'Admin sees pending scores and must submit amendments before confirming',
+    'Admin confirms the submitted result without re-entry or resubmission',
     (t) async {
       final repo = ResultRepository();
       await repo.result('m', 21, 12, 'a');
       await open(t, repo, admin: true);
-      expect(
-        t.widget<TextField>(find.byType(TextField).first).controller?.text,
-        '21',
-      );
-      final confirm = find.widgetWithText(
-        OutlinedButton,
-        'Confirm 21–12 · Alex / Partner wins',
-      );
-      expect(t.widget<OutlinedButton>(confirm).onPressed, isNotNull);
-      await t.enterText(find.byType(TextField).first, '22');
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Submit result for confirmation'), findsNothing);
+      expect(find.text('Award walkover'), findsNothing);
+      await t.tap(find.text('Confirm result and advance winner'));
       await t.pumpAndSettle();
-      expect(t.widget<OutlinedButton>(confirm).onPressed, isNull);
-      await t.tap(find.text('Submit result for confirmation'));
-      await t.pumpAndSettle();
-      await t.tap(find.text('Confirm 22–12 · Alex / Partner wins'));
-      await t.pumpAndSettle();
+      expect(repo.submissions, 1);
       expect(repo.confirmations, 1);
       expect(repo.data.matches.last['side_a_entry_id'], 'a');
       expect(find.text('Result confirmed.'), findsOneWidget);

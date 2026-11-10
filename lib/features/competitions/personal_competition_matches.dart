@@ -48,11 +48,11 @@ List<CompetitionRow> acceptedFixturesWithoutCompetitionDuplicates(
   return accepted.where((fixture) => !ids.contains(fixture['id'])).toList();
 }
 
-List<CompetitionRow> upcomingCompetitionFixturesArrangedBy(
+List<CompetitionRow> upcomingPersonalCompetitionFixtures(
   List<PersonalCompetitionMatch> matches,
   List<CompetitionRow> fixtures,
-  String memberId,
   DateTime now,
+  Map<String, String> acceptanceByFixture,
 ) {
   final linkedIds = matches
       .map((m) => m.match['fixture_id'])
@@ -62,9 +62,14 @@ List<CompetitionRow> upcomingCompetitionFixturesArrangedBy(
       .where(
         (f) =>
             linkedIds.contains(f['id']) &&
-            f['captain_member_profile_id'] == memberId &&
             f['cancelled_at'] == null &&
             (DateTime.tryParse('${f['start_at']}')?.isAfter(now) ?? false),
+      )
+      .map(
+        (f) => <String, dynamic>{
+          ...f,
+          '_competitionAcceptance': acceptanceByFixture[f['id']] ?? 'pending',
+        },
       )
       .toList()
     ..sort((a, b) => '${a['start_at']}'.compareTo('${b['start_at']}'));

@@ -1,0 +1,11 @@
+Release candidate 1.6.6 (32), replacing internal build 31 for final acceptance.
+
+Please test:
+1. Member quick booking: type selection, dates, 6/7 rink lanes, all three density modes, booking and Fixture Details.
+2. Rink cards: different Fixture Labels appear; identical labels do not repeat.
+3. Personal competitions: unarranged, pending and accepted lists for both organiser and opponent.
+4. Fresh fixture calendar: add once, change time using Reschedule, apply update, delete and apply cancellation. Check the same calendar for duplicates. Also check a cancellation when the original event was never added.
+5. Shared scorecards: one scorer, offline local recovery, upload/review, both-side agreement, correction request and re-agreement, competition confirmation and locked confirmed card.
+6. Admin member record: compact matching buttons; email change; confirmation resend only for unconfirmed accounts. Use test members, not Patricia's account.
+
+Calendar responses and fixture acceptance are separate. Older imported events may require manual replacement/removal. Username, profile-photo and biometric Quick Unlock features remain disabled.

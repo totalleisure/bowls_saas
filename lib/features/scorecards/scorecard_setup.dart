@@ -37,7 +37,9 @@ class _ScorecardSetupState extends State<ScorecardSetup> {
       'handicapA',
       'handicapB',
     ]) {
-      fields[key] = TextEditingController(text: j[key]?.toString() ?? '');
+      fields[key] = TextEditingController(
+        text: key == 'notes' ? card.displayNotes : j[key]?.toString() ?? '',
+      );
     }
   }
 
@@ -49,6 +51,21 @@ class _ScorecardSetupState extends State<ScorecardSetup> {
     super.dispose();
   }
 
+  bool hidden(String key, {bool rules = false}) =>
+      (rules && card.startedAt != null) ||
+      (card.fixtureLink != null &&
+          [
+            'title',
+            'date',
+            'venue',
+            'rink',
+            'sideA',
+            'sideB',
+            'playersA',
+            'playersB',
+            'marker',
+          ].contains(key));
+
   Widget field(
     String key,
     String label, {
@@ -57,43 +74,58 @@ class _ScorecardSetupState extends State<ScorecardSetup> {
     bool signed = false,
     bool rules = false,
     int lines = 1,
-  }) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextFormField(
-      controller: fields[key],
-      enabled: !(rules && card.startedAt != null),
-      maxLines: lines,
-      keyboardType: number
-          ? TextInputType.numberWithOptions(signed: signed)
-          : null,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-      ),
-      validator: (v) {
-        final s = v?.trim() ?? '';
-        if (s.isEmpty) return required ? 'Please enter $label' : null;
-        if (number) {
-          final n = int.tryParse(s);
-          if (n == null || (!signed && n <= 0)) {
-            return 'Enter ${signed ? "a whole number" : "a positive whole number"}';
-          }
-        }
-        if (key == 'date') {
-          try {
-            DateFormat('yyyy-MM-dd').parseStrict(s);
-          } catch (_) {
-            return 'Use YYYY-MM-DD';
-          }
-        }
-        return null;
-      },
-    ),
-  );
+  }) => hidden(key, rules: rules)
+      ? const SizedBox.shrink()
+      : Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: TextFormField(
+            controller: fields[key],
+            maxLines: lines,
+            keyboardType: number
+                ? TextInputType.numberWithOptions(signed: signed)
+                : null,
+            decoration: InputDecoration(
+              labelText: label,
+              border: const OutlineInputBorder(),
+            ),
+            validator: (v) {
+              final s = v?.trim() ?? '';
+              if (s.isEmpty) return required ? 'Please enter $label' : null;
+              if (number) {
+                final n = int.tryParse(s);
+                if (n == null || (!signed && n <= 0)) {
+                  return 'Enter ${signed ? "a whole number" : "a positive whole number"}';
+                }
+              }
+              if (key == 'date') {
+                try {
+                  DateFormat('yyyy-MM-dd').parseStrict(s);
+                } catch (_) {
+                  return 'Use YYYY-MM-DD';
+                }
+              }
+              return null;
+            },
+          ),
+        );
   void save() {
     if (!form.currentState!.validate()) return;
     final j = card.toJson();
     for (final e in fields.entries) {
+      if (hidden(
+        e.key,
+        rules: [
+          'woods',
+          'target',
+          'maxEnds',
+          'handicapA',
+          'handicapB',
+          'durationMinutes',
+          'lastJackMinutes',
+        ].contains(e.key),
+      )) {
+        continue;
+      }
       j[e.key] =
           [
             'woods',
@@ -138,52 +170,77 @@ class _ScorecardSetupState extends State<ScorecardSetup> {
       child: ListView(
         padding: const EdgeInsets.all(18),
         children: [
-          const Text(
-            'Saved on this device. No sign-in or connection is required. Player names are entered manually; this does not book a rink or submit a competition result.',
+          Text(
+            card.fixtureLink == null
+                ? 'Saved on this device. No sign-in or connection is required. Player names are entered manually; this does not book a rink or submit a competition result.'
+                : 'Names and playing positions come from the fixture. Review the playing conditions below. This does not change the fixture or submit a competition result.',
           ),
           const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(14),
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: .35),
+              border: Border.all(
+                color: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: .3),
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              card.fixtureLink == null
+                  ? 'Game setup'
+                  : '${card.title} — editable scorecard settings',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
           field('title', 'Match / competition name', required: true),
           field('date', 'Date (YYYY-MM-DD)', required: true),
           field('venue', 'Venue / club'),
           field('rink', 'Rink number'),
-          DropdownButtonFormField<String>(
-            initialValue: card.format,
-            decoration: const InputDecoration(labelText: 'Format'),
-            items: [
-              'Singles',
-              'Pairs',
-              'Triples',
-              'Fours',
-            ].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
-            onChanged: card.startedAt != null
-                ? null
-                : (v) => setState(() => card.format = v!),
-          ),
+          if (card.fixtureLink == null && card.startedAt == null)
+            DropdownButtonFormField<String>(
+              initialValue: card.format,
+              decoration: const InputDecoration(labelText: 'Format'),
+              items: [
+                'Singles',
+                'Pairs',
+                'Triples',
+                'Fours',
+              ].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+              onChanged: card.startedAt != null || card.fixtureLink != null
+                  ? null
+                  : (v) => setState(() => card.format = v!),
+            ),
           const SizedBox(height: 16),
           field('sideA', 'Side A name', required: true),
           field('playersA', 'Side A players (positions / names)', lines: 3),
           field('sideB', 'Side B name', required: true),
           field('playersB', 'Side B players (positions / names)', lines: 3),
           field('marker', 'Marker / scorer'),
-          DropdownButtonFormField<String>(
-            initialValue: card.scoring,
-            decoration: const InputDecoration(labelText: 'Scoring method'),
-            items: const [
-              DropdownMenuItem(value: 'shots', child: Text('Normal shots')),
-              DropdownMenuItem(
-                value: '100up',
-                child: Text('100 Up — 4, 3, 2, 1'),
-              ),
-            ],
-            onChanged: card.startedAt != null
-                ? null
-                : (v) => setState(() {
-                    card.scoring = v!;
-                    if (v == '100up' && fields['target']!.text.isEmpty) {
-                      fields['target']!.text = '100';
-                    }
-                  }),
-          ),
+          if (card.startedAt == null)
+            DropdownButtonFormField<String>(
+              initialValue: card.scoring,
+              decoration: const InputDecoration(labelText: 'Scoring method'),
+              items: const [
+                DropdownMenuItem(value: 'shots', child: Text('Normal shots')),
+                DropdownMenuItem(
+                  value: '100up',
+                  child: Text('100 Up — 4, 3, 2, 1'),
+                ),
+              ],
+              onChanged: card.startedAt != null
+                  ? null
+                  : (v) => setState(() {
+                      card.scoring = v!;
+                      if (v == '100up' && fields['target']!.text.isEmpty) {
+                        fields['target']!.text = '100';
+                      }
+                    }),
+            ),
           const SizedBox(height: 16),
           field(
             'woods',

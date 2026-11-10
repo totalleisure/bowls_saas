@@ -1,5 +1,7 @@
 import { buildEmailActionBlock } from "./action_email.ts";
+import { loadFixtureCalendar, fixtureCalendarHtml } from "./fixture_calendar.mjs";
 import { isVerifiedWorker } from "./worker_auth.ts";
+import { clubMessageHtml } from "../member_invitations/email.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -225,6 +227,14 @@ serve(async (req) => {
           })
           .eq("id", email.id);
 
+        const calendarAttachment = await loadFixtureCalendar(
+          supabase, email, new URL(supabaseUrl).hostname.split(".")[0], replyAddress,
+        );
+        if (calendarAttachment?.skip) {
+          await supabase.from("email_queue").update({status: "cancelled", last_error: null}).eq("id", email.id);
+          continue;
+        }
+
         let actionBlock = email.payload?.action_block as
           | EmailActionBlock
           | undefined;
@@ -267,6 +277,39 @@ serve(async (req) => {
           ? buildEmailActionBlock(actionBlock, replyAddress!)
           : "";
 
+        let outboundHtml = `<div style="font-family:Arial,sans-serif;line-height:1.45;color:#222222;">${bodyHtml}${actionHtml}${calendarAttachment ? fixtureCalendarHtml(calendarAttachment) : ""}</div>`;
+        if (email.event_type === "mailing_list_message") {
+          const messageId = email.payload?.mailing_list_message_id;
+          if (typeof messageId !== "string") {
+            throw new Error("Mailing-list message reference is missing.");
+          }
+          const { data: message, error: messageError } = await supabase
+            .from("mailing_list_messages").select("club_id, mailing_list_id")
+            .eq("id", messageId).single();
+          if (messageError || !message || message.mailing_list_id !== email.payload?.mailing_list_id) {
+            throw new Error("Mailing-list message could not be verified.");
+          }
+          const { data: club, error: clubError } = await supabase.from("clubs")
+            .select("name, primary_colour, secondary_colour").eq("id", message.club_id).single();
+          if (clubError || !club) throw new Error("Mailing-list Club branding is unavailable.");
+          const {data: senderIdentity, error: identityError} = await supabase.rpc(
+            "mailing_list_email_identity", {p_message_id: messageId});
+          if (identityError || !["club","total_leisure"].includes(senderIdentity)) {
+            throw new Error("Mailing-list sender identity could not be verified.");
+          }
+          outboundHtml = clubMessageHtml({club: club.name,subject: String(email.subject ?? ""),
+            message: String(email.body ?? ""),primaryColour: club.primary_colour,secondaryColour: club.secondary_colour,
+            fromTotalLeisure: senderIdentity === "total_leisure"});
+          if (email.payload?.approved_marketing_layout === true) {
+            const {data: approvedHtml, error: approvedError} = await supabase.rpc(
+              "mailing_list_approved_html", {p_email_queue_id: email.id});
+            if (approvedError || typeof approvedHtml !== "string" || !approvedHtml) {
+              throw new Error("Approved mailing-list layout is unavailable.");
+            }
+            outboundHtml = approvedHtml;
+          }
+        }
+
         const sendRes = await fetch(
           `${supabaseUrl}/functions/v1/send-graph-email`,
           {
@@ -279,13 +322,8 @@ serve(async (req) => {
             body: JSON.stringify({
               to: email.recipient_email,
               subject: email.subject,
-              html: `
-                <div style="font-family:Arial,sans-serif;line-height:1.45;color:#222222;">
-                  ${bodyHtml}
-                  ${actionHtml}
-                </div>
-              `,
-              attachments: email.attachments ?? [],
+              html: outboundHtml,
+              attachments: [...(email.attachments ?? []), ...(calendarAttachment ? [calendarAttachment] : [])],
             }),
           },
         );

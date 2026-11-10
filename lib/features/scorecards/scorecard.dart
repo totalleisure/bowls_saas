@@ -1,5 +1,7 @@
+import 'fixture_scorecard_availability.dart';
 import 'dart:math' as math;
 import 'package:uuid/uuid.dart';
+import 'scorecard_notes.dart';
 
 /// Standalone cards never create fixtures, send messages or advance a draw.
 class Scorecard {
@@ -21,6 +23,38 @@ class Scorecard {
   final List<Map<String, dynamic>> ends = [];
   final List<Map<String, dynamic>> history = [];
   Map<String, dynamic>? signatureA, signatureB;
+  String suggestedSignerA = '', suggestedSignerB = '';
+  Map<String, dynamic>? fixtureLink;
+  bool get resultConfirmed => fixtureLink?['sharedConfirmed'] == true;
+  String? get confirmedWinner => fixtureLink?['sharedWinnerName'] as String?;
+  String get displayNotes => compactScorecardNotes(notes, fixtureLink);
+  String get playerNotes => fixtureLink?['competitionId'] == null
+      ? displayNotes
+      : displayNotes
+            .split('\n')
+            .where(
+              (line) => !RegExp(
+                r'^(winning condition|scoring|rules):',
+                caseSensitive: false,
+              ).hasMatch(line),
+            )
+            .join('\n');
+  String get playingSummary {
+    String duration(int minutes) => minutes < 60
+        ? '$minutes min'
+        : '${minutes ~/ 60} hr${minutes % 60 == 0 ? '' : ' ${minutes % 60} min'}';
+    return [
+      '$format · $woods woods',
+      if (scoring == '100up') '100 Up',
+      if (target != null) 'First to $target',
+      if (maxEnds != null) 'Maximum $maxEnds ends',
+      durationMinutes == null
+          ? 'No time limit'
+          : 'Match limit: ${duration(durationMinutes!)}',
+      if (lastJackMinutes != null)
+        'Last jack by ${duration(lastJackMinutes!)} from start',
+    ].join(' · ');
+  }
 
   factory Scorecard.create() => Scorecard(
     id: const Uuid().v4(),
@@ -42,6 +76,9 @@ class Scorecard {
       lastJackMinutes != null &&
       elapsedSeconds(now) >= lastJackMinutes! * 60;
   String? cannotStartEnd(DateTime now) {
+    if (resultConfirmed) {
+      return 'Admin confirmed this result. The scorecard is locked.';
+    }
     if (complete) {
       return 'This scorecard is finished. Reopen it before making changes.';
     }
@@ -75,6 +112,16 @@ class Scorecard {
   }
 
   void startMatch(DateTime now) {
+    if (fixtureLink?['sharedPendingClaim'] == true) {
+      throw StateError(
+        'Connect and complete the shared-card claim from the fixture before starting.',
+      );
+    }
+    if (startedAt == null &&
+        fixtureLink != null &&
+        !fixtureScoringDayReached(fixtureLink!, nowUtc: now)) {
+      throw StateError('Scorecard available on the day of the Fixture');
+    }
     if (startedAt != null) throw StateError('Match already started.');
     startedAt = now.toUtc();
     changed('Match started', after: startedAt!.toIso8601String());
@@ -142,6 +189,9 @@ class Scorecard {
   }
 
   void reopen() {
+    if (resultConfirmed) {
+      throw StateError('Admin confirmed this result. The scorecard is locked.');
+    }
     finishedAt = null;
     changed('Scorecard reopened; signatures invalidated');
   }
@@ -196,6 +246,9 @@ class Scorecard {
     'history': history,
     'signatureA': signatureA,
     'signatureB': signatureB,
+    'suggestedSignerA': suggestedSignerA,
+    'suggestedSignerB': suggestedSignerB,
+    'fixtureLink': fixtureLink,
   };
   factory Scorecard.fromJson(Map<String, dynamic> j) {
     if (j['schema'] != 1) {
@@ -227,6 +280,9 @@ class Scorecard {
     c.finishedAt = DateTime.tryParse(j['finishedAt'] as String? ?? '');
     c.revision = j['revision'] as int;
     c.saveVersion = j['saveVersion'] as int? ?? 0;
+    c.suggestedSignerA = j['suggestedSignerA'] as String? ?? '';
+    c.suggestedSignerB = j['suggestedSignerB'] as String? ?? '';
+    c.fixtureLink = (j['fixtureLink'] as Map?)?.cast<String, dynamic>();
     c.ends.addAll(
       (j['ends'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
     );

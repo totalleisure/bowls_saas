@@ -1,6 +1,7 @@
 import '../reports/club_usage.dart';
 import '../communications/club_options_button.dart';
 import 'diary_view_bar.dart';
+import '../fixtures/rink_fixture_card_title.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -525,6 +526,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
           rinks_required,
           green_area_id,
           opponent_name,
+          team_name,
           cancelled_at,
 
           competition_types (
@@ -636,26 +638,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
   }
 
   String _fixtureBlockTitle(Map<String, dynamic> fixture) {
-    final competitionType =
-        fixture['competition_types'] as Map<String, dynamic>?;
-
-    final isInternal = competitionType?['is_internal'] == true;
-    final typeName = (competitionType?['name'] ?? '').toString().trim();
-
-    // ✅ INTERNAL → always show fixture type
-    if (isInternal) {
-      return typeName.isNotEmpty ? typeName : 'Internal Fixture';
-    }
-
-    // ✅ NON-INTERNAL → show opponent
-    final opponentName = (fixture['opponent_name'] ?? '').toString().trim();
-
-    if (opponentName.isNotEmpty) {
-      return opponentName;
-    }
-
-    // fallback
-    return typeName.isNotEmpty ? typeName : 'Fixture';
+    return rinkFixtureCardTitle(fixture);
   }
 
   Color _parseHexColor(String? hex, Color fallback) {
@@ -3074,7 +3057,7 @@ class _TimelineBlock extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           block.title,
-                          maxLines: 1,
+                          maxLines: block.title.contains('\n') ? 2 : 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.labelMedium
                               ?.copyWith(
@@ -3092,7 +3075,7 @@ class _TimelineBlock extends StatelessWidget {
                       children: [
                         Text(
                           block.title,
-                          maxLines: 1,
+                          maxLines: block.title.contains('\n') ? 2 : 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.labelMedium
                               ?.copyWith(
