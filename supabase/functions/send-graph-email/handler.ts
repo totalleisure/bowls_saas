@@ -3,6 +3,8 @@ type MailAttachment = {
   name: string;
   contentType: string;
   contentBytes: string; // base64
+  contentId?: string;
+  isInline?: boolean;
 };
 
 function json(status: number, body: unknown) {
@@ -77,6 +79,8 @@ export async function handleRequest(req: Request, env: (name: string) => string 
       name: a.name,
       contentType: a.contentType,
       contentBytes: a.contentBytes,
+      ...(a.isInline === true && a.contentId
+        ? { isInline: true, contentId: a.contentId } : {}),
     }));
 
     const toList = Array.isArray(to) ? to : [to];

@@ -1,0 +1,17 @@
+# Fixture calendar updates and cancellations
+
+Implemented and deployed in staging first, verified, then promoted to production. Database source migration: 20261110005750_fixture_calendar_lifecycle.sql. Production email worker: version 22. No client/store build or restart required.
+
+New fixture response emails supply calendar REQUEST files with a stable event UID, sender mailbox as organiser, the individual recipient as attendee with RSVP disabled, and a persistent increasing revision. Calendar acceptance remains independent of Bowls App fixture acceptance. Existing Accept/Decline response buttons and token validation are retained.
+
+Fixture changes queue a dedicated calendar update for members previously sent actionable fixture emails. In-place competition booking changes and normal replacement reschedules both retain the calendar root identity. Deferred dispatch sees the completed reschedule transaction and avoids an intermediate cancellation. Prior recipients receive one dedicated calendar attachment rather than another in their separate rescheduling selection email. Unsent obsolete calendar messages are cancelled and stale messages are rejected again at send time.
+
+Cancellation/deletion sends METHOD:CANCEL with the same UID/organiser and a higher revision. Private snapshots persist after fixture deletion. Deletion of an archived predecessor does not cancel its live replacement. Current member email addresses are used where available. No inference is made that receiving an email proves someone imported its calendar event.
+
+If a recipient never saved the original event, the rescheduling update can be added as a new event; a cancellation has no matching event to remove and can be ignored. Calendar applications can require opening or confirming the attachment. Entries imported before organiser/revision support may need manual replacement/removal. No guarantee of silent updates is made. No calendar-provider write access is used. Recipient iPhone interoperability testing remains outstanding; no test emails were sent by this task.
+
+Verification: 16 calendar/action/worker-authentication tests pass in both checkouts. Rollback-only lifecycle SQL tests pass on both deployed databases: in-place date edits, replacement reschedules, stale revisions, unrelated edits, cancellation after deletion, historical predecessor deletion, no recipients for never-mailed fixtures, and service-only state access. These use synthetic fixtures and do not send mail. Existing fixture function call sites were inspected; their definitions remain unchanged and match between projects. All ten relevant live function definitions match. The five deployed production worker files match reviewed source. Shared Dart comparison passes; production security advisors introduce no new notices.
+
+Source, database and Edge Function deployments are complete in both environments. Environment-specific gateway settings and credentials are preserved. Migration backfill queues no historical notifications. Store deployment: none required. Recovery pauses only lifecycle dispatch using scripts/recovery_fixture_calendar_lifecycle.sql; the preceding worker bundle is saved under tmp/calendar-lifecycle/worker-before.json. Persistent capture should remain enabled during recovery.
+
+Calendar message semantics follow RFC 5546: https://www.rfc-editor.org/rfc/rfc5546.html . Standards compliance does not establish the recipient calendar application's UI behaviour.

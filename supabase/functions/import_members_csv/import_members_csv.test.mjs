@@ -16,17 +16,23 @@ const row = (n, extra = {}) => {
 };
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function setup({ role = 'admin', active = true, callerClub = club, superuser = false, validToken = true, failPermission = false, failMemberProfile = false } = {}) {
+function setup({ role = 'admin', active = true, callerClub = club, superuser = false, validToken = true, failPermission = false, failMemberProfile = false, failReceipt = false } = {}) {
   const users = [{ id: 'caller', email: 'caller@example.test' }];
   const tables = {
     app_superusers: superuser ? [{ user_id: 'caller' }] : [],
     member_profiles: [{ id: 'caller-profile', user_id: 'caller', display_name: 'Caller' }],
     club_memberships: [{ id: 'caller-membership', club_id: callerClub, member_profile_id: 'caller-profile', role, is_active: active }],
   };
-  const calls = { downloads: 0, lists: 0, creations: 0, writes: 0, auth: 0, audits: [] };
+  const calls = { downloads: 0, lists: 0, creations: 0, writes: 0, auth: 0, audits: [], receipts: [] };
   let text = '', handler, nextId = 1;
   const admin = {
-    rpc: async (name, args) => { assert.equal(name, 'audit_member_import'); calls.audits.push(args); return { data: 'audit-run' }; },
+    rpc: async (name, args) => {
+      if (name === 'record_member_import_account') {
+        calls.receipts.push(args);
+        return failReceipt ? { error: new Error('Receipt unavailable') } : { data: null };
+      }
+      assert.equal(name, 'audit_member_import'); calls.audits.push(args); return { data: 'audit-run' };
+    },
     auth: {
       getUser: async token => { calls.auth++; return validToken && token === 'valid-token' ? { data: { user: { id: 'caller', user_metadata: { role: 'admin' } } } } : { data: { user: null }, error: new Error('Invalid token') }; },
       admin: {
@@ -114,8 +120,22 @@ test('two records, repeat two, then full nine: separate accounts/profiles and no
   assert.equal(app.memberProfiles().length, 9);
   assert.equal(app.memberships().length, 9);
   assert.equal(new Set(app.memberships().map(m => m.member_profile_id)).size, 9);
+  assert.equal(app.calls.receipts.length, 9);
+  assert.equal(new Set(app.calls.receipts.map(r => r.p_user)).size, 9);
+  assert.ok(app.calls.receipts.every(r => r.p_club === club));
   assert.ok(app.memberships().every(m => m.is_active === false && m.role === 'member'));
   for (const p of app.memberProfiles()) assert.equal(p.display_name, `${p.first_name} ${p.last_name}`);
+});
+
+test('receipt failure reports a warning without recreating an existing account on repeat import', async () => {
+  const app = setup({ failReceipt: true });
+  const result = await app.run();
+  assert.equal(result.status, 200);
+  assert.equal(result.data.summary.created, 1);
+  assert.ok(result.data.report[0].warnings.some(w => w.includes('Forgotten password')));
+  const repeat = await app.run();
+  assert.equal(repeat.data.summary.created, 0);
+  assert.equal(app.calls.receipts.length, 1);
 });
 
 for (const active of [false, true]) test(`explicit starting status ${active}; CSV/request role overrides ignored`, async () => {

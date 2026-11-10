@@ -2,6 +2,7 @@ export const APP_WEBSITE = "https://sites.google.com/view/totalleisurebowls/get-
 export const TEMPLATE_VERSION = "website-v4";
 export const PASSWORD_PLACEHOLDER = "{{INITIAL_PASSWORD}}";
 export const HELP_EMAIL = "bowls@totalleisure.com";
+export const APP_EMAIL_FOOTER = "Fixtures. Teams. Rink bookings.";
 export const GUIDE_LABELS = {
   introduction: "Member introduction",
   android: "Android & Samsung installation guide",
@@ -96,7 +97,44 @@ export function invitationHtml(content: ReturnType<typeof invitationContent>) {
     e(content.introduction)
   }</p></td></tr>${sections}<tr><td style="padding:0 32px 30px;line-height:25px">${
     e(content.closing)
-  }</td></tr><tr><td style="background:#153f32;color:#e4d7ad;padding:18px;text-align:center">Fixtures. Teams. Rink bookings.</td></tr></table></td></tr></table></body></html>`;
+  }</td></tr><tr><td style="background:#153f32;color:#e4d7ad;padding:18px;text-align:center">${APP_EMAIL_FOOTER}</td></tr></table></td></tr></table></body></html>`;
+}
+
+/** Mailing-list content uses the invitation's App layout and shared footer,
+ * without account-creation wording, passwords or invitation actions.
+ * Authors enter plain text; ## headings and - bullets are supported safely.
+ */
+export function clubMessageHtml(content: {
+  club: string; subject: string; message: string;
+  primaryColour?: string | null; secondaryColour?: string | null;
+  fromTotalLeisure?: boolean;
+}) {
+  const colour = (value: string | null | undefined, fallback: string) =>
+    /^#[0-9a-f]{6}$/i.test(value ?? "") ? value! : fallback;
+  const primary = content.fromTotalLeisure ? "#194d85" : colour(content.primaryColour, "#153f32");
+  const secondary = content.fromTotalLeisure ? "#d9b85b" : colour(content.secondaryColour, "#d9b85b");
+  const linkText = (text: string) => text.split(/(https?:\/\/[^\s<>"']+)/g)
+    .map((part) => /^https?:\/\//.test(part)
+      ? `<a href="${escapeHtml(part)}" style="color:#174d85;text-decoration:underline">${escapeHtml(part)}</a>`
+      : escapeHtml(part)).join("");
+  const lines = content.message.replaceAll("\r\n", "\n").split("\n");
+  const blocks: string[] = [];
+  let paragraph: string[] = [], bullets: string[] = [];
+  const flush = () => {
+    if (paragraph.length) blocks.push(`<p style="margin:0 0 18px;font-size:16px;line-height:26px">${paragraph.map(linkText).join("<br>")}</p>`);
+    if (bullets.length) blocks.push(`<ul style="margin:0 0 20px;padding-left:24px;font-size:16px;line-height:26px">${bullets.map(s => `<li style="padding-bottom:8px">${linkText(s)}</li>`).join("")}</ul>`);
+    paragraph=[];bullets=[];
+  };
+  for (const line of lines) {
+    if (!line.trim()) {flush();continue;}
+    if (line.startsWith("## ")) {
+      flush();blocks.push(`<h2 style="margin:26px 0 12px;font-size:21px;line-height:28px;color:#194d85">${linkText(line.slice(3))}</h2>`);
+    } else if (/^[-•] /.test(line)) {
+      if (paragraph.length) flush();bullets.push(line.slice(2));
+    } else {if(bullets.length)flush();paragraph.push(line);}
+  }
+  flush();
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#edf2f6;font-family:Arial,Helvetica,sans-serif;color:#243b4d"><table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:24px 8px"><table role="presentation" cellspacing="0" cellpadding="0" width="640" style="width:100%;max-width:640px;background:white;border-radius:16px;overflow:hidden"><tr><td style="background:${primary};color:white;padding:28px 32px;border-top:7px solid ${secondary}"><p style="font-size:16px;line-height:24px;margin:0 0 18px;color:#ffffff">${escapeHtml(content.fromTotalLeisure ? "Total Leisure" : content.club)}</p><h1 style="font-size:32px;line-height:40px;margin:0;color:#ffffff">Your Club. Your Way.</h1><p style="margin:14px 0 0;color:#ffffff">Total Leisure Bowls</p></td></tr><tr><td style="padding:28px 32px"><h2 style="font-size:25px;line-height:32px;margin:0 0 24px;color:#194d85">${escapeHtml(content.subject)}</h2>${content.fromTotalLeisure ? `<p style="font-size:14px;line-height:22px;color:#475569">For members of ${escapeHtml(content.club)}</p>` : ""}${blocks.join("")}</td></tr><tr><td style="padding:0 32px 28px;font-size:14px;line-height:23px"><a href="${APP_WEBSITE}" style="color:#174d85">Get or update the App</a><br>Need help? <a href="mailto:${HELP_EMAIL}" style="color:#174d85">${HELP_EMAIL}</a></td></tr><tr><td style="background:${primary};color:#ffffff;padding:18px;text-align:center">${APP_EMAIL_FOOTER}</td></tr></table></td></tr></table></body></html>`;
 }
 
 export function invitationEligibility(

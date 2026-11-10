@@ -1,0 +1,50 @@
+begin;
+do $test$
+declare c uuid; p uuid; m uuid; n int; mail text:='alerts@example.invalid';
+begin
+ select cm.club_id,cm.member_profile_id,cm.id into strict c,p,m from public.club_memberships cm
+ where cm.is_active and exists(select 1 from public.member_profiles mp where mp.id=cm.member_profile_id and mp.user_id is not null)
+ and (select count(*) from public.venues v where v.club_id=cm.club_id and v.is_home_venue)=1 limit 1;
+ assert not has_function_privilege('anon','public.complete_app_guest_registration(uuid,uuid,text,boolean)','execute'),'Anonymous access';
+ assert not has_function_privilege('authenticated','public.complete_app_guest_registration(uuid,uuid,text,boolean)','execute'),'Client access';
+ perform set_config('request.jwt.claim.role','authenticated',true);
+ begin perform public.complete_app_guest_registration(c,p,mail,true);raise exception 'Non-service accepted';exception when insufficient_privilege then null;end;
+ perform set_config('request.jwt.claim.role','service_role',true);
+ update public.venues set club_officers=jsonb_build_object('club_secretary',jsonb_build_object('email','wrong@example.invalid')) where club_id=c and is_home_venue;
+ perform public.complete_app_guest_registration(c,p,mail,true);
+ select count(*) into n from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;
+ assert n=1,'No-secretary recipient count';
+ assert exists(select 1 from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text and recipient_email=mail and body like '%No Membership Secretary is recorded%' and subject like '%New App registration - %'),'Missing-secretary platform message';
+ perform public.complete_app_guest_registration(c,p,mail,true);
+ select count(*) into n from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;assert n=1,'Duplicate alerts';
+ delete from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;
+ delete from mailing_private.app_registration_notices where membership_id=m;
+ update public.venues set club_officers=jsonb_build_object('membership_secretary',jsonb_build_object('name','Test secretary','email','secretary@example.invalid')) where club_id=c and is_home_venue;
+ perform public.complete_app_guest_registration(c,p,mail,true);
+ select count(*) into n from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;assert n=2,'Expected two alerts independent of secretary App account';
+ assert exists(select 1 from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text and recipient_email='secretary@example.invalid'),'Wrong secretary recipient';
+ delete from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;
+ delete from mailing_private.app_registration_notices where membership_id=m;
+ update public.venues set club_officers=jsonb_build_object('membership_secretary',jsonb_build_object('email',mail)) where club_id=c and is_home_venue;
+ perform public.complete_app_guest_registration(c,p,mail,true);
+ select count(*) into n from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;assert n=1,'Same mailbox got two copies';
+ delete from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;
+ delete from mailing_private.app_registration_notices where membership_id=m;
+ update public.venues set club_officers=jsonb_build_object('membership_secretary',jsonb_build_object('email','invalid')) where club_id=c and is_home_venue;
+ perform public.complete_app_guest_registration(c,p,mail,true);
+ assert exists(select 1 from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text and body like '%email address is invalid%'),'Invalid email not reported';
+ begin perform public.complete_app_guest_registration(c,p,'invalid',true);raise exception 'Invalid platform mailbox accepted';exception when invalid_parameter_value then null;end;
+ delete from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;
+ delete from mailing_private.app_registration_notices where membership_id=m;
+ update public.venues set club_officers=jsonb_build_object('membership_secretary',jsonb_build_object('name','','email','','phone','')) where club_id=c and is_home_venue;
+ perform public.complete_app_guest_registration(c,p,mail,true);
+ assert exists(select 1 from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text and body like '%No Membership Secretary is recorded%'),'Blank editor fields not recognised';
+ begin perform public.complete_app_guest_registration(c,p,mail,false);raise exception 'Duplicate registration accepted';exception when unique_violation then null;end;
+ delete from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text;
+ delete from public.club_memberships where id=m;
+ m:=public.complete_app_guest_registration(c,p,mail,false);
+ assert exists(select 1 from public.club_memberships where id=m and role='guest'),'New guest membership not created';
+ assert exists(select 1 from public.email_queue where event_type='app_registration_received' and payload->>'membership_id'=m::text),'New registration alerts not atomic';
+end $test$;
+select 'PASS: service-only registration, two-recipient routing, missing/invalid secretary, no Club Secretary fallback, duplicate suppression; all changes rolled back' result;
+rollback;

@@ -83,3 +83,19 @@ lib/Mac Git Access Code.txt
 
 # Supabase CLI generated state
 supabase/.temp/
+
+# Generated release bundles, reports and local verification material
+/output/
+/outputs/
+/tmp/
+
+# Historical generated deployment snapshots (retained locally)
+/Docs/releases/1.5.5/amendment-reconciliation/
+/Docs/releases/1.5.5/database-deployment/edge-function-plan.json
+/Docs/releases/1.5.5/database-deployment/manifest.json
+/Docs/releases/1.5.5/database-deployment/recovery.sql
+/Docs/releases/1.5.6/written-reply-recovery.sql
+/Docs/releases/**/production-worker-before.json
+/Docs/releases/**/registration-worker-before.json
+/Docs/releases/**/promotion.json
+/Docs/releases/**/report-before.sql

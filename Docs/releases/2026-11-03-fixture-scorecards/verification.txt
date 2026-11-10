@@ -1,0 +1,17 @@
+Fixture-linked scorecards: first integration, 3 November 2026
+
+Scope
+Yellow Score Card button in the Member Internal Fixture header, restricted to internal, member-bookable, preselect rink fixtures. Selected players/opponents and Club Admins may prepare a card for their rink. Singles prefill both names; pairs prefill both partnerships with the recorded skips as suggested signature names. Signatures still require actual user input. Initial creation needs a connection. Local scoring and cold-start recovery work offline afterwards.
+
+A private match parent and per-rink setup provide a multi-rink structure. The first scorer reviews the conditions; later scorers reuse the immutable setup with their own independent local scores. Booking duration is not inferred as playing time. Fractional handicaps require further support and are rejected instead of rounded.
+
+This revision does not upload live scores, compare scorers, provide spectator viewing, or submit/confirm official fixture or competition results. It sends no messages. Existing scoring continues independently.
+
+Database
+Both staging and production deployed 20261103232501_fixture_scorecard_setup and 20261103232502_fixture_scorecard_deletion_compatibility. Original arrange_competition_match and record_competition_result definitions unchanged and equal in both projects. New RPC definitions equal. New private tables have RLS and no direct client privileges; authenticated RPCs enforce membership and per-rink scoring permission. Cascades avoid blocking original fixture/rink deletion; deleting an auth user clears setup creator attribution.
+
+Verification
+Rollback-only database setup/copy/stale-source/invalid-condition/security/no-fixture-change/no-email tests passed in both projects. Flutter tests cover actual position order, signature prefills, independent conditions copying, first review, subsequent scorer and local resume, plus existing offline recovery, signature input, auth navigation and compact fixture layout tests. Scorecard module analysis clean. Fixture details retains pre-existing lint warnings. Staging Windows release built successfully. Shared Dart source comparison passed after reviewed promotion. No environment entry points or credentials copied.
+
+Deployment
+Shared production source amended; production database ready. Not committed/pushed and no new Apple/Android/store package uploaded. Existing 1.6.6 (31) packages do not include this new fixture UI. Recovery access-disable SQL is in scripts/recovery_fixture_scorecard_setup.sql; it is not applied and preserves all data.

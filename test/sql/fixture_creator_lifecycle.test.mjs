@@ -3,15 +3,17 @@ import {btree_gist} from './audit_journal/node_modules/@electric-sql/pglite/dist
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 const db=new PGlite({extensions:{btree_gist}});
-const root=new URL('../../',import.meta.url).pathname.replace(/^\/([A-Za-z]:)/,'$1');
-const baseline=process.argv[2];
-if (!baseline) throw new Error('Pass the path to the production-shaped rehearsal-baseline.sql (synthetic schema only).');
+const baseline=process.argv[2] ?? new URL('./lifecycle-fixtures/rehearsal-baseline.sql',import.meta.url);
+// The checked-in baseline already includes the relevant historical release functions.
 try {
 await db.exec('CREATE ROLE supabase_admin; CREATE EXTENSION btree_gist;');
 await db.exec(fs.readFileSync(baseline,'utf8'));
 await db.exec("SET bowls.release_155_approved='yes'");
-await db.exec(fs.readFileSync(root+'docs/releases/1.5.5/database-deployment/20261003110620_release_155_production_backend.sql','utf8'));
-await db.exec(fs.readFileSync(root+'supabase/migrations/20261004023022_fix_fixture_creator_lifecycle.sql','utf8'));
+if (process.argv[3]) await db.exec(fs.readFileSync(process.argv[3],'utf8'));
+if (process.argv[4]) {
+  for (const f of JSON.parse(fs.readFileSync(process.argv[4],'utf8'))) await db.exec(f.definition);
+}
+await db.exec(fs.readFileSync(new URL('../../supabase/migrations/20261004185908_fix_fixture_creator_lifecycle.sql',import.meta.url),'utf8'));
 const u='11111111-1111-4111-8111-111111111111',m='22222222-2222-4222-8222-222222222222',c='33333333-3333-4333-8333-333333333333';
 const other='44444444-4444-4444-8444-444444444444',om='55555555-5555-4555-8555-555555555555';
 await db.exec(`INSERT INTO auth.users(id,email) VALUES('${u}','owner@example.invalid'),('${other}','other@example.invalid');

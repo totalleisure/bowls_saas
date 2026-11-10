@@ -45,6 +45,7 @@ void main() {
   final picker = Picker();
   final queued = <Map<String, dynamic>>[];
   var fail = false;
+  var superuser = false;
   setUpAll(() async {
     FilePicker.platform = picker;
     SharedPreferences.setMockInitialValues({});
@@ -54,7 +55,9 @@ void main() {
       authOptions: const FlutterAuthClientOptions(autoRefreshToken: false),
       httpClient: MockClient((req) async {
         dynamic data;
-        if (req.url.path.endsWith('/mailing_lists')) {
+        if (req.url.path.endsWith('/is_app_superuser')) {
+          data = superuser;
+        } else if (req.url.path.endsWith('/mailing_lists')) {
           data = {
             'id': 'list',
             'club_id': 'club',
@@ -105,6 +108,7 @@ void main() {
   setUp(() {
     queued.clear();
     fail = false;
+    superuser = false;
     picker.files = [file('Guide.pdf', 'pdf'), file('Times.csv', 'csv')];
   });
 
@@ -144,6 +148,7 @@ void main() {
     'multiple local files appear in review and exact bytes reach RPC',
     (t) async {
       await open(t);
+      expect(find.text('Send from Total Leisure'), findsNothing);
       await tap(t, 'Add attachments');
       expect(find.text('Guide.pdf'), findsOneWidget);
       expect(find.text('Times.csv'), findsOneWidget);
@@ -205,6 +210,16 @@ void main() {
       expect(find.text('Review and Send'), findsOneWidget);
     },
   );
+  testWidgets('superuser can choose Total Leisure branding', (t) async {
+    superuser = true;
+    await open(t);
+    expect(find.text('Send from Total Leisure'), findsOneWidget);
+    await tap(t, 'Send from Total Leisure');
+    await tap(t, 'Review and Send');
+    expect(find.text('Sender: Total Leisure (your superuser account is recorded)'), findsOneWidget);
+    await tap(t, 'Cancel');
+    expect(queued, isEmpty);
+  });
   testWidgets('messages without attachments still work', (t) async {
     await open(t);
     await tap(t, 'Review and Send');

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { DEFAULT_REGISTRATION_ALERT_MAILBOX } from "./mailbox_config.ts";
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -8,57 +9,15 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-async function queueGuestRegistrationNotification(
-  supabaseAdmin: any,
-  club_id: string,
-  club_name: string,
-  memberProfileId: string,
-  member_name: string,
-  member_email: string,
-  member_phone: string | null,
-) {
-  const { data: homeVenue } = await supabaseAdmin
-    .from("venues")
-    .select("club_officers")
-    .eq("club_id", club_id)
-    .eq("is_home_venue", true)
-    .maybeSingle();
-
-  const officers =
-    (homeVenue?.club_officers as Record<string, any> | null) ?? {};
-
-  const membershipSecretary =
-    officers["membership_secretary"] ??
-    officers["club_secretary"];
-
-  const secretaryEmail =
-    membershipSecretary?.email?.toString()?.trim() ?? "";
-
-  if (!secretaryEmail) return;
-
-  const { data: secretaryProfile } = await supabaseAdmin
-    .from("member_profiles")
-    .select("id")
-    .ilike("email_address", secretaryEmail)
-    .maybeSingle();
-
-  if (!secretaryProfile?.id) return;
-
-  await supabaseAdmin
-    .from("notification_queue")
-    .insert({
-      event_type: "guest_membership_request",
-      member_profile_id: memberProfileId,
-      target_member_profile_id: secretaryProfile.id,
-      payload: {
-        club_id,
-        club_name,
-        member_name,
-        member_email,
-        member_phone: member_phone ?? "",
-      },
-      status: "pending",
-    });
+function completeRegistration(supabaseAdmin: any, clubId: string, profileId: string, allowExisting = false) {
+  // Keep each environment's monitored mailbox; never read a recipient from the request.
+  const alertEmail = Deno.env.get("REGISTRATION_ALERT_EMAIL")?.trim() ||
+    DEFAULT_REGISTRATION_ALERT_MAILBOX ||
+    Deno.env.get("MS_MAILBOX")?.trim() || "bowls@totalleisure.com";
+  return supabaseAdmin.rpc("complete_app_guest_registration", {
+    p_club_id: clubId, p_member_profile_id: profileId,
+    p_alert_email: alertEmail, p_allow_existing: allowExisting,
+  });
 }
 
 serve(async (req) => {
@@ -171,13 +130,7 @@ serve(async (req) => {
         }, 400);
       }
 
-      const { error: membershipCreateError } = await supabaseAdmin
-        .from("club_memberships")
-        .insert({
-          club_id,
-          member_profile_id: existingProfile.id,
-          role: "guest",
-        });
+      const { error: membershipCreateError } = await completeRegistration(supabaseAdmin, club_id, existingProfile.id);
 
       if (membershipCreateError) {
         return jsonResponse({
@@ -186,16 +139,6 @@ serve(async (req) => {
           error: membershipCreateError.message,
         }, 400);
       }
-
-      await queueGuestRegistrationNotification(
-        supabaseAdmin,
-        club_id,
-        club.name,
-        existingProfile.id,
-        `${first_name} ${last_name}`,
-        email,
-        phone,
-      );
       return jsonResponse({
         success: true,
         code: "GUEST_MEMBERSHIP_CREATED_FOR_EXISTING_USER",
@@ -277,50 +220,11 @@ serve(async (req) => {
         }, 400);
       }
 
-      if (existingMembership) {
-        const { error: membershipUpdateError } = await supabaseAdmin
-          .from("club_memberships")
-          .update({ role: "guest" })
-          .eq("id", existingMembership.id);
-
-        if (membershipUpdateError) {
-          await supabaseAdmin.auth.admin.deleteUser(authUserId);
-
-          return jsonResponse({
-            success: false,
-            code: "MEMBERSHIP_UPDATE_FAILED",
-            error: membershipUpdateError.message,
-          }, 400);
-        }
-      } else {
-        const { error: membershipCreateError } = await supabaseAdmin
-          .from("club_memberships")
-          .insert({
-            club_id,
-            member_profile_id: existingProfile.id,
-            role: "guest",
-          });
-
-        if (membershipCreateError) {
-          await supabaseAdmin.auth.admin.deleteUser(authUserId);
-
-          return jsonResponse({
-            success: false,
-            code: "MEMBERSHIP_CREATE_FAILED",
-            error: membershipCreateError.message,
-          }, 400);
-        }
+      const {error: membershipCompleteError} = await completeRegistration(supabaseAdmin, club_id, existingProfile.id, true);
+      if (membershipCompleteError) {
+        await supabaseAdmin.auth.admin.deleteUser(authUserId);
+        return jsonResponse({success:false,code:"MEMBERSHIP_CREATE_FAILED",error:membershipCompleteError.message},400);
       }
-
-      await queueGuestRegistrationNotification(
-        supabaseAdmin,
-        club_id,
-        club.name,
-        updatedProfile.id,
-        `${first_name} ${last_name}`,
-        email,
-        phone,
-      );
       return jsonResponse({
         success: true,
         code: "ORPHAN_PROFILE_CLAIMED",
@@ -369,13 +273,7 @@ serve(async (req) => {
         }, 400);
       }
 
-      const { error: membershipCreateError } = await supabaseAdmin
-        .from("club_memberships")
-        .insert({
-          club_id,
-          member_profile_id: rebuiltProfile.id,
-          role: "guest",
-        });
+      const { error: membershipCreateError } = await completeRegistration(supabaseAdmin, club_id, rebuiltProfile.id);
 
       if (membershipCreateError) {
         return jsonResponse({
@@ -384,16 +282,6 @@ serve(async (req) => {
           error: membershipCreateError.message,
         }, 400);
       }
-
-      await queueGuestRegistrationNotification(
-        supabaseAdmin,
-        club_id,
-        club.name,
-        rebuiltProfile.id,
-        `${first_name} ${last_name}`,
-        email,
-        phone,
-      );
       return jsonResponse({
         success: true,
         code: "PROFILE_REBUILT_AND_GUEST_MEMBERSHIP_CREATED",
@@ -461,13 +349,7 @@ serve(async (req) => {
       }, 400);
     }
 
-    const { error: membershipCreateError } = await supabaseAdmin
-      .from("club_memberships")
-      .insert({
-        club_id,
-        member_profile_id: updatedProfile.id,
-        role: "guest",
-      });
+    const { error: membershipCreateError } = await completeRegistration(supabaseAdmin, club_id, updatedProfile.id);
 
     if (membershipCreateError) {
       await supabaseAdmin.from("member_profiles").delete().eq(
@@ -482,16 +364,6 @@ serve(async (req) => {
         error: membershipCreateError.message,
       }, 400);
     }
-
-    await queueGuestRegistrationNotification(
-      supabaseAdmin,
-      club_id,
-      club.name,
-      updatedProfile.id,
-      `${first_name} ${last_name}`,
-      email,
-      phone,
-    );
     return jsonResponse({
       success: true,
       code: "REGISTRATION_CREATED",
