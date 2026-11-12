@@ -30,7 +30,7 @@ begin
  if not exists(select 1 from public.fixture_rink_assignments where fixture_id=f and member_profile_id=profiles[4] and position between 1 and 4) then raise exception 'Side-B entrant not placed on player side'; end if;
  if not exists(select 1 from public.team_selection_members sm join public.team_selections ts on ts.id=sm.team_selection_id where ts.fixture_id=f and sm.member_profile_id=profiles[4] and sm.acceptance='accepted') then raise exception 'Booking player not accepted'; end if;
  if (select count(*) from public.fixture_rink_assignments where fixture_id=f)<>4 then raise exception 'Missing players'; end if;
- if (select count(*) from public.email_queue)<>emails or (select count(*) from public.notification_queue)<>notices then raise exception 'Booking unexpectedly queued communications'; end if;
+ if (select count(*) from public.email_queue)<>emails or (select count(*) from public.notification_queue)<>notices+(select count(*) from public.notification_queue where fixture_id=f and payload ? 'competition_booking_key') then raise exception 'Booking unexpectedly queued communications'; end if;
 end $$;
 rollback;
-select 'PASS: synthetic ordinary side-B player can arrange; four players copied; no communications queued; all synthetic records rolled back' as result;
+select 'PASS: synthetic ordinary side-B player can arrange; four players copied; standard competition booking notices expected; no direct email dispatch; all synthetic records rolled back' as result;

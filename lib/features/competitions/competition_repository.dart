@@ -36,12 +36,49 @@ class CompetitionData {
             (a['match_number'] as num).compareTo(b['match_number'] as num),
       );
 
-  String entrant(String? id) =>
-      entries
-          .where((e) => e['id'] == id)
-          .map((e) => e['name'].toString())
-          .firstOrNull ??
-      'Awaiting entrant';
+  bool get usesIndividualHandicaps =>
+      (competition['settings'] as Map?)?['handicap_mode'] == 'team_difference';
+
+  String playerLabel(String name, Object? handicap) =>
+      usesIndividualHandicaps ? '$name (Hcp ${handicap ?? "not set"})' : name;
+
+  String entrant(String? id) {
+    final entry = entries.where((e) => e['id'] == id).firstOrNull;
+    if (entry == null) return 'Awaiting entrant';
+    final name = entry['name'].toString();
+    if (!usesIndividualHandicaps) return name;
+    final members = (entry['handicap_members'] as List?) ?? const [];
+    // Keep the saved playing order, including Lead / Skip order for pairs.
+    final labels = name
+        .split(' / ')
+        .map((part) {
+          final member = members
+              .cast<Map>()
+              .where(
+                (m) =>
+                    m['name'].toString().toLowerCase() ==
+                    part.trim().toLowerCase(),
+              )
+              .firstOrNull;
+          return members.isEmpty
+              ? part
+              : playerLabel(part, member?['individual_handicap']);
+        })
+        .join(' / ');
+    return '$labels [Hcp ${entry['handicap'] ?? "not set"}]';
+  }
+
+  String? startingScores(CompetitionRow match) {
+    if (!usesIndividualHandicaps) return null;
+    final a = entries
+        .where((e) => e['id'] == match['side_a_entry_id'])
+        .firstOrNull?['handicap'];
+    final b = entries
+        .where((e) => e['id'] == match['side_b_entry_id'])
+        .firstOrNull?['handicap'];
+    if (a is! num || b is! num) return null;
+    return 'Starting scores: ${b > a ? b - a : 0}–${a > b ? a - b : 0}';
+  }
 
   String side(CompetitionRow match, String side) {
     final id = match['side_${side}_entry_id'] as String?;
@@ -112,6 +149,28 @@ class CompetitionRepository {
     await client.rpc('remove_competition_entry', params: {'p_entry_id': id});
   }
 
+  Future<CompetitionRow> addPreliminary({
+    required String matchId,
+    required String entryId,
+    required String sourceId,
+    required List<String> members,
+    required String? playBy,
+    required String reason,
+  }) async => Map<String, dynamic>.from(
+    await client.rpc(
+          'add_competition_preliminary',
+          params: {
+            'p_match_id': matchId,
+            'p_entry_id': entryId,
+            'p_expected_source_id': sourceId,
+            'p_members': members,
+            'p_play_by': playBy,
+            'p_reason': reason,
+          },
+        )
+        as Map,
+  );
+
   Future<void> discardDraftDraw(String id) async {
     await client.rpc(
       'discard_unused_competition_draw',
@@ -166,11 +225,29 @@ class CompetitionRepository {
     for (var offset = 0; ; offset += 500) {
       final page = await client
           .from('competition_entry_members')
-          .select('member_profile_id')
+          .select(
+            (competition['settings'] as Map?)?['handicap_mode'] ==
+                    'team_difference'
+                ? 'member_profile_id,entry_id,individual_handicap,member:member_profiles(first_name,last_name)'
+                : 'member_profile_id',
+          )
           .eq('competition_id', id)
           .order('member_profile_id')
           .range(offset, offset + 499);
       memberIds.addAll(page.map((m) => m['member_profile_id'].toString()));
+      for (final member in page) {
+        final profile = member['member'] as Map?;
+        if (profile == null) continue;
+        final entry = entries
+            .where((e) => e['id'] == member['entry_id'])
+            .firstOrNull;
+        if (entry == null) continue;
+        (entry['handicap_members'] ??= <Map<String, dynamic>>[]).add({
+          'name': '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'
+              .trim(),
+          'individual_handicap': member['individual_handicap'],
+        });
+      }
       if (page.length < 500) break;
     }
     return CompetitionData(competition, entries, rounds, matches, memberIds);
@@ -205,6 +282,25 @@ class CompetitionRepository {
         'p_handicap': handicap,
         'p_set_handicap': true,
       },
+    );
+  }
+
+  Future<List<CompetitionRow>> entryHandicaps(
+    String entryId,
+  ) async => await client
+      .from('competition_entry_members')
+      .select(
+        'member_profile_id,individual_handicap,member:member_profiles(first_name,last_name)',
+      )
+      .eq('entry_id', entryId);
+
+  Future<void> setMemberHandicaps(
+    String entryId,
+    Map<String, int> values,
+  ) async {
+    await client.rpc(
+      'set_competition_member_handicaps',
+      params: {'p_entry_id': entryId, 'p_handicaps': values},
     );
   }
 

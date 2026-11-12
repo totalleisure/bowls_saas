@@ -5,6 +5,7 @@ import {createClient} from 'https://esm.sh/@supabase/supabase-js@2';
 import {isVerifiedWorker} from '../process-email-queue/worker_auth.ts';
 import {dispatchCompetitionPublication} from '../_shared/competition_publication_dispatch.mjs';
 import {prepareCompetitionRoundReadyMessage} from '../_shared/competition_round_ready_email.mjs';
+import {prepareCompetitionAmendmentMessage} from '../_shared/competition_amendment_email.mjs';
 import {requireCompetitionRecipients} from '../_shared/competition_publication_email.mjs';
 const headers={'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'authorization, x-client-info, apikey, content-type'};
 const reply=(status:number,body:unknown)=>new Response(JSON.stringify(body),{status,headers});
@@ -26,6 +27,7 @@ Deno.serve(async req=>{
    publication:{events:'competition_publication_events',deliveries:'competition_publication_deliveries',prepare:prepareCompetitionPublicationMessage},
    round_ready:{events:'competition_round_ready_events',deliveries:'competition_round_ready_deliveries',prepare:prepareCompetitionRoundReadyMessage},
    deadline:{events:'competition_deadline_events',deliveries:'competition_deadline_deliveries',prepare:prepareCompetitionDeadlineMessage},
+   amendment:{events:'competition_amendment_events',deliveries:'competition_amendment_deliveries',prepare:prepareCompetitionAmendmentMessage},
   };
   const events=new Map<string,any>();
   for(const item of batch) {

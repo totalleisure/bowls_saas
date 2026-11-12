@@ -273,6 +273,7 @@ class _ScorecardScreenState extends State<ScorecardScreen>
         result = latest;
       }
       final cloud = Map<String, dynamic>.from(result['shared'] as Map? ?? {});
+      await widget.repository.rememberSignatures(cloud);
       await widget.repository.rememberConfirmation(cloud);
       if (mounted) {
         setState(() {
@@ -320,6 +321,10 @@ class _ScorecardScreenState extends State<ScorecardScreen>
         ),
       ),
     );
+    final latest = (await widget.repository.load())
+        .where((c) => c.id == card.id)
+        .firstOrNull;
+    if (mounted && latest != null) setState(() => card = latest);
   }
 
   Future<void> apply(void Function(Scorecard) edit) async {
@@ -804,7 +809,7 @@ class _ScorecardScreenState extends State<ScorecardScreen>
                     card.resultConfirmed
                         ? 'Admin confirmed the result. This scorecard is locked.'
                         : isShared
-                        ? 'Each side reviews and agrees from its own account. Use Review result to continue. The App uploads automatically when connected.'
+                        ? 'Use Review result to agree from separate accounts or let both parties sign on this device. The App uploads automatically when connected. Competition results still need the Competition Secretary’s confirmation.'
                         : 'Review the totals, then ask one representative from each side to sign. Signatures acknowledge this scorecard; they do not confirm a competition result.',
                   ),
                   if (!isShared)

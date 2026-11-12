@@ -53,6 +53,9 @@ class _ScorecardSetupState extends State<ScorecardSetup> {
 
   bool hidden(String key, {bool rules = false}) =>
       (rules && card.startedAt != null) ||
+      (['handicapA', 'handicapB'].contains(key) &&
+          (card.fixtureLink?['rules'] as Map?)?['handicap_mode'] ==
+              'team_difference') ||
       (card.fixtureLink != null &&
           [
             'title',

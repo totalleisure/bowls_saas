@@ -48,6 +48,32 @@ class ScorecardRepository {
     return result;
   }
 
+  /// Cache signature evidence only against the matching uploaded local revision.
+  Future<void> rememberSignatures(Map<String, dynamic> shared) {
+    if (shared['id'] == null || shared['document'] is! Map)
+      return Future.value();
+    final result = _tail.then((_) async {
+      final rows = (await _store.read())
+          .map((j) => Map<String, dynamic>.from(j as Map))
+          .toList();
+      final document = shared['document'] as Map;
+      for (final row in rows) {
+        if ((row['fixtureLink'] as Map?)?['sharedCardId'] != shared['id'])
+          continue;
+        // Never attach signatures to unsynchronised local corrections.
+        if (row['revision'] != document['revision'] ||
+            row['finishedAt'] != document['finishedAt'] ||
+            row['saveVersion'] != shared['sequence'])
+          continue;
+        row['signatureA'] = document['signatureA'];
+        row['signatureB'] = document['signatureB'];
+      }
+      await _store.write(rows);
+    });
+    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
   /// Cache server confirmation without changing scores or the upload sequence.
   Future<void> rememberConfirmation(Map<String, dynamic> shared) {
     final metadata = SharedScorecardApi.confirmationMetadata(shared);

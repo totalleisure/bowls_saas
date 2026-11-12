@@ -6,17 +6,18 @@ class CompetitionArrangementRepository {
   final SupabaseClient client;
   CompetitionArrangementRepository(this.client);
 
-  Future<List<CompetitionRow>> players(CompetitionRow match) async =>
-      await client
-          .from('competition_entry_members')
-          .select(
-            'entry_id,member_profile:member_profiles(id,first_name,last_name)',
-          )
-          .eq('competition_id', match['competition_id'])
-          .inFilter('entry_id', [
-            match['side_a_entry_id'],
-            match['side_b_entry_id'],
-          ]);
+  Future<List<CompetitionRow>> players(
+    CompetitionRow match,
+  ) async => await client
+      .from('competition_entry_members')
+      .select(
+        'entry_id,individual_handicap,member_profile:member_profiles(id,first_name,last_name)',
+      )
+      .eq('competition_id', match['competition_id'])
+      .inFilter('entry_id', [
+        match['side_a_entry_id'],
+        match['side_b_entry_id'],
+      ]);
 
   Future<List<CompetitionRow>> greens(String clubId) async => await client
       .from('green_areas')

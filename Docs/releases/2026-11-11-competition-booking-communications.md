@@ -1,0 +1,22 @@
+# Competition booking confirmations and updates
+
+Implemented in staging, tested, then deployed atomically to production on 11 November 2026. A player arranging their own match and an Admin arranging on behalf of entrants execute the same server-side communication hook. Both entries receive the same booking information. No organiser-only/player-only branch exists.
+
+Initial confirmation queues `competition_fixture_booked` notifications for the members of both entries. They are processed by the existing `process_notification_queue` routine into App notifications and emails, with the standard selection-response action requests and existing calendar support. This is a booking confirmation rather than a team-sheet publication; the existing mandatory PDF validation for team publication emails is unchanged. Members without a deliverable email cannot receive email; existing Captain Managed Member delivery rules remain intact.
+
+The body includes competition, round/match number, both entries, UK-local date, start/end time, venue, green, rink labels and play-by date. Competition booking edits queue standard `fixture_moved` updates through the same helper. The ordinary fixture time-edit route also delegates to that helper for a linked competition; unrelated fixtures retain their prior processing. Changing only a rink through competition booking management also counts as a booking update.
+
+Initial-booking retries, repeated/no-op updates and duplicate processing keys do not create duplicate notifications. A new revision supersedes older unsent keyed notifications/emails and cancels their unsent action requests. Existing sent messages remain historical records. Cancel/reschedule cleanup recognises the new booking-confirmation event. No historical bookings are backfilled or notified by deployment.
+
+Staging queues only approved test-email members and rechecks their current email before notification processing, protecting against copied production membership or an address changed while a message is waiting. Production includes both entries without the staging test restriction. Both projects retain their existing recipient/environment configuration, mailbox credentials, jobs and global 20-email/minute transport. Existing notification/email cron jobs are active in production; their schedules were not changed. Delivery is asynchronous, so queueing does not prove inbox delivery.
+
+Validation:
+
+- Synthetic rollback tests in both databases: player/Admin parity; all four pairs participants; non-playing Admin not inserted as a player or player-message recipient; normal email action blocks; correct UK summer-time details; Admin/opponent rescheduling; ordinary time-edit path; no-op/retry protection; cancellation of stale unsent confirmation/action; staging negative/positive allowlist and processing-time address recheck. All identities, fixtures, messages and action requests roll back.
+- Staging shared competition booking/marker/permission and ordinary member-booking regression SQL passes. Updated older booking tests recognise the newly expected keyed notifications.
+- 16 focused Flutter tests pass for Admin arrangement, rink/time selection and competition booking management. Ten calendar/transport/throttling Node tests pass. Shared Dart source comparison passes.
+- Eight final live function definitions match across staging and production. No new security-advisor findings. Final verification found zero committed keyed notifications/emails and zero synthetic competitions in both projects.
+
+Deployment/source status: database changes deployed in both projects; no Edge Function or Dart changes required. Production records atomic deployment version `20261111010522` (`competition_booking_communications_verified`), applying the five staged corrective files 20261111005220, 20261111005504, 20261111005751, 20261111005956 and 20261111010245. Existing applied migration history was not rewritten; ledgers retain this orchestration difference. All five reviewed files, recovery definitions and tests are copied to both source trees. No commit, version bump, new binary or store/TestFlight release is necessary for this backend amendment.
+
+Recovery definitions: `scripts/recovery_competition_booking_communications.sql`. Review/hold any outstanding new booking-confirmation messages before restoring the old processor, which does not recognise that event; the script preserves queued data and does not silently delete it.

@@ -209,7 +209,16 @@ class _CompetitionArrangementScreenState
           bi = display.indexOf(b.toLowerCase());
       return (ai < 0 ? 9999 : ai).compareTo(bi < 0 ? 9999 : bi);
     });
-    return names;
+    return names.map((name) {
+      final player = players.where((p) {
+        final profile = p['member_profile'] as Map;
+        return p['entry_id'] == entry &&
+            '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'
+                    .trim() ==
+                name;
+      }).firstOrNull;
+      return widget.data.playerLabel(name, player?['individual_handicap']);
+    }).toList();
   }
 
   @override

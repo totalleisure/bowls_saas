@@ -39,12 +39,24 @@ Future<List<PersonalCompetitionMatch>> loadPersonalCompetitionMatches(
 bool competitionNeedsArrangement(CompetitionRow match) =>
     match['status'] == 'to_be_arranged' && match['fixture_id'] == null;
 
+Set<String> completedCompetitionFixtureIds(
+  List<PersonalCompetitionMatch> matches,
+) => matches
+    .where((m) => m.match['status'] == 'completed')
+    .map((m) => m.match['fixture_id'])
+    .whereType<String>()
+    .toSet();
+
 /// Display-only filtering; the original list still feeds next-match reminders.
 List<CompetitionRow> acceptedFixturesWithoutCompetitionDuplicates(
   List<CompetitionRow> accepted,
-  List<CompetitionRow> arranged,
-) {
-  final ids = arranged.map((fixture) => fixture['id']).toSet();
+  List<CompetitionRow> arranged, {
+  Set<String> completedFixtureIds = const {},
+}) {
+  final ids = {
+    ...arranged.map((fixture) => fixture['id']),
+    ...completedFixtureIds,
+  };
   return accepted.where((fixture) => !ids.contains(fixture['id'])).toList();
 }
 
@@ -55,6 +67,7 @@ List<CompetitionRow> upcomingPersonalCompetitionFixtures(
   Map<String, String> acceptanceByFixture,
 ) {
   final linkedIds = matches
+      .where((m) => m.match['status'] != 'completed')
       .map((m) => m.match['fixture_id'])
       .whereType<String>()
       .toSet();

@@ -37,6 +37,7 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
   Map<String, dynamic>? state;
   String? error;
   bool busy = false;
+  bool capturingSignatures = false;
   Timer? poll;
   int requestGeneration = 0;
   Map<String, dynamic> get location => {
@@ -73,6 +74,14 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
       final result = await api.call('shared_scorecard_state', location);
       if (mounted && generation == requestGeneration) {
         final confirmed = result['shared'];
+        if (confirmed is Map &&
+            confirmed['isOwner'] == true &&
+            (confirmed['signedOnOneDevice'] == true ||
+                confirmed['phase'] == 'correction_requested')) {
+          await repository.rememberSignatures(
+            Map<String, dynamic>.from(confirmed),
+          );
+        }
         if (confirmed is Map && confirmed['competitionStatus'] == 'completed') {
           await repository.rememberConfirmation(
             Map<String, dynamic>.from(confirmed),
@@ -110,6 +119,74 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
       if (mounted) setState(() => error = SharedScorecardApi.errorMessage(e));
     } finally {
       if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> signOnDevice(Scorecard card) async {
+    if (busy || shared == null) return;
+    final version = shared!['version'];
+    ++requestGeneration;
+    setState(() {
+      busy = true;
+      capturingSignatures = true;
+      error = null;
+    });
+    try {
+      final review = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Review and sign together'),
+          content: Text(
+            '${card.sideA}: ${card.totalA}\n${card.sideB}: ${card.totalB}\n\n'
+            'Check the ends and final totals together. A representative from each side will sign on this device. '
+            'These signatures acknowledge this version of the scores; the Competition Secretary still confirms the competition result.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Continue to signatures'),
+            ),
+          ],
+        ),
+      );
+      if (review != true || !mounted) return;
+      final signatures = <Map<String, dynamic>>[];
+      for (final home in [true, false]) {
+        final signed = await Navigator.of(context).push<SignatureResult>(
+          MaterialPageRoute(
+            builder: (_) => SignatureScreen(
+              sideName: home ? card.sideA : card.sideB,
+              score: '${card.totalA} : ${card.totalB}',
+              initialName: home ? card.suggestedSignerA : card.suggestedSignerB,
+            ),
+          ),
+        );
+        if (signed == null || !mounted) return;
+        signatures.add({'name': signed.name, 'strokes': signed.strokes});
+      }
+      if (mounted) setState(() => capturingSignatures = false);
+      final result = await api.call('sign_shared_scorecard_on_device', {
+        ...location,
+        'p_version': version,
+        'p_signature_a': signatures[0],
+        'p_signature_b': signatures[1],
+      });
+      await repository.rememberSignatures(
+        Map<String, dynamic>.from(result['shared'] as Map),
+      );
+      if (mounted) setState(() => state = result);
+    } catch (e) {
+      if (mounted) setState(() => error = SharedScorecardApi.errorMessage(e));
+    } finally {
+      if (mounted)
+        setState(() {
+          busy = false;
+          capturingSignatures = false;
+        });
     }
   }
 
@@ -361,14 +438,16 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
       status = 'Both sides must agree again after correction';
       if (cloud['isOwner'] == true) press = keep;
     } else if (phase == 'review' && bothAgreed) {
-      status = 'Both sides agreed · ${cloud['totalA']}–${cloud['totalB']}';
+      status =
+          '${cloud['signedOnOneDevice'] == true ? 'Signed by both parties' : 'Both sides agreed'} · ${cloud['totalA']}–${cloud['totalB']}';
       if (card?.fixtureLink?['competitionMatchId'] != null &&
           (side != null || actor['admin'] == true)) {
         label = 'Submit agreed result';
         press = () =>
             action('submit_shared_scorecard', {'p_version': cloud['version']});
       } else {
-        status = 'Both sides agreed · No further action needed';
+        status =
+            '${cloud['signedOnOneDevice'] == true ? 'Signed by both parties' : 'Both sides agreed'} · No further action needed';
         label = 'Result agreed · ${cloud['totalA']}–${cloud['totalB']}';
       }
     } else if (phase == 'review' && side != null && !ownAgreed) {
@@ -405,6 +484,17 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (phase == 'review' &&
+                      !bothAgreed &&
+                      cloud?['isOwner'] == true &&
+                      cloud?['sourceChanged'] != true &&
+                      card != null)
+                    OutlinedButton.icon(
+                      key: const ValueKey('shared-sign-on-device'),
+                      onPressed: busy ? null : () => signOnDevice(card),
+                      icon: const Icon(Icons.draw),
+                      label: const Text('Both parties sign on this device'),
+                    ),
                   Text(
                     status,
                     maxLines: 1,
@@ -457,6 +547,18 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
       appBar: AppBar(
         title: const Text('Shared match scorecard'),
         actions: [
+          if (card != null)
+            IconButton(
+              tooltip: 'View scorecard PDF',
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              onPressed: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ScorecardPdfScreen(card: card),
+                      ),
+                    ),
+            ),
           if (canAgree ||
               (cloud?['isOwner'] == true && phase == 'review') ||
               (actor['admin'] == true &&
@@ -501,7 +603,7 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          if (busy) const LinearProgressIndicator(),
+          if (busy && !capturingSignatures) const LinearProgressIndicator(),
           if (error != null)
             SelectableText(
               error!,
@@ -592,14 +694,22 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
               children: [ScorecardMatchSummary(card: card)],
             ),
             Text(
-              '${card.sideA}: ${cloud['agreedA'] == true ? 'Agreed' : 'Not agreed'}',
+              '${card.sideA}: ${cloud['signedOnOneDevice'] == true
+                  ? 'Signed by ${card.signatureA?['name']}'
+                  : cloud['agreedA'] == true
+                  ? 'Agreed'
+                  : 'Not agreed'}',
             ),
             Text(
-              '${card.sideB}: ${cloud['agreedB'] == true ? 'Agreed' : 'Not agreed'}',
+              '${card.sideB}: ${cloud['signedOnOneDevice'] == true
+                  ? 'Signed by ${card.signatureB?['name']}'
+                  : cloud['agreedB'] == true
+                  ? 'Agreed'
+                  : 'Not agreed'}',
             ),
             if (actor['side'] == null)
               const Text(
-                'Only a playing member of each side may agree its scores. A marker or Admin cannot agree for a side.',
+                'Each side can agree from its own account, or both representatives can sign together on the designated scorer’s device.',
               ),
             if (cloud['competitionStatus'] == 'completed')
               const Text(
@@ -616,4 +726,3 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
     );
   }
 }
-

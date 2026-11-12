@@ -558,13 +558,14 @@ String competitionPrintedSide(
 }) {
   final id = match['side_${side}_entry_id'] as String?;
   if (id != null) {
+    final name = data.entrant(id);
     if (includeScore &&
         match['result_kind'] == 'walkover' &&
         match['winner_entry_id'] == id) {
-      return '${data.entrant(id)}  (W/O)';
+      return '$name  (W/O)';
     }
     final score = match['score_$side'];
-    return '${data.entrant(id)}${includeScore && score != null ? '  ($score)' : ''}';
+    return '$name${includeScore && score != null ? '  ($score)' : ''}';
   }
   if (blankWinnerLabels || match['side_${side}_kind'] == 'bye') return '';
   final source = data.matches
@@ -684,8 +685,13 @@ String competitionPrintRules(CompetitionData data) {
   final general = rules.isNotEmpty
       ? rules
       : settings['scoring']?.toString().trim() ?? '';
+  final handicapRule = settings['handicap']?.toString().trim() ?? '';
   return [
     if (general.isNotEmpty) general,
+    if (settings['handicap_mode'] == 'team_difference' &&
+        handicapRule.isNotEmpty &&
+        !general.contains(handicapRule))
+      handicapRule,
     for (final round in data.orderedRounds)
       if (((round['rule_overrides'] as Map?)?['rules']?.toString().trim() ?? '')
           .isNotEmpty)

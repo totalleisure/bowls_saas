@@ -38,6 +38,7 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
       key: TextEditingController(),
   };
   String section = 'open', format = 'singles', timeMode = 'unknown';
+  String handicapMode = 'entry_start';
   bool saving = false, loadingTypes = true;
   List<CompetitionRow> fixtureTypes = [];
   String? fixtureTypeId, typeError;
@@ -60,6 +61,7 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
       section = settings['section'].toString();
       format = settings['playing_format'].toString();
       timeMode = settings['time_limit_mode'].toString();
+      handicapMode = settings['handicap_mode']?.toString() ?? 'entry_start';
       for (final pair in {
         'players': 'players_per_entry',
         'rinks': 'rinks_required',
@@ -192,6 +194,7 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
       final settings = <String, dynamic>{
         ...?widget.initial?['settings'] as Map<String, dynamic>?,
         'section': section,
+        'handicap_mode': handicapMode,
         'playing_format': format,
         'players_per_entry': int.parse(fields['players']!.text),
         'rinks_required': int.parse(fields['rinks']!.text),
@@ -387,6 +390,33 @@ class _CompetitionSetupScreenState extends State<CompetitionSetupScreen> {
                 'Eligibility and partner arrangements',
                 lines: 2,
               ),
+              DropdownButtonFormField<String>(
+                initialValue: handicapMode,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Handicap calculation',
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'entry_start',
+                    child: Text('Manual entry starting handicap'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'team_difference',
+                    child: Text('Difference to lower combined handicap'),
+                  ),
+                ],
+                onChanged: saving || widget.initial?['status'] == 'published'
+                    ? null
+                    : (v) => setState(() => handicapMode = v!),
+              ),
+              if (handicapMode == 'team_difference')
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'Enter each player’s handicap on the Entries tab. The lower-total team starts with the difference; equal totals start 0–0. One rink per match.',
+                  ),
+                ),
               input('handicap', 'Handicap rules (if applicable)', lines: 2),
               input('rules', 'Competition rules and notes', lines: 5),
               if (error != null)

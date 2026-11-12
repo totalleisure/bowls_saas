@@ -89,9 +89,9 @@ begin
    raise exception 'Cancelled marker still editable';
   exception when insufficient_privilege then null; end;
  end loop;
- if (select count(*) from public.email_queue)<>emails or (select count(*) from public.notification_queue)<>notices then raise exception 'Shared operations unexpectedly queued communications'; end if;
+ if (select count(*) from public.email_queue)<>emails or (select count(*) from public.notification_queue)<>notices+(select count(*) from public.notification_queue where fixture_id=f and payload ? 'competition_booking_key') then raise exception 'Shared operations unexpectedly queued communications'; end if;
  if has_function_privilege('anon','public.change_competition_fixture_booking(uuid,uuid,timestamptz,timestamptz,text[],text,timestamptz,timestamptz,uuid,text[])','execute') then raise exception 'Anonymous execute allowed'; end if;
  if has_table_privilege('authenticated','public.competition_fixture_management_events','insert') then raise exception 'Client can forge audit events'; end if;
 end $$;
 rollback;
-select 'PASS: all four entrants have scoped controls; creator retains full Captain rights; unrelated, ordinary, cancelled and stale edits denied; markers and audit verified; no messages; synthetic test rolled back' as result;
+select 'PASS: all four entrants have scoped controls; creator retains full Captain rights; unrelated, ordinary, cancelled and stale edits denied; markers and audit verified; expected booking/update notices only; synthetic test rolled back' as result;

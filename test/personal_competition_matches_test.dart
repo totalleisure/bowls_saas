@@ -4,6 +4,55 @@ import 'package:bowls_saas/features/competitions/personal_competition_matches.da
 import 'internal_competitions_test.dart' show FakeCompetitions, sample;
 
 void main() {
+  test(
+    'Completed and walkover matches leave upcoming fixtures without resurfacing as accepted',
+    () {
+      final data = sample();
+      final matches = <PersonalCompetitionMatch>[
+        for (final status in ['to_be_arranged', 'result_pending', 'completed'])
+          (data: data, match: {'fixture_id': status, 'status': status}),
+        (
+          data: data,
+          match: {
+            'fixture_id': 'walkover',
+            'status': 'completed',
+            'result_kind': 'walkover',
+          },
+        ),
+        (data: data, match: {'fixture_id': null, 'status': 'completed'}),
+      ];
+      final fixtures = <CompetitionRow>[
+        for (final id in [
+          'to_be_arranged',
+          'result_pending',
+          'completed',
+          'walkover',
+          'ordinary',
+        ])
+          {'id': id, 'start_at': '2026-12-01T10:00:00Z'},
+      ];
+      final upcoming = upcomingPersonalCompetitionFixtures(
+        matches,
+        fixtures,
+        DateTime.utc(2026, 11, 1),
+        {},
+      );
+      expect(upcoming.map((f) => f['id']), [
+        'to_be_arranged',
+        'result_pending',
+      ]);
+      expect(
+        acceptedFixturesWithoutCompetitionDuplicates(
+          fixtures,
+          upcoming,
+          completedFixtureIds: completedCompetitionFixtureIds(matches),
+        ).map((f) => f['id']),
+        ['ordinary'],
+      );
+      expect(fixtures, hasLength(5));
+      expect(matches[2].match['status'], 'completed');
+    },
+  );
   test('Opponent competition remains visible through every response state', () {
     final fixture = <String, dynamic>{
       'id': 'booked',

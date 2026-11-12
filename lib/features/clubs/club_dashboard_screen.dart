@@ -1277,6 +1277,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
         _upcomingAccepted = acceptedFixturesWithoutCompetitionDuplicates(
           upcomingAccepted,
           arrangedCompetitionFixtures,
+          completedFixtureIds: completedCompetitionFixtureIds(
+            personalCompetitionMatches,
+          ),
         );
         _competitionsToArrange = competitionsToArrange;
         _arrangedCompetitionFixtures = arrangedCompetitionFixtures;

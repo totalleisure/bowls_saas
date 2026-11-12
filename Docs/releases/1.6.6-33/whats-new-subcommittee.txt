@@ -1,0 +1,23 @@
+Total Leisure Bowls — What's New in 1.6.6 (33)
+Sub-committee release
+
+Competition administration
+- Record matches played outside the App directly against the competition draw. Submit and confirm the result separately, advancing the winner and updating the printable draw.
+- Admins can arrange competition fixtures on behalf of players. Both entries receive booking confirmations and rescheduling updates.
+- Add a preliminary match to an eligible published draw when an entry has been missed, with a review step before applying the amendment.
+
+Handicap competitions
+- Record individual player handicaps and calculate the team's combined handicap. The lower-handicap team receives the difference as its starting score.
+- Individual handicaps and team totals appear in entries, draws, match details, booking details and draw PDFs. Known matchups show their calculated starting scores.
+- Next-round emails now include the individual handicaps, combined totals and starting scores for both teams.
+
+Electronic scorecards
+- Both parties can review and sign one shared electronic scorecard on the scorer's device. The opponent does not need a separate App login to sign.
+- Separate-account agreement remains available. Corrections invalidate signatures and agreements so the revised scores must be acknowledged again.
+- Signed scorecards can be viewed and shared as PDFs. Competition Secretary confirmation remains a separate step before a winner advances.
+
+Clearer Dashboard
+- Completed competition matches are removed from upcoming competition fixtures and do not reappear under accepted fixtures after refresh.
+- Winners' next matches appear once both opponents are confirmed; next-round emails are generated automatically.
+
+Please check the above workflows on your iPhone and report anything confusing or unexpected. This TestFlight build connects to production: competition changes, bookings and emails are real.

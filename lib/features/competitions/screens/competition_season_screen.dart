@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import '../../../core/widgets/club_member_picker_page.dart';
 import '../competition_repository.dart';
+import '../competition_arrangement_repository.dart';
 import '../widgets/competition_card_style.dart';
 import '../widgets/competition_result_card.dart';
 import '../../clubs/club_access.dart';
@@ -10,6 +11,8 @@ import '../competition_draw_pdf.dart';
 import 'competition_setup_screen.dart';
 import 'competition_publication_screen.dart';
 import 'competition_publish_screen.dart';
+import 'competition_preliminary_screen.dart';
+import 'competition_arrangement_screen.dart';
 
 class CompetitionSeasonScreen extends StatefulWidget {
   final String clubId, competitionId;
@@ -132,6 +135,10 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
   }
 
   Future<void> editHandicap(CompetitionRow entry) async {
+    if (data!.competition['settings']['handicap_mode'] == 'team_difference') {
+      await editMemberHandicaps(entry);
+      return;
+    }
     var value = entry['handicap']?.toString() ?? '';
     final form = GlobalKey<FormState>();
     final approved = await showDialog<bool>(
@@ -184,9 +191,92 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
     }
   }
 
+  Future<void> editMemberHandicaps(CompetitionRow entry) async {
+    final values = <String, String>{};
+    try {
+      final rows = await widget.repository.entryHandicaps(
+        entry['id'].toString(),
+      );
+      if (!mounted) return;
+      for (final row in rows) {
+        values[row['member_profile_id'].toString()] =
+            row['individual_handicap']?.toString() ?? '';
+      }
+      final key = GlobalKey<FormState>();
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Player handicaps — ${entry['name']}'),
+          content: SizedBox(
+            width: 440,
+            child: Form(
+              key: key,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'The pair total is calculated automatically. Against each opponent, the lower-total pair starts with the difference.',
+                    ),
+                    for (final row in rows)
+                      TextFormField(
+                        initialValue:
+                            values[row['member_profile_id'].toString()],
+                        onChanged: (value) =>
+                            values[row['member_profile_id'].toString()] = value,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          signed: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText:
+                              '${row['member']['first_name']} ${row['member']['last_name']}',
+                        ),
+                        validator: (value) {
+                          final n = int.tryParse(value?.trim() ?? '');
+                          return n == null || n.abs() > 1000
+                              ? 'Enter a whole number between -1000 and 1000'
+                              : null;
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (key.currentState!.validate()) Navigator.pop(context, true);
+              },
+              child: const Text('Save player handicaps'),
+            ),
+          ],
+        ),
+      );
+      if (accepted == true && mounted) {
+        await act(
+          () => widget.repository.setMemberHandicaps(entry['id'].toString(), {
+            for (final item in values.entries)
+              item.key: int.parse(item.value.trim()),
+          }),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    }
+  }
+
   Widget entryControls(CompetitionRow entry, bool drawCreated) {
+    final teamDifference =
+        data!.competition['settings']['handicap_mode'] == 'team_difference';
     final handicap = entry['handicap'] as num?;
-    final handicapLabel = handicap == null
+    final handicapLabel = teamDifference
+        ? (handicap == null ? 'Set player handicaps' : 'Team total $handicap')
+        : handicap == null
         ? 'Handicap'
         : 'Handicap ${handicap >= 0 ? '+' : ''}$handicap';
     if (!widget.canManage) {
@@ -220,26 +310,35 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                   () => widget.repository.setPaid(entry['id'].toString(), paid),
                 ),
         ),
-        Tooltip(
-          message: drawCreated
-              ? 'Handicaps are locked after creating the draw'
-              : 'Set or clear a signed handicap',
-          child: FilterChip(
+        if (teamDifference)
+          ActionChip(
+            avatar: const Icon(Icons.calculate_outlined, size: 18),
             label: Text(handicapLabel),
-            selected: handicap != null,
-            onSelected: busy || drawCreated
+            onPressed: busy || data!.competition['status'] != 'draft'
                 ? null
-                : (enabled) => enabled
-                      ? editHandicap(entry)
-                      : act(
-                          () => widget.repository.setHandicap(
-                            entry['id'].toString(),
-                            null,
-                          ),
-                        ),
+                : () => editHandicap(entry),
           ),
-        ),
-        if (handicap != null && !drawCreated)
+        if (!teamDifference)
+          Tooltip(
+            message: drawCreated
+                ? 'Handicaps are locked after creating the draw'
+                : 'Set or clear a signed handicap',
+            child: FilterChip(
+              label: Text(handicapLabel),
+              selected: handicap != null,
+              onSelected: busy || drawCreated
+                  ? null
+                  : (enabled) => enabled
+                        ? editHandicap(entry)
+                        : act(
+                            () => widget.repository.setHandicap(
+                              entry['id'].toString(),
+                              null,
+                            ),
+                          ),
+            ),
+          ),
+        if (!teamDifference && handicap != null && !drawCreated)
           IconButton(
             tooltip: 'Edit handicap',
             icon: const Icon(Icons.edit_outlined),
@@ -802,7 +901,7 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                       ))
                         Card(
                           child: ListTile(
-                            title: Text('${e['name']}'),
+                            title: Text(d.entrant(e['id'].toString())),
                             leading: Text('${d.orderedEntries.indexOf(e) + 1}'),
                             trailing: widget.canManage && d.rounds.isEmpty
                                 ? IconButton(
@@ -1005,6 +1104,9 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
                                     Text(
                                       '${d.reference(m)} · ${d.status(m)}${m['status'] == 'completed' || m['score_a'] == null ? '' : '\nScore: ${m['score_a']}–${m['score_b']}'}',
                                     ),
+                                    if (d.startingScores(m)
+                                        case final String starts)
+                                      Text(starts),
                                     if (m['status'] == 'completed' &&
                                         m['winner_entry_id'] != null)
                                       CompetitionResultCard(
@@ -1166,6 +1268,7 @@ class CompetitionMatchScreen extends StatefulWidget {
   final bool canSubmit;
   final Set<String> ownEntryIds;
   final CompetitionRepository repository;
+  final CompetitionArrangementRepository? arrangementRepository;
   const CompetitionMatchScreen({
     super.key,
     required this.data,
@@ -1174,6 +1277,7 @@ class CompetitionMatchScreen extends StatefulWidget {
     this.canSubmit = false,
     this.ownEntryIds = const {},
     required this.repository,
+    this.arrangementRepository,
   });
   @override
   State<CompetitionMatchScreen> createState() => _CompetitionMatchScreenState();
@@ -1195,6 +1299,34 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
     scoreB.text = match['score_b']?.toString() ?? '';
     winner = (match['proposed_winner_entry_id'] ?? match['winner_entry_id'])
         ?.toString();
+  }
+
+  Future<void> arrangeFixture() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => CompetitionArrangementScreen(
+          data: widget.data,
+          match: match,
+          repository: widget.arrangementRepository,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    try {
+      final refreshed = await widget.repository.load(
+        widget.data.competition['club_id'].toString(),
+        widget.data.competition['id'].toString(),
+      );
+      if (mounted) {
+        setState(() {
+          match = refreshed.matches.firstWhere((m) => m['id'] == match['id']);
+          syncScores();
+          error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    }
   }
 
   @override
@@ -1638,11 +1770,59 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 12),
+                      if (d.startingScores(match) case final String starts)
+                        Text(
+                          starts,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       Text('Play by ${round['play_by'] ?? 'not set'}'),
                     ],
                   ),
                 ),
               ),
+              if (widget.canManage &&
+                  d.competition['status'] == 'published' &&
+                  match['status'] == 'to_be_arranged' &&
+                  match['fixture_id'] == null &&
+                  playable)
+                FilledButton.icon(
+                  key: const ValueKey('admin-arrange-competition-fixture'),
+                  onPressed: busy ? null : arrangeFixture,
+                  icon: const Icon(Icons.event_available),
+                  label: const Text('Arrange fixture for these players'),
+                ),
+              if (widget.canManage &&
+                  ['a', 'b'].any(
+                    (side) =>
+                        match['side_${side}_entry_id'] != null &&
+                        preliminaryBye(
+                              d,
+                              match,
+                              match['side_${side}_entry_id'].toString(),
+                            ) !=
+                            null,
+                  ))
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.account_tree_outlined),
+                  label: const Text('Add preliminary match'),
+                  onPressed: () async {
+                    final changed = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute(
+                        builder: (_) => CompetitionPreliminaryScreen(
+                          data: d,
+                          match: match,
+                          repository: widget.repository,
+                        ),
+                      ),
+                    );
+                    if (changed == true && mounted) Navigator.of(context).pop();
+                  },
+                ),
+              if (match['challenger_entry_id'] != null)
+                Text(
+                  'Challengers: ${d.entrant(match['challenger_entry_id'].toString())}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
               if (d.competition['status'] == 'published' &&
                   (playable || match['status'] == 'completed'))
                 resultCard(d, playable),
