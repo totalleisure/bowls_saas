@@ -1,0 +1,12 @@
+Total Leisure Bowls 1.6.7 (33) — Sub-committee testing
+
+Please test competition administration and electronic scorecards:
+
+1. Record a reported result directly in a draw match with both entries known, without creating a fixture. Submit, review, then confirm separately. Check winner progression and the updated draw PDF.
+2. Check a completed match disappears from the member's outstanding/upcoming competition cards after refreshing the Dashboard.
+3. For a handicap competition, check individual handicaps, combined team totals and calculated starting scores in the draw, match and PDF. Check the next-round email includes these values for both teams when that match becomes playable.
+4. Finish a shared scorecard and choose Both parties sign on this device. Review the totals and capture two representative signatures. Check the PDF. Signing must not advance the winner; the Secretary confirms the submitted competition result separately.
+5. The existing separate-account agreement route must still work. Request a correction and check both signatures/agreements are invalidated before re-agreement.
+6. As Admin, arrange a competition fixture for the players. Check both entries' booking details and subsequent reschedule details. Check the published preliminary amendment process only where an actual draw amendment is required.
+
+This is the production App. Emails and changes to competitions/fixtures are real. Use agreed test records or actual corrections; do not alter an unrelated live match for testing.
