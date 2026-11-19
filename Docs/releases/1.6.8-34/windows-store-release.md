@@ -14,10 +14,10 @@ Product: Total Leisure Bowls; Store product ID 9P989QP14Q05.
 
 Submission 9, ID 1152921505702447057: uploaded and validated package; English (United Kingdom) release notes updated and saved. Existing screenshots, pricing/availability, age ratings and runFullTrust justification retained. Publishing option is release as soon as certification passes. Microsoft automatically removed the superseded 1.6.6 package from this draft when the new package was saved. Existing published release remains live pending a new certification/publication.
 
-Current status: ready draft, NOT submitted for certification. An attempted certification action was blocked by automatic approval review while sections were still loading and because certification authorization was not explicit beyond upload. No bypass or retry occurred. Afterwards all sections completed and Submit for certification became enabled. Ask for explicit certification approval before proceeding.
+Current status: SUBMITTED FOR CERTIFICATION on 19 November 2026, following the user's explicit approval to submit and publish automatically once approved. Partner Center shows Submission complete, Pre-processing in progress, Certification not started, Publishing not started; Product update: In certification (Submission 9). Microsoft confirms: Your product will start publishing as soon as it passes certification. Availability of version 1.6.8 is not yet confirmed. The earlier automatic-review block was resolved by completed prerequisites and explicit user approval; no bypass occurred.
 
-Draft URL: https://partner.microsoft.com/en-us/dashboard/products/9P989QP14Q05/overview
+Status URL: https://partner.microsoft.com/en-us/dashboard/products/9P989QP14Q05/overview
 
-Local metadata: output/windows/verification-1.6.8-34.json; build log tmp/windows-release-1.6.8-34.log; packaging log output/windows/package-1.6.8-34.log; release notes output/windows/release-notes-1.6.8-34.txt. Screenshot: C:/src/bowls_staging/tmp/windows-1.6.8-submission-ready.jpg. Packaging helper for this run: C:/src/bowls_staging/tmp/package-windows-168.py. Generated artifacts/credentials are not committed.
+Local metadata: output/windows/verification-1.6.8-34.json; build log tmp/windows-release-1.6.8-34.log; packaging log output/windows/package-1.6.8-34.log; release notes output/windows/release-notes-1.6.8-34.txt. Confirmation screenshot: C:/src/bowls_staging/tmp/windows-1.6.8-submitted.jpg. Packaging helper for this run: C:/src/bowls_staging/tmp/package-windows-168.py. Generated artifacts/credentials are not committed.
 
 No submission API credentials were configured or used. Upload was automated through the signed-in Partner Center browser. The previously prepared Android and iPhone automation are separate workflows.
