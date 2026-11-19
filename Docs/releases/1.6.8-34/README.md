@@ -20,6 +20,8 @@ The version must read 1.6.8+34. The script builds only. Before upload, check App
 
 No database push is required from the Mac. Do not run a blanket migration push: staging and production retain their environment-specific mailbox/worker configuration and migration histories. Production leased-delivery safeguards remain in place. Keep production Rinks and Participation locks unchanged until the new App is available, as agreed with the user.
 
+Reusable iPhone build/upload/review automation is documented in ios-automation.md. The original build-ios-release.sh remains the historical version-specific build command; use scripts/release_ios.py for future automated releases after the Mac/API key setup has been verified.
+
 ## Android
 
 Android release signing is configured with the existing release key. The verified production bundle for 1.6.8 (34) was built, uploaded through Play Console and submitted for Production review on 19 November 2026. See android-release.md for the one-command build, upload and optional review submission workflow for future releases. Version code 34 must not be reused.
