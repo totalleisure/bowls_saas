@@ -28,4 +28,4 @@ Android release signing is configured with the existing release key. The verifie
 
 ## Validation and deployment
 
-See verification.txt for the original preparation checks, database comparison and configuration differences. Desktop release builds are prepared separately from Store distribution. Subsequent store status: iPhone 1.6.8 is available per the user's confirmation; Android 1.6.8 (34) has been submitted for review, with availability not yet confirmed.
+See verification.txt for the original preparation checks, database comparison and configuration differences. Desktop release builds are prepared separately from Store distribution. Subsequent Apple API verification on 19 November shows iPhone 1.6.8 waiting for review with automatic release after approval, and build 34 already assigned to external TestFlight group LCPIBC Testing while beta review is pending; see apple-distribution-status.md. Android 1.6.8 (34) has been submitted for review, with availability not yet confirmed. Windows 1.6.8.0 has been submitted for certification with automatic publication after approval; see windows-store-release.md.
