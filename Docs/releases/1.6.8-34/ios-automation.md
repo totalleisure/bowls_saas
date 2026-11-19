@@ -1,12 +1,25 @@
 # iPhone release automation on the signing Mac
 
-Status: prepared and tested offline on Windows. Xcode signing, fastlane installation, Apple key access and a live upload still require verification on Wayne's Mac. The existing iPhone 1.6.8 release is untouched. Do not upload version/build 1.6.8 (34) again.
+Status (19 November 2026): 11 offline tests passed; Mac dependency/local validation and Apple API read access passed over SSH from Windows. Xcode 27.1, fastlane 2.242.0, Homebrew Ruby 4.0.10. Apple key is configured privately on the Mac. Signing-keychain access from SSH and the first real automated upload/submission remain to be exercised on a future release. Existing releases were untouched. Do not upload version/build 1.6.8 (34) again. The read-only Apple check reported live version 1.6.6, build 32; this does not confirm 1.6.8 availability.
+
+## Verified Windows-to-Mac connection
+
+SSH destination: wayne@192.168.1.37 (Mac-Studio-800.local). Windows identity: %USERPROFILE%/.ssh/bowls_mac_ed25519; verified host file: %USERPROFILE%/.ssh/bowls_mac_known_hosts. Use BatchMode=yes, IdentitiesOnly=yes, StrictHostKeyChecking=yes and KexAlgorithms=curve25519-sha256. Quote UserKnownHostsFile inside its SSH option because the Windows profile contains a space. Expected Mac ED25519 fingerprint: SHA256:+a4uHqGiATbYrlcg49OiFpvjXyIRsGggAHMYzc4iNIs. Never bypass host verification.
+
+SSH does not inherit the interactive Terminal PATH. Prefix remote commands with:
+
+```bash
+export PATH="/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:/Users/wayne/develop/flutter/bin:$PATH"
+cd /Users/wayne/develop/bowls_saas
+```
+
+Both --validate-only and --check-apple-access have succeeded using that environment. Keep the Mac awake and reachable on the local network. Re-check its address if the router changes it. Preserve the existing local ios/Podfile.lock change and generated scripts/ios/Gemfile.lock; do not reset the Mac checkout. Remote publication must target a new reviewed version/build, not 1.6.8 (34).
 
 The new scripts/release_ios.py reads the version/build from pubspec.yaml, runs Flutter tests, builds and exports the production IPA, verifies its identity/version and the archive signature/team, uploads to App Store Connect, waits for processing, writes release notes, selects the exact build and optionally submits for review/automatic release. The production identifier is com.totalleisure.bowlssaas; signing team XX6FPA95YH. Feature flags match Android and the existing iPhone build script. It does not change databases, increment versions, discard local Mac changes, expire older builds or cancel an existing review.
 
 ## One-time setup
 
-Use TeamViewer and Terminal on the signing Mac. SSH is optional: it is needed if the Windows agent is to start the Mac command directly in future. No remote Mac connection is currently configured by this task.
+The setup below has now been completed using TeamViewer and Terminal. The Windows SSH connection is configured as described above; these instructions are retained for recovery or another signing Mac.
 
 1. In App Store Connect, open Users and Access > Integrations > App Store Connect API > Team Keys. Request API access if necessary. Generate a key named Bowls App Store Publisher with App Manager access. Team keys apply across the account's apps; the script explicitly targets only Total Leisure Bowls. Note Key ID and Issuer ID. Download the .p8 once and keep it outside every checkout, for example under ~/.config/bowls. Do not paste the private key into chat or commit it.
 2. Preserve existing Mac edits (including ios/Podfile.lock). Fetch and fast-forward the existing codex/release-1.6.8-34 branch; do not reset the checkout. Confirm git status first. The Mac production checkout is /Users/wayne/develop/bowls_saas.
