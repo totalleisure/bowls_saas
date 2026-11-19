@@ -12,7 +12,7 @@ Use the existing production checkout on the signing Mac. Review and back up loca
     git fetch origin
     git switch --track origin/codex/release-1.6.8-34
     grep '^version:' pubspec.yaml
-    bash docs/releases/1.6.8-34/build-ios-release.sh
+    bash Docs/releases/1.6.8-34/build-ios-release.sh
 
 If the local branch already exists, switch to it and use `git pull --ff-only`. If local changes block switching, stop and preserve those specific files; do not reset or discard them. A local ios/Podfile.lock change should be backed up and reviewed before deciding whether it should be retained.
 
