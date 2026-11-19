@@ -1,0 +1,14 @@
+Selected booking outline — 18 November 2026
+
+Added a clear 3px red border around the selected range on the member rink timeline.
+Also corrected a remaining visual defect: selected-range width used a fixed 2.5
+hours even when the actual booking duration was different. Its width now uses
+the chosen duration, so four-hour National selections span four hours.
+
+All 16 member-booking tests passed, including actual selected range width for
+a four-hour booking and red border. Staging built first; reviewed source and test
+copied to production; Compare-AppSources.ps1 passed. Both Windows debug builds
+use their respective staging_main.dart and main.dart entry points. A mistaken
+build invocation in the staging folder was interrupted and staging explicitly
+rebuilt with staging_main.dart before handoff. No database changes, emails,
+Store submission, version bump, commit or push. Running apps need reopening.

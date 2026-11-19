@@ -149,6 +149,30 @@ class CompetitionRepository {
     await client.rpc('remove_competition_entry', params: {'p_entry_id': id});
   }
 
+  Future<CompetitionRow> replacePlayer({
+    required CompetitionRow entry,
+    required List<String> expectedMembers,
+    required String outgoingId,
+    required String incomingId,
+    required int? handicap,
+    required String reason,
+  }) async => Map<String, dynamic>.from(
+    await client.rpc(
+          'replace_competition_entry_player',
+          params: {
+            'p_entry_id': entry['id'],
+            'p_outgoing_member_id': outgoingId,
+            'p_incoming_member_id': incomingId,
+            'p_expected_members': expectedMembers,
+            'p_expected_name': entry['name'],
+            'p_expected_handicap': entry['handicap'],
+            'p_individual_handicap': handicap,
+            'p_reason': reason,
+          },
+        )
+        as Map,
+  );
+
   Future<CompetitionRow> addPreliminary({
     required String matchId,
     required String entryId,
@@ -397,6 +421,36 @@ class CompetitionRepository {
         'p_note': note,
         'p_expected_side_a': match['side_a_entry_id'],
         'p_expected_side_b': match['side_b_entry_id'],
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> adminResultReview(String matchId) async =>
+      Map<String, dynamic>.from(
+        await client.rpc(
+              'competition_admin_result_review',
+              params: {'p_match_id': matchId},
+            )
+            as Map,
+      );
+
+  Future<void> confirmAdminResult(
+    String matchId,
+    int a,
+    int b,
+    String winner,
+    String reason,
+    String reviewToken,
+  ) async {
+    await client.rpc(
+      'confirm_competition_admin_result',
+      params: {
+        'p_match_id': matchId,
+        'p_score_a': a,
+        'p_score_b': b,
+        'p_winner_entry_id': winner,
+        'p_reason': reason,
+        'p_review_token': reviewToken,
       },
     );
   }

@@ -1,3 +1,4 @@
+import 'home_venue_hours_card.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -106,8 +107,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
     }
 
     _restoreOriginalValues();
-    _editing = !widget.isExisting ||
-        (widget.canEdit && widget.startInEditMode);
+    _editing = !widget.isExisting || (widget.canEdit && widget.startInEditMode);
   }
 
   void _restoreOriginalValues() {
@@ -218,9 +218,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
     return '';
   }
 
-  Future<void> _openGoogleVenueAssist(
-    _GoogleVenueSearchMode mode,
-  ) async {
+  Future<void> _openGoogleVenueAssist(_GoogleVenueSearchMode mode) async {
     if (_findingOnGoogle || !_editing) return;
 
     setState(() => _findingOnGoogle = true);
@@ -238,8 +236,10 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
     final queryController = TextEditingController(text: defaultQuery);
     final screenSize = MediaQuery.sizeOf(context);
     final dialogWidth = math.min(620.0, math.max(280.0, screenSize.width - 48));
-    final dialogHeight =
-        math.min(500.0, math.max(320.0, screenSize.height - 180));
+    final dialogHeight = math.min(
+      500.0,
+      math.max(320.0, screenSize.height - 180),
+    );
 
     var searching = false;
     String? error;
@@ -264,8 +264,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
 
               final searchQuery =
                   mode == _GoogleVenueSearchMode.nearbyBowlsClubs
-                      ? 'bowls clubs near $enteredQuery'
-                      : enteredQuery;
+                  ? 'bowls clubs near $enteredQuery'
+                  : enteredQuery;
 
               setDialogState(() {
                 searching = true;
@@ -288,9 +288,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                 setDialogState(() {
                   places = rawPlaces is List
                       ? rawPlaces
-                          .map(_asMap)
-                          .where((place) => place.isNotEmpty)
-                          .toList()
+                            .map(_asMap)
+                            .where((place) => place.isNotEmpty)
+                            .toList()
                       : <Map<String, dynamic>>[];
                   error = places.isEmpty
                       ? 'No matching places were found.'
@@ -299,9 +299,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
               } catch (exception) {
                 if (!dialogContext.mounted) return;
                 setDialogState(() {
-                  error = exception
-                      .toString()
-                      .replaceFirst('Exception: ', '');
+                  error = exception.toString().replaceFirst('Exception: ', '');
                   places = [];
                 });
               } finally {
@@ -334,9 +332,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                 if (!dialogContext.mounted) return;
                 setDialogState(() {
                   searching = false;
-                  error = exception
-                      .toString()
-                      .replaceFirst('Exception: ', '');
+                  error = exception.toString().replaceFirst('Exception: ', '');
                 });
               }
             }
@@ -379,8 +375,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                         if (!searching) search();
                       },
                     ),
-                    if (mode ==
-                        _GoogleVenueSearchMode.nearbyBowlsClubs) ...[
+                    if (mode == _GoogleVenueSearchMode.nearbyBowlsClubs) ...[
                       const SizedBox(height: 8),
                       const Align(
                         alignment: Alignment.centerLeft,
@@ -431,9 +426,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                                         ? 'Unnamed place'
                                         : _s(place['name']),
                                   ),
-                                  subtitle: Text(
-                                    _s(place['formattedAddress']),
-                                  ),
+                                  subtitle: Text(_s(place['formattedAddress'])),
                                   onTap: searching
                                       ? null
                                       : () => choosePlace(place),
@@ -466,15 +459,17 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(widget.isExisting
-              ? 'Refresh venue from Google?'
-              : 'Use these Google details?'),
+          title: Text(
+            widget.isExisting
+                ? 'Refresh venue from Google?'
+                : 'Use these Google details?',
+          ),
           content: Text(
             widget.isExisting
                 ? 'Use the Google details for "$venueName"?\n\n'
-                    'The current venue will not be changed until you press Save.'
+                      'The current venue will not be changed until you press Save.'
                 : 'Use the Google details for "$venueName"?\n\n'
-                    'The form will be populated for you to review before saving.',
+                      'The form will be populated for you to review before saving.',
           ),
           actions: [
             TextButton(
@@ -673,10 +668,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
 
         await Supabase.instance.client.rpc(
           'update_club_venue_full',
-          params: {
-            ...commonParams,
-            'p_venue_id': venueId,
-          },
+          params: {...commonParams, 'p_venue_id': venueId},
         );
       } else {
         await Supabase.instance.client.rpc(
@@ -694,7 +686,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
       if (!mounted) return;
 
       final message = exception.toString();
-      final duplicate = !widget.isExisting &&
+      final duplicate =
+          !widget.isExisting &&
           !allowPossibleDuplicate &&
           (message.toLowerCase().contains('possible duplicate') ||
               message.toLowerCase().contains('similar venue'));
@@ -737,9 +730,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _cancelEditing() {
@@ -792,9 +785,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
             Text(
               widget.isExisting
                   ? 'Refresh or complete this venue using Google Places. '
-                      'Nothing is saved until you press Save.'
+                        'Nothing is saved until you press Save.'
                   : 'Search Google first, then review and amend the details '
-                      'before securely creating the venue.',
+                        'before securely creating the venue.',
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -805,8 +798,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                   onPressed: _findingOnGoogle
                       ? null
                       : () => _openGoogleVenueAssist(
-                            _GoogleVenueSearchMode.bowlsClub,
-                          ),
+                          _GoogleVenueSearchMode.bowlsClub,
+                        ),
                   icon: const Icon(Icons.sports),
                   label: Text(
                     widget.isExisting
@@ -818,8 +811,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                   onPressed: _findingOnGoogle
                       ? null
                       : () => _openGoogleVenueAssist(
-                            _GoogleVenueSearchMode.nearbyBowlsClubs,
-                          ),
+                          _GoogleVenueSearchMode.nearbyBowlsClubs,
+                        ),
                   icon: const Icon(Icons.near_me_outlined),
                   label: const Text('Nearby bowls clubs'),
                 ),
@@ -827,8 +820,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                   onPressed: _findingOnGoogle
                       ? null
                       : () => _openGoogleVenueAssist(
-                            _GoogleVenueSearchMode.general,
-                          ),
+                          _GoogleVenueSearchMode.general,
+                        ),
                   icon: const Icon(Icons.public),
                   label: const Text('Search all venues'),
                 ),
@@ -873,16 +866,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
             'Address line 2',
             onChanged: (_) => setState(() {}),
           ),
-          _buildField(
-            _town,
-            'Town / City',
-            onChanged: (_) => setState(() {}),
-          ),
-          _buildField(
-            _postcode,
-            'Postcode',
-            onChanged: (_) => setState(() {}),
-          ),
+          _buildField(_town, 'Town / City', onChanged: (_) => setState(() {})),
+          _buildField(_postcode, 'Postcode', onChanged: (_) => setState(() {})),
           const SizedBox(height: 8),
           _buildField(_contactName, 'Contact name'),
           _buildField(
@@ -938,8 +923,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
             runSpacing: 8,
             children: [
               OutlinedButton.icon(
-                onPressed:
-                    _websiteUrl.text.trim().isEmpty ? null : _openWebsite,
+                onPressed: _websiteUrl.text.trim().isEmpty
+                    ? null
+                    : _openWebsite,
                 icon: const Icon(Icons.language),
                 label: const Text('Open website'),
               ),
@@ -950,9 +936,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                   label: const Text('View on Google Maps'),
                 ),
               OutlinedButton.icon(
-                onPressed: VenueActionsService.canNavigate(
-                  _venueForActions(),
-                )
+                onPressed: VenueActionsService.canNavigate(_venueForActions())
                     ? _openDirections
                     : null,
                 icon: const Icon(Icons.directions),
@@ -980,9 +964,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                 label: const Text('Copy address'),
               ),
               OutlinedButton.icon(
-                onPressed: VenueActionsService.hasShareableDetails(
-                  _venueForActions(),
-                )
+                onPressed:
+                    VenueActionsService.hasShareableDetails(_venueForActions())
                     ? _shareVenue
                     : null,
                 icon: const Icon(Icons.share_outlined),
@@ -998,6 +981,15 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
             title: const Text('Home venue'),
           ),
           if (_isHome) ...[
+            if (widget.isExisting)
+              HomeVenueHoursCard(
+                venueId: _s(widget.venue?['id']),
+                editable: _editing && widget.canEdit,
+              ),
+            if (!widget.isExisting)
+              const Text(
+                'Save this home venue, then edit it to set Club opening hours.',
+              ),
             const SizedBox(height: 20),
             const Text(
               'Club Officers & Key Contacts',
@@ -1019,10 +1011,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _buildField(
-                        _officerNameControllers[role[0]]!,
-                        'Name',
-                      ),
+                      _buildField(_officerNameControllers[role[0]]!, 'Name'),
                       _buildField(
                         _officerEmailControllers[role[0]]!,
                         'Email',
@@ -1051,7 +1040,8 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
       _postcode.text.trim(),
     ].where((part) => part.isNotEmpty).join(', ');
 
-    final hasContact = _contactName.text.trim().isNotEmpty ||
+    final hasContact =
+        _contactName.text.trim().isNotEmpty ||
         _contactPhone.text.trim().isNotEmpty ||
         _contactEmail.text.trim().isNotEmpty;
     final hasWebsite = _websiteUrl.text.trim().isNotEmpty;
@@ -1063,9 +1053,7 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
       children: [
         Align(
           alignment: Alignment.centerLeft,
-          child: Chip(
-            label: Text(_isHome ? 'Home venue' : 'Opponent venue'),
-          ),
+          child: Chip(label: Text(_isHome ? 'Home venue' : 'Opponent venue')),
         ),
         if (address.isNotEmpty) ...[
           const SizedBox(height: 16),
@@ -1086,9 +1074,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
           const SizedBox(height: 20),
           Text(
             'Website',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 6),
           InkWell(
@@ -1106,9 +1094,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
           const SizedBox(height: 20),
           Text(
             'Google Maps',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 6),
           InkWell(
@@ -1174,9 +1162,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
           const SizedBox(height: 28),
           Text(
             'Club Officers & Key Contacts',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 10),
           _buildReadOnlyOfficers(),
@@ -1191,9 +1179,9 @@ class _VenueMaintainScreenState extends State<VenueMaintainScreen> {
       children: [
         Text(
           heading,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 6),
         for (final line in lines) SelectableText(line),

@@ -21,6 +21,14 @@ class SharedScorecardApi {
     Map<String, dynamic> shared,
   ) {
     if (shared['competitionStatus'] != 'completed') return {};
+    final decision = shared['adminDecision'] as Map?;
+    if (decision != null) {
+      return {
+        'sharedConfirmed': true,
+        'sharedWinnerName': decision['winnerName'],
+        'sharedAdminDecision': Map<String, dynamic>.from(decision),
+      };
+    }
     final document = shared['document'] as Map? ?? {};
     final a = shared['totalA'] as num?, b = shared['totalB'] as num?;
     return {
@@ -65,6 +73,7 @@ class SharedScorecardApi {
     link.remove('scorerUserId');
     link.remove('sharedConfirmed');
     link.remove('sharedWinnerName');
+    link.remove('sharedAdminDecision');
     link.remove('sharedCorrectionRequest');
     doc['fixtureLink'] = link;
     return doc;

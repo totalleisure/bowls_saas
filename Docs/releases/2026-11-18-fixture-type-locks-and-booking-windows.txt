@@ -1,0 +1,68 @@
+Fixture Type locks, booking start windows and home-venue Club hours
+18 November 2026
+
+Database: deployed and verified in staging and production. Corrective migrations
+20261118051238 and 20261118053031. Seven live function hashes match between
+projects. Timetable values match (JSON object key order differs only).
+Existing opening-hours function definitions compared before promotion; a hash
+guard protects that replacement. Existing creation RPCs kept intact; a new
+atomic wrapper records a chosen participation mode for updated app calls.
+
+Fixture Type editor: Lock checkboxes for participation, default rinks, format
+and maximum duration. Unticked fields retain existing role/workflow permissions;
+the changes do not grant ordinary members new fixture-management authority.
+Admins/superusers exempt from type locks and permitted-start restrictions.
+Duration remains editable downwards, up to the locked maximum for members.
+Existing fixtures are not bulk rewritten; unrelated edits do not revalidate
+historical bookings against new type rules.
+
+Club timetable: colourful cards, add/edit/delete multiple non-overlapping daily
+windows and their allowed start times; shared per Club, opted into per Fixture
+Type. Boundary is [from,until): 14:00 is outside a 09:00-14:00 window. Members may
+choose any time outside configured windows, within home-venue hours. The editor
+uses optimistic concurrency to prevent overwriting another timetable edit.
+
+Initial live configuration for Lewisham in both environments:
+- Member Rink Booking and Club Competition: timetable enabled; duration locked
+  to 150 minutes. Other three lock flags remain false for organiser selection.
+- Morning window 09:00-14:00; allowed starts 09:00 and 11:30.
+- National & County Matches: timetable disabled, duration remains 240 minutes
+  and unlocked. No new morning restriction applied to that type.
+- Home venue Club Start Time 09:00, Club End Time 22:00, preserving prior hours.
+
+Home venue editor: Club opening-hours card with time pickers and its own explicit
+Save Club hours action; existing home venues only (new venues are saved first).
+Only Club Admins and superusers can save hours. Opening hours are an outer
+boundary even for Admin bookings. Venue changes revalidate the new venue's hours.
+Same-day UK time validation retained, including winter/summer tests.
+
+Updated member availability-led route: reads policy flags and timetable, hides
+invalid starts from selectable slots, supports shorter durations, exact start-time
+picker for times not on the half-hour grid, uses chosen duration for availability
+and creation, and displays venue opening hours on the timeline. Original 150-minute
+booking API remains available to old versions. Updated create/details paths show
+policy guidance; new booking screens extract plain database messages rather than
+displaying PostgREST wrappers. Older installed screens may still show wrappers.
+
+Verification: rollback SQL test suite passed in staging and production (no emails
+sent and no synthetic records retained), including actual nested creation RPC,
+direct insert/update restrictions, short/max duration, allowed/exclusive boundaries,
+format and participation locks, unlocked flexibility, admin override, venue hours,
+member denial and invalid overlapping windows. 26 focused Flutter tests passed;
+additional clean-error test and 13 member-booking regressions passed afterwards.
+Focused Dart analysis found no errors; pre-existing warnings/info remain in large
+screens. Narrow-phone timetable widget validated; preview uses test fonts.
+Compare-AppSources.ps1 passed after promotion. Production-specific Marker mail
+delivery safeguards, mailboxes, schedules and environment entry points untouched.
+
+Source: reviewed changes saved in both trees; unrelated working changes retained.
+Database: active in both projects; applies immediately across existing app versions.
+Windows: both debug builds succeeded (staging_main.dart and main.dart respectively).
+No running user app was closed or restarted by this task.
+Store: no iOS/Android/Store submission or version bump; new UI requires an updated
+app release. Current apps remain compatible but invalid bookings are now rejected.
+No commit/push performed because it was not requested for this change.
+
+Recovery: scripts/recovery_fixture_type_booking_rules.sql disables new fixture
+policy triggers and restores previous hard-coded opening-hours function. It keeps
+configuration/audit data; it is a database protection rollback, not a full UI rollback.

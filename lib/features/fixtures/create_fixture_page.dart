@@ -1,3 +1,4 @@
+import 'fixture_type_booking_policy.dart';
 import 'widgets/fixture_time_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -111,6 +112,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   DateTime? _startAtLocal;
   DateTime? _endAtLocal;
+  bool _endTimeManuallySet = false;
 
   FixtureLocationType _fixtureLocation = FixtureLocationType.home;
   FixtureWorkflowType _workflowType = FixtureWorkflowType.rsvp;
@@ -165,7 +167,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   // Fixture types
   List<Map<String, dynamic>> _fixtureTypes = [];
   String? _fixtureTypeId;
+  String? _participationModeOverride;
   bool _workflowLockedByFixtureType = false;
+  List<Map<String, dynamic>> _bookingWindows = [];
+  bool get _bookingRulesPrivileged => _isSuperuser || _isClubAdmin;
+  bool _typeLocked(String key) =>
+      !_bookingRulesPrivileged && _selectedFixtureType?[key] == true;
 
   bool _loadingRinkAvailability = false;
   String? _rinkAvailabilityError;
@@ -212,7 +219,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Future<void> _loadAndChooseFixtureType() async {
     await _load();
     if (widget.memberBookingMode || !_canSeeAllFixtureTypes) return;
-    if (!mounted || !_canWrite || _error != null || _fixtureTypes.isEmpty) return;
+    if (!mounted || !_canWrite || _error != null || _fixtureTypes.isEmpty)
+      return;
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
     await _pickFixtureType();
@@ -458,6 +466,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   Future<void> _loadFixtureTypes() async {
+    _bookingWindows = await loadBookingWindows(_client, widget.clubId);
     final rows = await _client
         .from('competition_types')
         .select('''
@@ -468,6 +477,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
           default_rinks_required,
           default_players_per_rink,
           default_format,
+          default_duration_minutes, lock_participation, lock_rinks, lock_format, lock_duration, booking_start_times_enabled,
           dress_code,
           team_selection_enabled,
           selection_mode,
@@ -526,41 +536,55 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     required List<Map<String, dynamic>> rinkAssignments,
     required List<Map<String, dynamic>> teamSelectionMembers,
   }) async {
+    final ruleError = fixtureTypeTimingError(
+      _selectedFixtureType,
+      _bookingWindows,
+      startAtLocal,
+      endAtLocal,
+      privileged: _bookingRulesPrivileged,
+      home: isHome,
+    );
+    if (ruleError != null) throw Exception(ruleError);
     final result = await _client.rpc(
-      'create_fixture_with_match_fee',
+      'create_fixture_with_booking_policy',
       params: {
-        'p_club_id': widget.clubId,
-        'p_match_fee_pence': parseMatchFeePence(_matchFeeCtrl.text),
-        'p_start_at': clubTimeToUtc(startAtLocal).toIso8601String(),
-        'p_end_at': clubTimeToUtc(endAtLocal).toIso8601String(),
-        'p_is_home': isHome,
-        'p_section': _section.isEmpty ? 'open' : _section,
-        'p_rinks_required': usesRinks ? _rinksRequired : 0,
-        'p_players_per_rink': usesRinks ? _playersPerRink : 1,
-        'p_format': usesRinks ? _format : 'singles',
-        'p_competition_type_id': _fixtureTypeId,
-        'p_dress_code': _dressCode,
-        'p_team_id': _isTeamFixture ? _teamId : null,
-        'p_team_name': fixtureLabel?.trim().isEmpty == true
-            ? null
-            : fixtureLabel?.trim(),
-        'p_requires_rsvp': !usesRinks
-            ? _eventRequestsRsvp
-            : (!_isTeamFixture && !_isPreselectFixture),
-        'p_venue_id': venueId,
-        'p_opponent_venue_id': opponentVenueId,
-        'p_green_area_id': usesRinks && isHome ? greenAreaId : null,
-        'p_orientation': orientation,
-        'p_captain_member_profile_id': captainMemberProfileId,
-        'p_vice_captain_member_profile_id': viceCaptainMemberProfileId,
-        'p_notes': _notesCtrl.text.trim().isEmpty
-            ? null
-            : _notesCtrl.text.trim(),
-        'p_create_team_selection': createTeamSelection,
-        'p_team_selection_status': 'published',
-        'p_home_rink_labels': homeRinkLabels,
-        'p_rink_assignments': rinkAssignments,
-        'p_team_selection_members': teamSelectionMembers,
+        'p_participation_mode': _selectedFixtureSelectionMode.isEmpty
+            ? 'open'
+            : _selectedFixtureSelectionMode,
+        'p_booking': {
+          'p_club_id': widget.clubId,
+          'p_match_fee_pence': parseMatchFeePence(_matchFeeCtrl.text),
+          'p_start_at': clubTimeToUtc(startAtLocal).toIso8601String(),
+          'p_end_at': clubTimeToUtc(endAtLocal).toIso8601String(),
+          'p_is_home': isHome,
+          'p_section': _section.isEmpty ? 'open' : _section,
+          'p_rinks_required': usesRinks ? _rinksRequired : 0,
+          'p_players_per_rink': usesRinks ? _playersPerRink : 1,
+          'p_format': usesRinks ? _format : 'singles',
+          'p_competition_type_id': _fixtureTypeId,
+          'p_dress_code': _dressCode,
+          'p_team_id': _isTeamFixture ? _teamId : null,
+          'p_team_name': fixtureLabel?.trim().isEmpty == true
+              ? null
+              : fixtureLabel?.trim(),
+          'p_requires_rsvp': !usesRinks
+              ? _eventRequestsRsvp
+              : (!_isTeamFixture && !_isPreselectFixture),
+          'p_venue_id': venueId,
+          'p_opponent_venue_id': opponentVenueId,
+          'p_green_area_id': usesRinks && isHome ? greenAreaId : null,
+          'p_orientation': orientation,
+          'p_captain_member_profile_id': captainMemberProfileId,
+          'p_vice_captain_member_profile_id': viceCaptainMemberProfileId,
+          'p_notes': _notesCtrl.text.trim().isEmpty
+              ? null
+              : _notesCtrl.text.trim(),
+          'p_create_team_selection': createTeamSelection,
+          'p_team_selection_status': 'published',
+          'p_home_rink_labels': homeRinkLabels,
+          'p_rink_assignments': rinkAssignments,
+          'p_team_selection_members': teamSelectionMembers,
+        },
       },
     );
 
@@ -1453,7 +1477,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     setState(() {
       _fixtureTypeId = fixtureTypeId;
-      _workflowLockedByFixtureType = true;
+      _participationModeOverride = null;
+      if (_startAtLocal != null && !_endTimeManuallySet) {
+        _endAtLocal = moveFixtureStart(
+          _startAtLocal!,
+          defaultDuration: _recommendedFixtureDuration,
+          latestEnd: widget.initialRinkBooking?.latestEndAt,
+        ).end;
+      }
+      _workflowLockedByFixtureType =
+          !_bookingRulesPrivileged && row['lock_participation'] == true;
       _hasUnsavedChanges = true;
 
       if (!usesRinks) {
@@ -2035,7 +2068,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     return null;
   }
 
-  static const Duration _recommendedFixtureDuration = Duration(hours: 2);
+  Duration get _recommendedFixtureDuration {
+    final minutes = (_selectedFixtureType?['default_duration_minutes'] as num?)
+        ?.toInt();
+    return Duration(minutes: minutes != null && minutes > 0 ? minutes : 120);
+  }
 
   Duration? get _currentRinkBookingDuration {
     final booking = widget.initialRinkBooking;
@@ -2148,7 +2185,9 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       _fixtureTypeById(_fixtureTypeId);
 
   String get _selectedFixtureSelectionMode =>
-      (_selectedFixtureType?['selection_mode'] ?? '')
+      (_participationModeOverride ??
+              _selectedFixtureType?['selection_mode'] ??
+              '')
           .toString()
           .trim()
           .toLowerCase();
@@ -3460,15 +3499,57 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       await _pickDateTime();
       if (!mounted || _startAtLocal == null) return;
     }
-    final end = await pickFixtureEndTime(context, start: _startAtLocal!, end: _endAtLocal);
+    final end = await pickFixtureEndTime(
+      context,
+      start: _startAtLocal!,
+      end: _endAtLocal,
+      defaultDuration: _recommendedFixtureDuration,
+    );
     if (end == null || !mounted) return;
-    setState(() => _endAtLocal = end);
+    final ruleError = fixtureTypeTimingError(
+      _selectedFixtureType,
+      _bookingWindows,
+      _startAtLocal!,
+      end,
+      privileged: _bookingRulesPrivileged,
+      home: _isHome,
+    );
+    if (ruleError != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(ruleError)));
+      return;
+    }
+    setState(() {
+      _endAtLocal = end;
+      _endTimeManuallySet = true;
+    });
     _loadRinkAvailability();
   }
 
   Future<void> _pickDateTime() async {
-    final window = await pickFixtureStart(context, start: _startAtLocal, end: _endAtLocal, latestEnd: widget.initialRinkBooking?.latestEndAt);
+    final window = await pickFixtureStart(
+      context,
+      start: _startAtLocal,
+      end: _endTimeManuallySet ? _endAtLocal : null,
+      defaultDuration: _recommendedFixtureDuration,
+      latestEnd: widget.initialRinkBooking?.latestEndAt,
+    );
     if (window == null || !mounted) return;
+    final ruleError = fixtureTypeTimingError(
+      _selectedFixtureType,
+      _bookingWindows,
+      window.start,
+      window.end,
+      privileged: _bookingRulesPrivileged,
+      home: _isHome,
+    );
+    if (ruleError != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(ruleError)));
+      return;
+    }
     setState(() {
       _startAtLocal = window.start;
       _endAtLocal = window.end;
@@ -4680,9 +4761,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Widget build(BuildContext context) {
     // Only ordinary members take the availability-led route. Admin creation
     // retains its existing form, type picker, setup and save routines.
-    if (!_loading && _canWrite && (widget.memberBookingMode || !_canSeeAllFixtureTypes)) {
+    if (!_loading &&
+        _canWrite &&
+        (widget.memberBookingMode || !_canSeeAllFixtureTypes)) {
       return MemberFixtureCreationPage(
-        clubId: widget.clubId, clubName: widget.clubName,
+        clubId: widget.clubId,
+        clubName: widget.clubName,
         initialDate: widget.initialRinkBooking?.startAt,
         initialGreenId: widget.initialRinkBooking?.greenAreaId,
         initialRinkLabel: widget.initialRinkBooking?.rinkLabel,
@@ -4954,6 +5038,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                             latestEndAt: widget.initialRinkBooking!.latestEndAt,
                           ),
 
+                        FixtureBookingRulesHint(
+                          type: _selectedFixtureType,
+                          windows: _bookingWindows,
+                          privileged: _bookingRulesPrivileged,
+                        ),
                         LayoutBuilder(
                           builder: (context, constraints) {
                             final narrow = constraints.maxWidth < 500;
@@ -5072,10 +5161,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   : 'Open attendance. Members do not need to respond.',
                             ),
                             value: _eventRequestsRsvp,
-                            onChanged: (value) {
-                              setState(() => _eventRequestsRsvp = value);
-                              _markDirty();
-                            },
+                            onChanged: _typeLocked('lock_participation')
+                                ? null
+                                : (value) {
+                                    setState(() => _eventRequestsRsvp = value);
+                                    _markDirty();
+                                  },
                           ),
                           const SizedBox(height: 12),
 
@@ -5092,57 +5183,62 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           const SizedBox(height: 12),
                         ],
 
-                        if (!_simpleBookingMode && !_isEventStyleFixture) ...[
-                          const SizedBox(height: 8),
-
-                          if (_isPreselectFixture) ...[
-                            InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Pre-Selection mode',
-                                border: OutlineInputBorder(),
+                        if (!_isEventStyleFixture) ...[
+                          DropdownButtonFormField<String>(
+                            key: ValueKey(
+                              'participation_${_fixtureTypeId}_$_participationModeOverride',
+                            ),
+                            initialValue:
+                                {
+                                  'rsvp',
+                                  'team',
+                                  'preselect',
+                                  'open',
+                                }.contains(_selectedFixtureSelectionMode)
+                                ? _selectedFixtureSelectionMode
+                                : 'open',
+                            decoration: InputDecoration(
+                              labelText: 'Participation mode',
+                              suffixIcon: _typeLocked('lock_participation')
+                                  ? const Icon(Icons.lock_outline)
+                                  : null,
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'rsvp',
+                                child: Text('RSVP'),
                               ),
-                              child: const Text('Pre-Select'),
-                            ),
-                          ] else ...[
-                            SegmentedButton<FixtureWorkflowType>(
-                              segments: const [
-                                ButtonSegment(
-                                  value: FixtureWorkflowType.rsvp,
-                                  label: Text('RSVP'),
-                                  icon: Icon(Icons.how_to_reg),
-                                ),
-                                ButtonSegment(
-                                  value: FixtureWorkflowType.team,
-                                  label: Text('Team'),
-                                  icon: Icon(Icons.groups),
-                                ),
-                              ],
-
-                              selected: {_workflowType},
-                              onSelectionChanged: _workflowLockedByFixtureType
-                                  ? null
-                                  : (newSelection) {
-                                      final v = newSelection.first;
-                                      setState(() {
-                                        _workflowType = v;
-                                        _isTeamFixture =
-                                            v == FixtureWorkflowType.team;
-                                        _isPreselectFixture = false;
-
-                                        if (_isTeamFixture) {
-                                          _teamId ??= _teams.isNotEmpty
-                                              ? _teams.first['id'].toString()
-                                              : null;
-                                        } else {
-                                          _teamId = null;
-                                        }
-                                      });
-                                      _markDirty();
-                                    },
-                            ),
-                          ],
-
-                          const SizedBox(height: 8),
+                              DropdownMenuItem(
+                                value: 'team',
+                                child: Text('Team selection'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'preselect',
+                                child: Text('Pre-Select'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'open',
+                                child: Text('Open Session'),
+                              ),
+                            ],
+                            onChanged: _typeLocked('lock_participation')
+                                ? null
+                                : (value) {
+                                    if (value == null) return;
+                                    setState(() {
+                                      _participationModeOverride = value;
+                                      _isPreselectFixture =
+                                          value == 'preselect';
+                                      _isTeamFixture = value == 'team';
+                                      _workflowType = _isTeamFixture
+                                          ? FixtureWorkflowType.team
+                                          : FixtureWorkflowType.rsvp;
+                                      if (!_isTeamFixture) _teamId = null;
+                                    });
+                                    _markDirty();
+                                  },
+                          ),
+                          const SizedBox(height: 12),
                         ],
 
                         if (!_isEventStyleFixture &&
@@ -5369,28 +5465,30 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   child: Text('Singles (1)'),
                                 ),
                               ],
-                              onChanged: (value) async {
-                                if (value == null) return;
-                                final players = _playersForFormat(value);
-                                if (!await _confirmStructuralOverride(
-                                      _rinksRequired,
-                                      players,
-                                    ) ||
-                                    !mounted) {
-                                  return;
-                                }
+                              onChanged: _typeLocked('lock_format')
+                                  ? null
+                                  : (value) async {
+                                      if (value == null) return;
+                                      final players = _playersForFormat(value);
+                                      if (!await _confirmStructuralOverride(
+                                            _rinksRequired,
+                                            players,
+                                          ) ||
+                                          !mounted) {
+                                        return;
+                                      }
 
-                                setState(() {
-                                  _clearDraftAssignmentsOutside(
-                                    _rinksRequired,
-                                    players,
-                                  );
-                                  _format = value;
-                                  _playersPerRink = players;
-                                });
+                                      setState(() {
+                                        _clearDraftAssignmentsOutside(
+                                          _rinksRequired,
+                                          players,
+                                        );
+                                        _format = value;
+                                        _playersPerRink = players;
+                                      });
 
-                                _markDirty();
-                              },
+                                      _markDirty();
+                                    },
                             ),
 
                             const SizedBox(height: 12),
@@ -5406,28 +5504,30 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                   child: Text(n.toString()),
                                 );
                               }).toList(),
-                              onChanged: (value) async {
-                                if (value == null) return;
-                                if (!await _confirmStructuralOverride(
-                                      _rinksRequired,
-                                      value,
-                                    ) ||
-                                    !mounted) {
-                                  return;
-                                }
-                                setState(() {
-                                  _clearDraftAssignmentsOutside(
-                                    _rinksRequired,
-                                    value,
-                                  );
-                                  _playersPerRink = value;
-                                  if (!(_format == 'aussie_pairs' &&
-                                      value == 2)) {
-                                    _format = _formatCodeForRinks(value);
-                                  }
-                                });
-                                _markDirty();
-                              },
+                              onChanged: _typeLocked('lock_format')
+                                  ? null
+                                  : (value) async {
+                                      if (value == null) return;
+                                      if (!await _confirmStructuralOverride(
+                                            _rinksRequired,
+                                            value,
+                                          ) ||
+                                          !mounted) {
+                                        return;
+                                      }
+                                      setState(() {
+                                        _clearDraftAssignmentsOutside(
+                                          _rinksRequired,
+                                          value,
+                                        );
+                                        _playersPerRink = value;
+                                        if (!(_format == 'aussie_pairs' &&
+                                            value == 2)) {
+                                          _format = _formatCodeForRinks(value);
+                                        }
+                                      });
+                                      _markDirty();
+                                    },
                             ),
 
                             const SizedBox(height: 12),
@@ -5494,52 +5594,54 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                                 child: Text(n.toString()),
                               );
                             }).toList(),
-                            onChanged: (v) async {
-                              final previousRinks = _rinksRequired;
-                              final requestedRinks = v ?? previousRinks;
+                            onChanged: _typeLocked('lock_rinks')
+                                ? null
+                                : (v) async {
+                                    final previousRinks = _rinksRequired;
+                                    final requestedRinks = v ?? previousRinks;
 
-                              if (!await _confirmStructuralOverride(
-                                    requestedRinks,
-                                    _playersPerRink,
-                                  ) ||
-                                  !mounted) {
-                                setState(() {
-                                  _rinksRequiredFieldVersion++;
-                                });
-                                return;
-                              }
+                                    if (!await _confirmStructuralOverride(
+                                          requestedRinks,
+                                          _playersPerRink,
+                                        ) ||
+                                        !mounted) {
+                                      setState(() {
+                                        _rinksRequiredFieldVersion++;
+                                      });
+                                      return;
+                                    }
 
-                              final canAccept =
-                                  await _canAcceptRinksRequiredChange(
-                                    requestedRinks,
-                                  );
+                                    final canAccept =
+                                        await _canAcceptRinksRequiredChange(
+                                          requestedRinks,
+                                        );
 
-                              if (!mounted) return;
+                                    if (!mounted) return;
 
-                              if (!canAccept) {
-                                setState(() {
-                                  _rinksRequired = previousRinks;
-                                  _rinksRequiredFieldVersion++;
-                                });
-                                await Future<void>.delayed(Duration.zero);
-                                if (!mounted) return;
-                                await _showInsufficientRinksDialog();
-                                return;
-                              }
+                                    if (!canAccept) {
+                                      setState(() {
+                                        _rinksRequired = previousRinks;
+                                        _rinksRequiredFieldVersion++;
+                                      });
+                                      await Future<void>.delayed(Duration.zero);
+                                      if (!mounted) return;
+                                      await _showInsufficientRinksDialog();
+                                      return;
+                                    }
 
-                              setState(() {
-                                _clearDraftAssignmentsOutside(
-                                  requestedRinks,
-                                  _playersPerRink,
-                                );
-                                _rinksRequired = requestedRinks;
-                                _shownInsufficientRinksWarning = false;
-                              });
+                                    setState(() {
+                                      _clearDraftAssignmentsOutside(
+                                        requestedRinks,
+                                        _playersPerRink,
+                                      );
+                                      _rinksRequired = requestedRinks;
+                                      _shownInsufficientRinksWarning = false;
+                                    });
 
-                              _markDirty();
+                                    _markDirty();
 
-                              await _loadRinkAvailability();
-                            },
+                                    await _loadRinkAvailability();
+                                  },
                           ),
                           const SizedBox(height: 20),
                         ],

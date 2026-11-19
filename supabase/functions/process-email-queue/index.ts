@@ -1,3 +1,6 @@
+import { markerRequestEmailHtml } from "./marker_request_email.ts";
+import {classifySendFailure} from "./delivery_policy.mjs";
+import {completeDelivery,reconcileUncertain,preflightDelivery} from "./delivery_recovery.mjs";
 import { buildEmailActionBlock } from "./action_email.ts";
 import { loadFixtureCalendar, fixtureCalendarHtml } from "./fixture_calendar.mjs";
 import { isVerifiedWorker } from "./worker_auth.ts";
@@ -104,8 +107,10 @@ serve(async (req) => {
   }
 
   let requestedEmailQueueId: string | null = null;
+  let diagnoseOnly = false;
   try {
     const requestBody = await req.json();
+    diagnoseOnly = requestBody?.reconcile_only === true;
     requestedEmailQueueId = typeof requestBody?.email_queue_id === "string" &&
         requestBody.email_queue_id.trim()
       ? requestBody.email_queue_id.trim()
@@ -135,6 +140,8 @@ serve(async (req) => {
     return json(503, { error: "Worker authorization unavailable" });
   }
 
+  if (diagnoseOnly && !isServiceRoleCall) return json(403, {error: "Worker authorization required"});
+
   if (!isServiceRoleCall) {
     if (!requestedEmailQueueId || !bearer) {
       return json(403, {
@@ -160,28 +167,26 @@ serve(async (req) => {
   }
 
   try {
-    let emailQuery = supabase
-      .from("email_queue")
-      .select("*")
-      .eq("status", "pending");
-
-    if (requestedEmailQueueId) {
-      emailQuery = emailQuery.eq("id", requestedEmailQueueId);
-    }
-
-    const { data: emails, error } = await emailQuery
-      .order("created_at")
-      .limit(requestedEmailQueueId ? 1 : 20);
-
-    if (error) {
-      return json(500, { error: error.message });
-    }
-
+    const reconciliation = await reconcileUncertain(supabase, replyAddress, Deno.env.get, diagnoseOnly);
+    if (diagnoseOnly) return json(200, {success:true,reconciliation});
     let processed = 0;
     let failed = 0;
-
-    for (const email of emails ?? []) {
+    let deferred = 0;
+    const started = Date.now();
+    for (let i=0; i<(requestedEmailQueueId ? 1 : 20) && Date.now()-started<45000; i++) {
+      const {data: claimed,error: claimError} = await supabase.rpc("claim_email_delivery", {p_id: requestedEmailQueueId});
+      if (claimError) throw new Error(claimError.message);
+      const email = claimed?.[0];
+      if (!email) break;
+      let submissionStarted = false;
+      let completionStarted = false;
+      const finish = async (outcome: string, message: string | null = null, details: Record<string,unknown> = {}, delay=0) => {
+        completionStarted = true;
+        await completeDelivery(supabase,email,outcome,message,details,delay);
+      };
       try {
+        const invalid = await preflightDelivery(supabase,email);
+        if (invalid) { await finish("permanent",invalid,{stage:"validation"}); failed++; continue; }
         if (TEAM_SHEET_EVENT_TYPES.has(email.event_type) ||
           (email.event_type === "fixture_message" &&
             (email.payload?.team_sheet_required === true ||
@@ -202,36 +207,17 @@ serve(async (req) => {
             selection?.status !== "published" ||
             attachment.compositionVersion !== selection?.composition_version
           ) {
-            await supabase
-              .from("email_queue")
-              .update({
-                status: "failed",
-                last_error:
-                  "Required Team Sheet attachment is missing or stale.",
-                last_attempt_at: new Date().toISOString(),
-              })
-              .eq("id", email.id)
-              .eq("status", "pending");
+            await finish("permanent", "Required Team Sheet attachment is missing or stale.", {stage:"validation"});
             failed++;
             continue;
           }
         }
 
-        await supabase
-          .from("email_queue")
-          .update({
-            status: "processing",
-            processing_started_at: new Date().toISOString(),
-            last_attempt_at: new Date().toISOString(),
-            attempts: (email.attempts ?? 0) + 1,
-          })
-          .eq("id", email.id);
-
         const calendarAttachment = await loadFixtureCalendar(
           supabase, email, new URL(supabaseUrl).hostname.split(".")[0], replyAddress,
         );
         if (calendarAttachment?.skip) {
-          await supabase.from("email_queue").update({status: "cancelled", last_error: null}).eq("id", email.id);
+          await finish("cancelled", "Superseded calendar update.", {stage:"calendar_validation"});
           continue;
         }
 
@@ -277,7 +263,7 @@ serve(async (req) => {
           ? buildEmailActionBlock(actionBlock, replyAddress!)
           : "";
 
-        let outboundHtml = `<div style="font-family:Arial,sans-serif;line-height:1.45;color:#222222;">${bodyHtml}${actionHtml}${calendarAttachment ? fixtureCalendarHtml(calendarAttachment) : ""}</div>`;
+        let outboundHtml = `<div style="font-family:Arial,sans-serif;line-height:1.45;color:#222222;">${markerRequestEmailHtml(email, actionHtml) ?? (bodyHtml + actionHtml)}${calendarAttachment ? fixtureCalendarHtml(calendarAttachment) : ""}</div>`;
         if (email.event_type === "mailing_list_message") {
           const messageId = email.payload?.mailing_list_message_id;
           if (typeof messageId !== "string") {
@@ -310,6 +296,7 @@ serve(async (req) => {
           }
         }
 
+        submissionStarted = true;
         const sendRes = await fetch(
           `${supabaseUrl}/functions/v1/send-graph-email`,
           {
@@ -320,11 +307,13 @@ serve(async (req) => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
+              email_queue_id: email.id,
               to: email.recipient_email,
               subject: email.subject,
               html: outboundHtml,
               attachments: [...(email.attachments ?? []), ...(calendarAttachment ? [calendarAttachment] : [])],
             }),
+            signal: AbortSignal.timeout(45000),
           },
         );
 
@@ -337,37 +326,36 @@ serve(async (req) => {
         }
 
         if (!sendRes.ok) {
-          if (sendRes.status === 429) {
-            await supabase.from("email_queue").update({
-              status: "pending", last_error: "Deferred: 20-per-minute mail limit reached",
-            }).eq("id", email.id);
-            break;
-          }
-          throw new Error(
-            String(sendData?.error ?? "Unknown send-graph-email error"),
-          );
+          const policy = classifySendFailure(sendRes.status,sendData);
+          await finish(policy.outcome,String(sendData.error ?? "Mail service request failed"),{
+            stage:sendData.stage ?? "send",http_status:sendRes.status,
+            provider_status:sendData.provider_status,
+            provider_request_id:sendData.provider_request_id,
+            provider_details:sendData.details,
+            send_outcome:sendData.send_outcome,
+          },policy.delay);
+          if (policy.outcome === "deferred") {deferred++; break;}
+          failed++;
+          // An outage should not consume the whole queue in one invocation.
+          if (policy.outcome === "uncertain" || policy.outcome === "retry") break;
+          continue;
         }
-
-        await supabase
-          .from("email_queue")
-          .update({
-            status: "sent",
-            sent_at: new Date().toISOString(),
-            last_error: null,
-          })
-          .eq("id", email.id);
-
+        if (sendData.success !== true) {
+          await finish("uncertain","Mail service returned no acceptance confirmation.",{http_status:sendRes.status});
+          failed++;break;
+        }
+        await finish("sent",null,{provider_status:sendData.provider_status,
+          provider_request_id:sendData.provider_request_id,send_outcome:"accepted"});
         processed++;
       } catch (err) {
-        await supabase
-          .from("email_queue")
-          .update({
-            status: "failed",
-            last_error: err instanceof Error ? err.message : String(err),
-          })
-          .eq("id", email.id);
-
+        // A failed final database write must never be replaced by a blind retry.
+        // Leave the lease for stale-worker reconciliation.
+        if (completionStarted) throw err;
+        await finish(submissionStarted ? "uncertain" : "retry",
+          err instanceof Error ? err.message : String(err),
+          {stage: submissionStarted ? "transport" : "preparation"});
         failed++;
+        break;
       }
     }
 
@@ -375,6 +363,8 @@ serve(async (req) => {
       success: true,
       processed,
       failed,
+      deferred,
+      reconciliation,
     });
   } catch (err) {
     return json(500, {
@@ -382,3 +372,5 @@ serve(async (req) => {
     });
   }
 });
+
+

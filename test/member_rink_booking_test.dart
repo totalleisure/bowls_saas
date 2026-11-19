@@ -16,6 +16,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class FakeBookingRepository extends MemberBookingRepository {
   FakeBookingRepository() : super(Supabase.instance.client);
   bool conflict = false, full = false;
+  int defaultMinutes = 150;
   int writes = 0;
   DateTime? bookedStart;
   String? bookedLabel;
@@ -26,6 +27,7 @@ class FakeBookingRepository extends MemberBookingRepository {
     {
       'id': 'type',
       'name': 'Member Practice',
+      'default_duration_minutes': defaultMinutes,
       'section': 'mixed',
       'default_players_per_rink': 2,
       'colour_scheme': {
@@ -76,6 +78,13 @@ class FakeBookingRepository extends MemberBookingRepository {
     if (conflict) throw StateError('That space is no longer available.');
   }
 
+  @override
+  Future<void> checkSlotWindow(
+    String greenId,
+    String label,
+    DateTime start,
+    Duration duration,
+  ) => checkSlot(greenId, label, start);
   @override
   Future<String> book({
     required String clubId,
@@ -230,14 +239,8 @@ void main() {
         expect(find.widgetWithText(FilledButton, 'Book rink'), findsNothing);
         await t.tap(find.byKey(const ValueKey('member-type-type')));
         await t.pumpAndSettle();
-        expect(
-          t
-              .widget<FilledButton>(
-                find.widgetWithText(FilledButton, 'Book rink'),
-              )
-              .onPressed,
-          isNull,
-        );
+        expect(find.widgetWithText(FilledButton, 'Book rink'), findsNothing);
+        expect(find.text('Choose a rink and time'), findsWidgets);
       }
       expect(t.takeException(), isNull);
     });
@@ -471,16 +474,20 @@ void main() {
   }
 
   Future<void> chooseSlot(WidgetTester t) async {
-    final slot = find.text('09:00–11:30 · R1');
-    await t.ensureVisible(slot);
+    final slot = find.bySemanticsLabel('R1, 09:00, available');
+    await t.scrollUntilVisible(slot, 150, scrollable: find.byType(Scrollable).first);
+    await t.pumpAndSettle();
     await t.tap(slot);
     await t.pumpAndSettle();
   }
 
-  testWidgets('Book rink stays visible while availability scrolls', (t) async {
+  testWidgets('Small window keeps the choose-rink action visible while scrolling', (t) async {
     await open(t, FakeBookingRepository());
-    final button = find.widgetWithText(FilledButton, 'Book rink');
+    final button = find.byKey(const Key('booking-grid-bottom-action'));
     final before = t.getRect(button);
+    await t.tap(button);
+    await t.pumpAndSettle();
+    expect(find.byType(MemberBookingTimeline).hitTestable(), findsOneWidget);
     await t.drag(find.byType(ListView), const Offset(0, -350));
     await t.pumpAndSettle();
     expect(t.getRect(button), before);
@@ -554,6 +561,8 @@ void main() {
       await t.pumpAndSettle();
       expect(repo.writes, 0);
       expect(find.byType(FixtureDetailsPage), findsNothing);
+      await t.drag(find.byType(ListView).first, const Offset(0, 1000));
+      await t.pumpAndSettle();
       expect(find.textContaining('no longer available'), findsOneWidget);
       expect(t.takeException(), isNull);
     },
@@ -563,17 +572,171 @@ void main() {
   ) async {
     final repo = FakeBookingRepository()..full = true;
     await open(t, repo);
+    await t.drag(find.byType(ListView), const Offset(0, -500));
+    await t.pumpAndSettle();
     expect(
       find.text('No rink is free for 2½ hours on this date.'),
       findsOneWidget,
     );
     expect(find.text('Try next day →'), findsOneWidget);
-    expect(
-      t
-          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Book rink'))
-          .onPressed,
-      isNull,
-    );
+    expect(find.widgetWithText(FilledButton, 'Book rink'), findsNothing);
     expect(t.takeException(), isNull);
   });
+  for (final unavailable in [false, true]) {
+    testWidgets('Rinks view selection survives type choice, unavailable=$unavailable', (t) async {
+      final repo = FakeBookingRepository()..full = unavailable;
+      t.view.physicalSize = const Size(1100, 1600);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(MaterialApp(home: MemberFixtureCreationPage(
+        clubId: 'club', clubName: 'Club', repository: repo,
+        initialDate: DateTime(2032, 1, 17, 10, 30), initialRinkLabel: 'R3',
+      )));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('member-type-type')));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Selected, not booked: R3 · 10:30–13:00'), findsOneWidget);
+      final timeline = t.widget<MemberBookingTimeline>(find.byType(MemberBookingTimeline));
+      expect(timeline.selectedLabel, 'R3');
+      expect(timeline.selectedStart, DateTime(2032, 1, 17, 10, 30));
+      final book = t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Book rink'));
+      expect(book.onPressed == null, unavailable);
+      expect(repo.writes, 0);
+      expect(t.takeException(), isNull);
+    });
+  }
+  testWidgets(
+    'National duration of 240 minutes reaches the weekend rink timeline',
+    (t) async {
+      final repo = FakeBookingRepository()..defaultMinutes = 240;
+      t.view.physicalSize = const Size(1100, 1600);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(
+        MaterialApp(
+          home: MemberFixtureCreationPage(
+            clubId: 'club',
+            clubName: 'Club',
+            repository: repo,
+            initialDate: DateTime(2032, 1, 17),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('member-type-type')));
+      await t.pumpAndSettle();
+      expect(
+        t
+            .widget<MemberBookingTimeline>(find.byType(MemberBookingTimeline))
+            .duration,
+        const Duration(minutes: 240),
+      );
+      final slot = find.bySemanticsLabel('R1, 09:00, available');
+      await t.ensureVisible(slot);
+      await t.pumpAndSettle();
+      await t.tap(slot);
+      await t.pumpAndSettle();
+      expect(
+        find.textContaining('Selected, not booked: R1 · 09:00–13:00'),
+        findsOneWidget,
+      );
+      final selected = find.byKey(
+        const ValueKey('selected-member-booking-slot'),
+      );
+      expect(t.getSize(selected).width, closeTo(52 * 4 - 4, 0.01));
+      final grid = find.byKey(const ValueKey('selected-member-range-outline'));
+      final border =
+          (t.widget<Container>(grid).decoration! as BoxDecoration).border!
+              as Border;
+      expect(border.top.color, const Color(0xffe53935));
+      expect(t.takeException(), isNull);
+    },
+  );
+  test(
+    'Four-hour National booking sends four hours to availability and creation RPC',
+    () async {
+      final payloads = <String, Map<String, dynamic>>{};
+      final client = SupabaseClient(
+        'https://example.invalid',
+        'test',
+        httpClient: MockClient((r) async {
+          payloads[r.url.path] = jsonDecode(r.body) as Map<String, dynamic>;
+          return http.Response(
+            r.url.path.endsWith('get_green_rink_availability')
+                ? '[{"rink_label":"R1","is_booked":false,"free_capacity_rinks":1}]'
+                : '"fixture-national"',
+            200,
+            headers: {'content-type': 'application/json'},
+            request: r,
+          );
+        }),
+      );
+      addTearDown(client.dispose);
+      await MemberBookingRepository(client).bookWindow(
+        clubId: 'club',
+        memberId: 'member',
+        type: {
+          'id': 'national',
+          'default_duration_minutes': 240,
+          'default_players_per_rink': 1,
+          'default_format': 'singles',
+          'lock_duration': false,
+        },
+        venueId: 'venue',
+        green: {'id': 'green'},
+        label: 'R1',
+        start: DateTime(2032, 1, 17, 10),
+        duration: const Duration(minutes: 240),
+      );
+      expect(
+        payloads['/rest/v1/rpc/get_green_rink_availability']!['p_end_at'],
+        '2032-01-17T14:00:00.000Z',
+      );
+      final booking =
+          payloads['/rest/v1/rpc/create_fixture_with_booking_policy']!['p_booking']
+              as Map;
+      expect(booking['p_end_at'], '2032-01-17T14:00:00.000Z');
+    },
+  );
+  test(
+    'legacy repository entry also honours the National fixture-type duration',
+    () async {
+      Map<String, dynamic>? booking;
+      final client = SupabaseClient(
+        'https://example.invalid',
+        'anon',
+        httpClient: MockClient((r) async {
+          if (r.url.path.endsWith('get_green_rink_availability'))
+            return http.Response(
+              '[{"rink_label":"R1","is_booked":false,"free_capacity_rinks":1}]',
+              200,
+              request: r,
+            );
+          expect(r.url.path, endsWith('/create_fixture_with_booking_policy'));
+          booking = jsonDecode(r.body) as Map<String, dynamic>;
+          return http.Response('"national"', 200, request: r);
+        }),
+      );
+      addTearDown(client.dispose);
+      await MemberBookingRepository(client).book(
+        clubId: 'club',
+        memberId: 'member',
+        type: {
+          'id': 'national',
+          'default_duration_minutes': 240,
+          'default_players_per_rink': 1,
+        },
+        venueId: 'venue',
+        green: {'id': 'green'},
+        label: 'R1',
+        start: DateTime(2032, 1, 17, 10),
+      );
+      expect(
+        (booking!['p_booking'] as Map)['p_end_at'],
+        '2032-01-17T14:00:00.000Z',
+      );
+    },
+  );
 }

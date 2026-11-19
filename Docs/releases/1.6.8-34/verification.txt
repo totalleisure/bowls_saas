@@ -1,0 +1,24 @@
+Release candidate: 1.6.8+34, prepared 19 November 2026.
+
+Source:
+- Shared Dart source comparison PASS. Environment entry points and secrets preserved.
+- Full production Flutter tests: 749 passed, 4 opt-in skipped, no failures.
+- Focused staging booking/diary release suite: 48 passed.
+- Production email regression checks: 32 passed.
+- Updated old tests for removed suggestions, revised competition button label and production's leased mail-delivery failure handling. No production safety code was removed to satisfy tests.
+- Release transfer uses production Git branch codex/release-1.6.8-34. The release commit includes the reviewed current production application, backend references, tests and release notes; no secrets or generated build artifacts are staged.
+
+Database:
+- Compared 11 live marker/booking function definitions using pg_get_functiondef in both environments: all match.
+- Booking-policy hash: 635b6c04395d26a771a3c55b7f86cb16.
+- Existing migrations remain applied; no schema migration or worker deployment needed for this release preparation.
+- Production retains its leased email-delivery recovery, mailbox, normal recipient scope and deployment configuration; staging retains its mailbox/test recipient policy.
+- Production Member Rink Booking currently has lock_rinks=false and lock_participation=false; staging's accepted test configuration has both true. Format is unlocked, duration maximum is 150 minutes, weekend starts enabled in both. No live business configuration was changed during release preparation. User confirmed these two locks must remain unchanged until the new App is available.
+- Minimum-version policy was not raised as part of release preparation.
+
+Distribution:
+- Staging Windows release build passed using staging_main.dart.
+- Production Windows release build and portable archive status recorded in artifact-manifest.json beside the artifacts.
+- iOS source in the release Git branch and Mac build script supplied; no signed IPA, TestFlight upload or App Store submission performed on Windows.
+- Android release signing currently points to the debug key; no Google Play candidate or upload prepared.
+- Manual staging acceptance covered booking limits, admin overrides, Format unlocked, weekend/weekday/outside-window starts, National four-hour booking, diary refresh, rink pills, retained Rinks-view selection and compact-screen layout.

@@ -1,0 +1,11 @@
+Total Leisure Bowls 1.6.8 (34) - device acceptance
+
+1. Sign in and confirm production branding and production records. Keep production and staging apps distinct.
+2. On a small iPhone, check the booking form, compact rules card, duration field above the grid, scroll-to-grid button, green/grey starts, selected outline and fixed Book rink area. Check portrait, landscape and increased text size. Adjust duration and confirm the reminder updates.
+3. Open booking from empty space in Rinks view. After choosing Fixture Type, verify the selected rink/time survives and the type's duration is used. Invalid suggestions must be explained and not bookable.
+4. Confirm ordinary members cannot change locked fields or exceed locked duration. Weekend-restricted types allow configured starts only within the window; weekday and outside-window starts remain available within club hours. National/County defaults to four hours without the weekend restriction. Admins can override type controls, but opening hours still apply.
+5. Check Day cards show allocated rink labels or n rinks reserved; return from details and Day view without manually refreshing. Opening the current month should reveal today.
+6. Test marker workflows with agreed test fixtures/accounts: request, direct reply forwarding and acknowledgement, I CAN HELP, appointment, thanks to other/late volunteers, and confirmed list departure preserving an appointment.
+7. Check competition scorecard challenger/opponent identity, score/winner mapping and admin correction/completion. Delete only an agreed test fixture when testing rearrangement and removal emails.
+
+Production actions affect real records and send normal communications. Use agreed test records. Staging's recipient restrictions are intentionally retained there.

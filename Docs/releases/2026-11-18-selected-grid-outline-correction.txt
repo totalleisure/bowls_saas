@@ -1,0 +1,18 @@
+Selected grid outline correction — 18 November 2026
+
+User clarified that the red border belongs on the selected time-slot grid boxes,
+not on the selected card. Selected half-hour grid cells now have a red 2px border
+and a light red tint. The original blue card, padding, size and text style are
+restored without the added card border, which had reduced its text space. The
+selected card/range still follows actual booking duration rather than 2.5 hours.
+
+16 member-booking tests passed, including four-hour selected range and grid border.
+Staging built first, then production sources aligned and compared. Windows debug
+builds use staging_main.dart in staging and main.dart in the production folder.
+No database, mailbox, Store submission, version or unrelated source changes.
+Supersedes the previous selected-card border presentation.
+
+Final user refinement: removed the internal red cell borders and normal grid lines
+inside the selected booking. One red outer outline now spans the complete selected
+time range at full grid-row height. The original card remains unchanged. Duration
+and booking behavior are unchanged; 16 member booking regression tests passed.

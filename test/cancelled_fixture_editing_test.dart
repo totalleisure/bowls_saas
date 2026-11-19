@@ -571,7 +571,7 @@ void main() {
       await t.pumpAndSettle();
       final button = find.widgetWithText(
         FilledButton,
-        'Manage competition booking',
+        'Reschedule competition booking',
       );
       if (linked) {
         await t.ensureVisible(button);

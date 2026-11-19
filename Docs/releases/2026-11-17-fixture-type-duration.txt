@@ -1,0 +1,7 @@
+Fixture-type default duration - 17 November 2026
+
+The Create Fixture screen omitted competition_types.default_duration_minutes from its query and did not pass a type duration to pickFixtureStart. This meant the picker always used its two-hour fallback even when the type configured a different duration.
+
+The screen now loads the configured duration and uses it for its automatic end time, including when choosing/changing the type after choosing a start. The type duration also drives the short-session recommendation. A deliberate end-time edit is retained when the type is reselected or the start moves; available-slot limits remain in force. Missing/non-positive defaults retain the existing two-hour fallback. Other time-picker callers retain their existing defaults. Existing saved fixtures are not modified.
+
+Staging first, then the same reviewed amendment to production source. Compare-AppSources.ps1 passed. Twenty tests passed in each source set: real Create Fixture form with a 150-minute type, explicit end override/reselection, rink-slot clipping, plus existing date/time and member-booking workflows. No live fixtures, emails, database functions or policies were changed by this correction. Environment-specific entry points and the staging-only marker pilot are preserved. Windows release builds rebuilt in both installations; restart the respective app and reopen Create Fixture. Apple/Android need a subsequent store build to include this UI fix. No app version number changed and no commit/push/store upload performed.

@@ -11,6 +11,8 @@ import 'package:bowls_saas/features/diary/month_calendar.dart';
 import 'package:bowls_saas/features/fixtures/fixture_details_page.dart';
 
 void main() {
+  String? refreshedLabel;
+  final fixtureRequests = <Uri>[];
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
@@ -20,6 +22,7 @@ void main() {
       authOptions: const FlutterAuthClientOptions(autoRefreshToken: false),
       httpClient: MockClient((request) async {
         if (request.url.path.endsWith('/fixtures')) {
+          fixtureRequests.add(request.url);
           final rows = List.generate(
             8,
             (n) => {
@@ -30,7 +33,7 @@ void main() {
               'end_at': '2026-10-01T20:00:00Z',
               'is_home': n != 1 && n != 7,
               'team_name': n == 2
-                  ? '  Junior coaching  '
+                  ? (refreshedLabel ?? '  Junior coaching  ')
                   : n == 4
                   ? ''
                   : n == 5
@@ -244,6 +247,45 @@ void main() {
       expect(tester.getTopLeft(dateText), datePosition);
       expect(tester.getTopLeft(clubText), clubPosition);
       expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'return from Day refreshes its labels without loading the whole month again',
+    (t) async {
+      fixtureRequests.clear();
+      refreshedLabel = null;
+      addTearDown(() => refreshedLabel = null);
+      t.view.physicalSize = const Size(1280, 1000);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(
+        MaterialApp(
+          home: MonthOverviewScreen(
+            clubId: 'club',
+            clubName: 'Club',
+            initialDate: DateTime(2026, 10),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      final fixture = find.byKey(const ValueKey('month-fixture-fixture-2'));
+      await t.ensureVisible(fixture);
+      await t.pumpAndSettle();
+      await t.tap(fixture);
+      await t.pumpAndSettle();
+      expect(find.byType(DiaryDayScreen), findsOneWidget);
+      refreshedLabel = 'Updated from Day';
+      await t.tap(find.byIcon(Icons.arrow_back).last);
+      await t.pumpAndSettle();
+      expect(find.textContaining('Updated from Day'), findsOneWidget);
+      final fullMonths = fixtureRequests.where(
+        (u) => (u.queryParametersAll['start_at'] ?? []).contains(
+          'lt.2026-11-01T00:00:00.000Z',
+        ),
+      );
+      expect(fullMonths.length, 1);
+      expect(t.takeException(), isNull);
     },
   );
 }

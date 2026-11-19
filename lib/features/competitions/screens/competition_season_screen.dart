@@ -1,3 +1,4 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
@@ -13,6 +14,7 @@ import 'competition_publication_screen.dart';
 import 'competition_publish_screen.dart';
 import 'competition_preliminary_screen.dart';
 import 'competition_arrangement_screen.dart';
+import 'competition_replace_player_screen.dart';
 
 class CompetitionSeasonScreen extends StatefulWidget {
   final String clubId, competitionId;
@@ -284,11 +286,47 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
         '${entry['payment_status'] == 'paid' ? 'Paid' : 'Payment not recorded as paid'}${handicap == null ? '' : ' · $handicapLabel'}',
       );
     }
+    // Separate tooltip overlay anchors inside an IndexedSemantics list row.
+    // Merging them can orphan tooltip nodes in Flutter's Windows AXTree.
     return Wrap(
       spacing: 8,
       runSpacing: 4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        Tooltip(
+          message: 'Correct an unplayed entry without rebuilding its draw',
+          child: ActionChip(
+            avatar: const Icon(Icons.person_outline, size: 18),
+            label: const Text('Replace player'),
+            onPressed:
+                busy ||
+                    !competitionEntryCanReplace(data!, entry['id'].toString())
+                ? null
+                : () async {
+                    final result = await Navigator.of(context)
+                        .push<CompetitionRow>(
+                          MaterialPageRoute(
+                            builder: (_) => CompetitionReplacePlayerScreen(
+                              data: data!,
+                              entry: entry,
+                              repository: widget.repository,
+                            ),
+                          ),
+                        );
+                    if (result != null && mounted) {
+                      await load();
+                      if (mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Player replaced. ${result['fixtures_updated'] ?? 0} booking(s) updated; ${result['emails_queued'] ?? 0} amendment email(s) queued.',
+                            ),
+                          ),
+                        );
+                    }
+                  },
+          ),
+        ),
         FilterChip(
           label: const Text('Paid'),
           selected: entry['payment_status'] == 'paid',
@@ -344,7 +382,7 @@ class _CompetitionSeasonScreenState extends State<CompetitionSeasonScreen> {
             icon: const Icon(Icons.edit_outlined),
             onPressed: busy ? null : () => editHandicap(entry),
           ),
-      ],
+      ].map((control) => Semantics(container: true, child: control)).toList(),
     );
   }
 
@@ -1287,11 +1325,200 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
   final scoreA = TextEditingController(), scoreB = TextEditingController();
   String? winner, error;
   bool busy = false;
+  bool? hasSharedResult;
+  String? reviewError;
   late CompetitionRow match = Map.of(widget.match);
   @override
   void initState() {
     super.initState();
     syncScores();
+    loadResultReview();
+  }
+
+  Future<void> loadResultReview() async {
+    if (!widget.canManage ||
+        match['fixture_id'] == null ||
+        match['status'] == 'completed') {
+      return;
+    }
+    try {
+      final review = await widget.repository.adminResultReview(
+        match['id'].toString(),
+      );
+      if (mounted) {
+        setState(() {
+          hasSharedResult = review['hasShared'] == true;
+          reviewError = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => reviewError =
+              'Unable to check the shared scorecard. Retry before entering a result.',
+        );
+      }
+    }
+  }
+
+  Future<void> adminDecision() async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final review = await widget.repository.adminResultReview(
+        match['id'].toString(),
+      );
+      if (!mounted) return;
+      final current = Map<String, dynamic>.from(review['match'] as Map);
+      if (current['status'] == 'completed') {
+        throw StateError(
+          'This result has already been confirmed. Reopen the match to view it.',
+        );
+      }
+      var a = current['score_a']?.toString() ?? '';
+      var b = current['score_b']?.toString() ?? '';
+      var reason = '';
+      String? selected = current['proposed_winner_entry_id']?.toString();
+      String? validation;
+      setState(() => busy = false);
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+          builder: (context, update) => AlertDialog(
+            title: const Text('Record Admin decision'),
+            content: SizedBox(
+              width: 500,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'This is the Competition Admin’s final decision. It confirms the result and advances the winner. The original scorecard and any player signatures remain as evidence; they do not imply agreement to this decision.',
+                    ),
+                    for (final side in ['a', 'b'])
+                      TextFormField(
+                        key: ValueKey('admin-score-$side'),
+                        initialValue: side == 'a' ? a : b,
+                        onChanged: (value) {
+                          if (side == 'a') {
+                            a = value;
+                          } else {
+                            b = value;
+                          }
+                        },
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText:
+                              'Final score — ${widget.data.side(current, side)}',
+                        ),
+                      ),
+                    DropdownButtonFormField<String>(
+                      initialValue: selected,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Winning entry',
+                      ),
+                      items: [
+                        for (final side in ['a', 'b'])
+                          DropdownMenuItem(
+                            value: current['side_${side}_entry_id'].toString(),
+                            child: Text(
+                              widget.data.side(current, side),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) => update(() => selected = value),
+                    ),
+                    TextFormField(
+                      key: const ValueKey('admin-decision-reason'),
+                      onChanged: (value) => reason = value,
+                      maxLength: 1000,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Reason for Admin decision (required)',
+                      ),
+                    ),
+                    if (validation != null)
+                      Text(
+                        validation!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final sa = int.tryParse(a), sb = int.tryParse(b);
+                  if (sa == null ||
+                      sb == null ||
+                      sa < 0 ||
+                      sb < 0 ||
+                      sa == sb ||
+                      reason.trim().isEmpty ||
+                      selected !=
+                          current[sa > sb
+                              ? 'side_a_entry_id'
+                              : 'side_b_entry_id']) {
+                    update(
+                      () => validation =
+                          'Enter both final scores, select the entry with the higher score and give a reason.',
+                    );
+                    return;
+                  }
+                  Navigator.pop(context, true);
+                },
+                child: const Text('Confirm Admin result and advance winner'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (accepted != true || !mounted) return;
+      setState(() => busy = true);
+      await widget.repository.confirmAdminResult(
+        match['id'].toString(),
+        int.parse(a),
+        int.parse(b),
+        selected!,
+        reason.trim(),
+        review['token'].toString(),
+      );
+      final refreshed = await widget.repository.load(
+        widget.data.competition['club_id'].toString(),
+        widget.data.competition['id'].toString(),
+      );
+      if (mounted) {
+        setState(() {
+          match = refreshed.matches.firstWhere((m) => m['id'] == match['id']);
+          syncScores();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => error = e is PostgrestException
+              ? e.message
+              : e is StateError
+              ? e.message.toString()
+              : 'Unable to record the Admin decision. Check the connection and try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
 
   void syncScores() {
@@ -1323,6 +1550,7 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
           syncScores();
           error = null;
         });
+        await loadResultReview();
       }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
@@ -1367,7 +1595,8 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted)
+        setState(() => error = e is PostgrestException ? e.message : '$e');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1565,8 +1794,16 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
       Theme.of(context).colorScheme.surface,
     );
     final pending = match['status'] == 'result_pending';
+    final checkingShared =
+        widget.canManage &&
+        match['fixture_id'] != null &&
+        hasSharedResult == null;
     final canEdit =
-        playable && !pending && (widget.canManage || widget.canSubmit);
+        playable &&
+        !pending &&
+        !checkingShared &&
+        hasSharedResult != true &&
+        (widget.canManage || widget.canSubmit);
     return Card(
       key: const ValueKey('competition-result-card'),
       color: tint,
@@ -1606,6 +1843,23 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
             if (!canEdit && match['score_a'] != null)
               Text(
                 '${d.side(match, 'a')}: ${match['score_a']}\n${d.side(match, 'b')}: ${match['score_b']}',
+              ),
+            if (checkingShared)
+              Text(reviewError ?? 'Checking the shared scorecard…'),
+            if (reviewError != null)
+              TextButton(
+                onPressed: loadResultReview,
+                child: const Text('Retry scorecard check'),
+              ),
+            if (hasSharedResult == true && !pending)
+              const Text(
+                'This match has a shared scorecard. Return to the scorer for correction and fresh agreement, or record an Admin decision below.',
+              ),
+            if (widget.canManage && playable && hasSharedResult == true)
+              OutlinedButton.icon(
+                onPressed: busy ? null : adminDecision,
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('Record Admin decision'),
               ),
             if (canEdit) ...[
               const Text(
@@ -1677,7 +1931,7 @@ class _CompetitionMatchScreenState extends State<CompetitionMatchScreen> {
                 icon: const Icon(Icons.flag_outlined),
                 label: const Text('Award walkover'),
               ),
-            if (!canEdit && !pending && playable)
+            if (!canEdit && !pending && playable && !widget.canManage)
               const Text(
                 'Only a player in this match or a Club Admin may submit a result.',
               ),

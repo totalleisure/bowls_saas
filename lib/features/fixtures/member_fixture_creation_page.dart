@@ -1,3 +1,4 @@
+import 'fixture_type_booking_policy.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/utils/date_format.dart';
@@ -38,6 +39,64 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
   var _density = MemberTimelineDensity.compact;
   int _request = 0;
   bool _initialApplied = false;
+  final _bookingGridKey = GlobalKey();
+  final _formScroll = ScrollController();
+
+  @override
+  void dispose() {
+    _formScroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showBookingGrid() async {
+    if (_bookingGridKey.currentContext == null && _formScroll.hasClients) {
+      await _formScroll.animateTo(
+        _formScroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+    if (!mounted) return;
+    final gridContext = _bookingGridKey.currentContext;
+    if (gridContext != null) {
+      await Scrollable.ensureVisible(
+        gridContext,
+        duration: const Duration(milliseconds: 300),
+        alignment: 0,
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  int? _durationOverride;
+  Duration get _duration => Duration(
+    minutes:
+        _durationOverride ??
+        (_type?['default_duration_minutes'] as num?)?.toInt() ??
+        150,
+  );
+  List<Map<String, dynamic>> get _windows =>
+      (_type?['booking_windows'] as List? ?? [])
+          .map((w) => Map<String, dynamic>.from(w as Map))
+          .toList();
+  int _venueMinute(String field, int fallback) {
+    final parts = '${_venue?[field]}'.split(':');
+    return parts.length < 2
+        ? fallback
+        : int.parse(parts[0]) * 60 + int.parse(parts[1]);
+  }
+
+  int get _opens => _venueMinute('club_start_time', 540);
+  int get _closes => _venueMinute('club_end_time', 1320);
+  bool _allowedStart(DateTime start) =>
+      fixtureTypeTimingError(
+        _type,
+        _windows,
+        start,
+        start.add(_duration),
+        privileged: false,
+      ) ==
+      null;
 
   @override
   void initState() {
@@ -48,10 +107,7 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
     _load();
   }
 
-  String _message(Object e) => e
-      .toString()
-      .replaceFirst('Bad state: ', '')
-      .replaceFirst('Exception: ', '');
+  String _message(Object e) => bookingErrorMessage(e);
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
@@ -105,29 +161,64 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
       final day = await _repo.day(widget.clubId, green['id'].toString(), _date);
       if (mounted && request == _request) {
         setState(() => _day = day);
-        if (!_initialApplied &&
-            widget.initialDate != null &&
-            widget.initialRinkLabel != null) {
-          _initialApplied = true;
-          final timeline = MemberBookingTimeline(
-            date: _date,
-            labels: _labels,
-            day: day,
-            density: _density,
-            latestEnd: _latestEnd,
-            onSelect: _select,
-          );
-          if (timeline.available(
-            widget.initialRinkLabel!,
-            widget.initialDate!,
-          )) {
-            await _select(widget.initialRinkLabel!, widget.initialDate!);
-          }
-        }
+        await _applyInitialSlot();
       }
     } catch (e) {
       if (mounted && request == _request) setState(() => _error = _message(e));
     }
+  }
+
+  Future<void> _applyInitialSlot() async {
+    if (_initialApplied ||
+        _type == null ||
+        _day == null ||
+        widget.initialDate == null ||
+        widget.initialRinkLabel == null)
+      return;
+    _initialApplied = true;
+    final start = widget.initialDate!;
+    final label = widget.initialRinkLabel!;
+    final timingError = fixtureTypeTimingError(
+      _type,
+      _windows,
+      start,
+      start.add(_duration),
+      privileged: false,
+    );
+    final timeline = MemberBookingTimeline(
+      date: _date,
+      labels: _labels,
+      day: _day!,
+      density: _density,
+      latestEnd: _latestEnd,
+      onSelect: _select,
+      duration: _duration,
+      opens: _opens,
+      closes: _closes,
+      allowedStart: _allowedStart,
+    );
+    if (!_labels.contains(label) || !timeline.available(label, start)) {
+      setState(() {
+        _start = start;
+        _label = label;
+        _error =
+            timingError ??
+            'The selected rink and time are not available for this duration. Choose another slot.';
+      });
+      return;
+    }
+    await _select(label, start);
+  }
+
+  void _chooseType(Map<String, dynamic> type) {
+    setState(() {
+      _type = type;
+      _durationOverride = null;
+      _start = null;
+      _label = null;
+      _error = null;
+    });
+    _applyInitialSlot();
   }
 
   List<String> get _labels =>
@@ -175,7 +266,22 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
       _error = null;
     });
     try {
-      await _repo.checkSlot(_green!['id'].toString(), label, start);
+      if (!_allowedStart(start))
+        throw StateError(
+          fixtureTypeTimingError(
+            _type,
+            _windows,
+            start,
+            start.add(_duration),
+            privileged: false,
+          )!,
+        );
+      await _repo.checkSlotWindow(
+        _green!['id'].toString(),
+        label,
+        start,
+        _duration,
+      );
       if (mounted && request == _request) {
         setState(() {
           _label = label;
@@ -193,13 +299,18 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
   }
 
   Future<void> _book() async {
-    if (_saving || _type == null || _start == null || _label == null) return;
+    if (_saving ||
+        _error != null ||
+        _type == null ||
+        _start == null ||
+        _label == null)
+      return;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      _createdFixtureId ??= await _repo.book(
+      _createdFixtureId ??= await _repo.bookWindow(
         clubId: widget.clubId,
         memberId: _member!,
         type: _type!,
@@ -207,6 +318,7 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
         green: _green!,
         label: _label!,
         start: _start!,
+        duration: _duration,
       );
       if (!mounted) return;
       await Navigator.of(context).push<bool>(
@@ -282,7 +394,7 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
                           ),
                         ),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => setState(() => _type = type),
+                        onTap: () => _chooseType(type),
                       ),
                     );
                   },
@@ -307,6 +419,9 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
             fallback: scheme.onSurface,
           );
     final today = DateUtils.dateOnly(toClubTime(DateTime.now()));
+    final window = MediaQuery.sizeOf(context);
+    final smallWindow = window.width < 600 || window.height < 650;
+    final needsSlot = _start == null || _error != null;
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
@@ -327,19 +442,44 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
                         Text(
                           _start == null
                               ? 'Select a free rink and start time.'
-                              : 'Selected, not booked: $_label · ${DateFormat.Hm().format(_start!)}–${DateFormat.Hm().format(_start!.add(memberBookingDuration))}',
+                              : 'Selected, not booked: $_label · ${DateFormat.Hm().format(_start!)}–${DateFormat.Hm().format(_start!.add(_duration))}',
                           style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 12,
                           ),
                         ),
                         const SizedBox(height: 4),
-                        FilledButton(
-                          onPressed: _start != null && !_saving && !_checking
-                              ? _book
-                              : null,
-                          child: Text(_saving ? 'Booking…' : 'Book rink'),
-                        ),
+                        if (smallWindow && needsSlot)
+                          FilledButton.icon(
+                            key: const Key('booking-grid-bottom-action'),
+                            onPressed: _day == null || _checking
+                                ? null
+                                : _showBookingGrid,
+                            icon: const Icon(Icons.arrow_downward),
+                            label: const Text('Choose a rink and time'),
+                          )
+                        else
+                          FilledButton(
+                            onPressed:
+                                _start != null &&
+                                    _error == null &&
+                                    !_saving &&
+                                    !_checking
+                                ? _book
+                                : null,
+                            child: Text(_saving ? 'Booking…' : 'Book rink'),
+                          ),
+                        if (smallWindow)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Scroll up to change your duration from ${_duration.inMinutes} minutes.',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -351,7 +491,8 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
             : AbsorbPointer(
                 absorbing: _saving,
                 child: ListView(
-                  padding: const EdgeInsets.all(12),
+                  controller: _formScroll,
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
                   children: [
                     DropdownButtonFormField<String>(
                       key: const Key('member-fixture-type'),
@@ -381,11 +522,14 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
                             ),
                           )
                           .toList(),
-                      onChanged: (id) => setState(
-                        () => _type = _types.firstWhere(
+                      onChanged: (id) => setState(() {
+                        _durationOverride = null;
+                        _type = _types.firstWhere(
                           (t) => t['id'].toString() == id,
-                        ),
-                      ),
+                        );
+                        _start = null;
+                        _label = null;
+                      }),
                     ),
                     if (_types.isEmpty)
                       const Text(
@@ -525,6 +669,69 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
                           ],
                         ),
                       ),
+                    FixtureBookingRulesHint(
+                      type: _type,
+                      windows: _windows,
+                      privileged: false,
+                    ),
+                    if (smallWindow && _day != null) ...[
+                      FilledButton.icon(
+                        onPressed: _showBookingGrid,
+                        icon: const Icon(Icons.arrow_downward),
+                        label: const Text('Choose a rink and time'),
+                      ),
+                      const Text(
+                        'Scroll down to see available rinks and select your start time.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                    TextButton.icon(
+                      icon: const Icon(Icons.access_time),
+                      label: const Text('Choose an exact start time'),
+                      onPressed: _day == null
+                          ? null
+                          : () async {
+                              final time = await showTimePicker(
+                                context: context,
+                                initialTime: TimeOfDay(
+                                  hour: _opens ~/ 60,
+                                  minute: _opens % 60,
+                                ),
+                              );
+                              if (time == null || !mounted) return;
+                              final start = DateTime(
+                                _date.year,
+                                _date.month,
+                                _date.day,
+                                time.hour,
+                                time.minute,
+                              );
+                              final timeline = MemberBookingTimeline(
+                                date: _date,
+                                labels: _labels,
+                                day: _day!,
+                                density: _density,
+                                onSelect: _select,
+                                duration: _duration,
+                                opens: _opens,
+                                closes: _closes,
+                                allowedStart: _allowedStart,
+                              );
+                              final label = _labels
+                                  .where(
+                                    (label) => timeline.available(label, start),
+                                  )
+                                  .firstOrNull;
+                              if (label == null) {
+                                setState(
+                                  () => _error =
+                                      'No rink is available at that time under the booking rules.',
+                                );
+                                return;
+                              }
+                              await _select(label, start);
+                            },
+                    ),
                     if (_venue == null && _venues.isEmpty)
                       const Text('No home venue is configured.'),
                     if (_venue != null && _greens.isEmpty)
@@ -535,7 +742,7 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
                         children: [
                           Expanded(
                             child: Text(
-                              '${_venue?['name']} · ${_green?['name']} · ${_labels.length} rinks',
+                              '${_green?['name']} · ${_labels.length} rinks',
                               style: const TextStyle(fontSize: 12),
                             ),
                           ),
@@ -585,6 +792,55 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
                           child: Center(child: CircularProgressIndicator()),
                         ),
                       if (_day != null) ...[
+                        Padding(
+                          key: _bookingGridKey,
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: const Text(
+                            'Tap a green half-hour box to start your booking. Grey boxes cannot be selected for the chosen duration. A red outline shows your selection.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        DropdownButtonFormField<int>(
+                          key: ValueKey(
+                            'duration_${_type?['id']}_$_durationOverride',
+                          ),
+                          initialValue: _duration.inMinutes,
+                          decoration: _decoration('Duration (minutes)'),
+                          items:
+                              {
+                                    for (
+                                      var m = 30;
+                                      m <=
+                                          (_type?['lock_duration'] == true
+                                              ? ((_type?['default_duration_minutes']
+                                                            as num?)
+                                                        ?.toInt() ??
+                                                    150)
+                                              : (_closes - _opens));
+                                      m += 30
+                                    )
+                                      m,
+                                    _duration.inMinutes,
+                                  }
+                                  .map(
+                                    (m) => DropdownMenuItem(
+                                      value: m,
+                                      child: Text('$m minutes'),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: (v) {
+                            if (v != null)
+                              setState(() {
+                                _durationOverride = v;
+                                _start = null;
+                                _label = null;
+                              });
+                          },
+                        ),
                         MemberBookingTimeline(
                           date: _date,
                           labels: _labels,
@@ -595,6 +851,10 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
                           latestEnd: _latestEnd,
                           enabled: !_saving && !_checking,
                           onSelect: _select,
+                          duration: _duration,
+                          opens: _opens,
+                          closes: _closes,
+                          allowedStart: _allowedStart,
                         ),
                         const SizedBox(height: 6),
                         const Text(
@@ -630,9 +890,17 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
       density: _density,
       latestEnd: _latestEnd,
       onSelect: _select,
+      duration: _duration,
+      opens: _opens,
+      closes: _closes,
+      allowedStart: _allowedStart,
     );
     final choices = <({String label, DateTime start})>[];
-    for (var minute = 9 * 60; minute + 150 <= 22 * 60; minute += 30) {
+    for (
+      var minute = _opens;
+      minute + _duration.inMinutes <= _closes;
+      minute += 30
+    ) {
       final start = DateTime(
         _date.year,
         _date.month,
@@ -646,24 +914,17 @@ class _MemberFixtureCreationPageState extends State<MemberFixtureCreationPage> {
     }
     if (choices.isEmpty) {
       return [
-        const Text('No rink is free for 2½ hours on this date.'),
+        Text(
+          _duration.inMinutes == 150
+              ? 'No rink is free for 2½ hours on this date.'
+              : 'No rink is free for ${_duration.inMinutes} minutes on this date.',
+        ),
         TextButton(
           onPressed: () => _changeDate(_date.add(const Duration(days: 1))),
           child: const Text('Try next day →'),
         ),
       ];
     }
-    return [
-      for (final c in choices)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton(
-            onPressed: _checking ? null : () => _select(c.label, c.start),
-            child: Text(
-              '${DateFormat.Hm().format(c.start)}–${DateFormat.Hm().format(c.start.add(memberBookingDuration))} · ${c.label}',
-            ),
-          ),
-        ),
-    ];
+    return [];
   }
 }

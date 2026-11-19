@@ -1,6 +1,6 @@
 import {assembleCompetitionEmail,competitionPublicationHtml,requireCompetitionRecipients} from './competition_publication_email.mjs';
 
-function handicapSummary(snapshot,competition,match,profileId) {
+export function competitionHandicapSummary(snapshot,competition,match,profileId) {
  if(competition.settings?.handicap_mode!=='team_difference')return null;
  const ownEntry=snapshot.entryMembers.find(p=>p.member_profile_id===profileId &&
   [match.side_a_entry_id,match.side_b_entry_id].includes(p.entry_id))?.entry_id;
@@ -47,7 +47,7 @@ export function prepareCompetitionRoundReadyMessage(snapshot,delivery,{projectRe
  const round=snapshot.rounds.find(r=>r.id===match.round_id);
  if(!round)throw Error('Round is required');
  content.entries[0].stageName=`${round.name} ${match.match_number}`;
- const handicaps=handicapSummary(snapshot,competition,match,profile.id);
+ const handicaps=competitionHandicapSummary(snapshot,competition,match,profile.id);
  if(handicaps)content.entries[0].handicapSummary=handicaps;
  const heading=`${competition.name} — ${round.name} ${match.match_number} ready to arrange`;
  const introduction=`Your next match in ${competition.name} is now ready to arrange. Both entries are confirmed. Your team, opponents, contact details, play-by date and playing rules are below. Open the Dashboard or My Fixture Bookings and Competitions in the App to arrange this match.`;

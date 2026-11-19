@@ -11,12 +11,14 @@ class DiaryViewBar extends StatelessWidget implements PreferredSizeWidget {
   final String clubId;
   final String clubName;
   final DateTime date;
+  final ValueChanged<DateTime>? onDayChanged;
   const DiaryViewBar({
     super.key,
     required this.selected,
     required this.clubId,
     required this.clubName,
     required this.date,
+    this.onDayChanged,
   });
   @override
   Size get preferredSize => const Size.fromHeight(48);
@@ -52,11 +54,13 @@ class DiaryViewBar extends StatelessWidget implements PreferredSizeWidget {
                 clubId: clubId,
                 clubName: clubName,
                 date: date,
+                onDayChanged: onDayChanged,
               ),
               DiaryView.rinks => RinkDayViewScreen(
                 clubId: clubId,
                 clubName: clubName,
                 date: date,
+                onDayChanged: onDayChanged,
               ),
             };
             Navigator.of(

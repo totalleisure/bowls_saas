@@ -1,0 +1,8 @@
+Total Leisure Bowls 1.6.8 (34)
+
+Clearer rink booking with green available starts, grey unavailable starts, a selected-slot outline and a compact layout for smaller screens.
+Booking retains the rink and approximate time selected in Rinks view. Fixture Type durations are respected, including four-hour National and County bookings.
+Fixture Type controls let administrators lock rink counts, format and participation settings, and limit booking duration. Optional weekend start-time rules and editable home-venue opening hours protect rink availability.
+Day cards show allocated rinks or reserved rink counts. Day and Month views refresh after changes, and the current month opens with today visible.
+Marker requests distinguish volunteering from appointment, support direct-reply forwarding, acknowledge offers and politely thank other volunteers once a marker is found. Leaving the Markers List requires confirmation and preserves existing appointments.
+Competition scorecards retain challenger/opponent order, with improved result correction and administrator completion. Fixture deletion returns linked competition matches for rearrangement and informs both entries.

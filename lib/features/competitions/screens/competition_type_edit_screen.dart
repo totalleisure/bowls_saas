@@ -5,6 +5,7 @@ import '../models/competition_type.dart';
 import '../../../core/utils/hex_color.dart';
 import '../widgets/competition_type_colour_chip.dart';
 import 'colour_scheme_picker_screen.dart';
+import 'fixture_booking_start_times_screen.dart';
 
 class CompetitionTypeEditScreen extends StatefulWidget {
   final String clubId;
@@ -48,6 +49,14 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
 
   String? _error;
 
+  final Map<String, bool> _locks = {
+    'lock_participation': false,
+    'lock_rinks': false,
+    'lock_format': false,
+    'lock_duration': false,
+  };
+  bool _bookingStartTimesEnabled = false;
+
   bool _isInternal = false;
   bool _usesRinks = true;
   bool _bookableByMembers = false;
@@ -86,6 +95,30 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
       border: const OutlineInputBorder(),
     );
   }
+
+  InputDecoration _lockedDec(String label, String key) => _dec(label).copyWith(
+    suffixIcon: SizedBox(
+      width: 95,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Checkbox(
+            value: _locks[key],
+            onChanged: widget.readOnly
+                ? null
+                : (v) {
+                    setState(() => _locks[key] = v == true);
+                    _markDirty();
+                  },
+          ),
+          const Text('Lock'),
+        ],
+      ),
+    ),
+    helperText: key == 'lock_duration'
+        ? 'Members can book a shorter duration, up to this maximum.'
+        : 'Locked settings can be changed only by Admins and superusers.',
+  );
 
   int? _parseInt(String value) {
     final text = value.trim();
@@ -163,7 +196,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
               default_rinks_required,
               default_players_per_rink,
               default_format,
-              default_duration_minutes,
+              default_duration_minutes, lock_participation, lock_rinks, lock_format, lock_duration, booking_start_times_enabled,
               dress_code,
               team_selection_enabled,
               selection_mode,
@@ -204,6 +237,10 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
         _rinksController.text = row.defaultRinksRequired?.toString() ?? '';
         _playersController.text = row.defaultPlayersPerRink?.toString() ?? '';
         _durationController.text = row.defaultDurationMinutes?.toString() ?? '';
+        for (final key in _locks.keys) {
+          _locks[key] = res[key] == true;
+        }
+        _bookingStartTimesEnabled = res['booking_start_times_enabled'] == true;
         _isInternal = row.isInternal;
 
         _usesRinks = res['uses_rinks'] == true;
@@ -318,6 +355,9 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
 
     try {
       final payload = <String, dynamic>{
+        ..._locks,
+        'booking_start_times_enabled':
+            _bookableByMembers && _bookingStartTimesEnabled,
         'club_id': widget.clubId,
         'name': _nameController.text.trim(),
         'is_internal': _isInternal,
@@ -359,9 +399,8 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
       });
 
       final rawMessage = e is PostgrestException ? e.message : e.toString();
-      final message = rawMessage.toLowerCase().contains(
-        'competition_types_tags_allowed',
-      )
+      final message =
+          rawMessage.toLowerCase().contains('competition_types_tags_allowed')
           ? 'One or more selected tags are not supported. Please review the tags and try again.'
           : 'The Fixture Type could not be saved. Please try again.\n\nDetails: $rawMessage';
 
@@ -655,7 +694,10 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                               else
                                 DropdownButtonFormField<String>(
                                   value: _selectionMode,
-                                  decoration: _dec('Participation mode'),
+                                  decoration: _lockedDec(
+                                    'Participation mode',
+                                    'lock_participation',
+                                  ),
                                   items: const [
                                     DropdownMenuItem(
                                       value: 'team',
@@ -715,7 +757,10 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                               controller: _rinksController,
                               readOnly: widget.readOnly,
                               keyboardType: TextInputType.number,
-                              decoration: _dec('Default rinks required'),
+                              decoration: _lockedDec(
+                                'Default rinks required',
+                                'lock_rinks',
+                              ),
                               onChanged: (_) => _markDirty(),
                             ),
                           ),
@@ -723,7 +768,7 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                           Expanded(
                             child: DropdownButtonFormField<String>(
                               value: _defaultFormat,
-                              decoration: _dec('Format'),
+                              decoration: _lockedDec('Format', 'lock_format'),
                               items: const [
                                 DropdownMenuItem(
                                   value: 'singles',
@@ -775,10 +820,54 @@ class _CompetitionTypeEditScreenState extends State<CompetitionTypeEditScreen> {
                       controller: _durationController,
                       readOnly: widget.readOnly,
                       keyboardType: TextInputType.number,
-                      decoration: _dec('Default duration (mins)'),
+                      decoration: _lockedDec(
+                        'Default duration (mins)',
+                        'lock_duration',
+                      ),
                       onChanged: (_) => _markDirty(),
                     ),
                     const SizedBox(height: 16),
+                    if (_bookableByMembers)
+                      Card(
+                        color: Colors.teal.shade50,
+                        child: Column(
+                          children: [
+                            SwitchListTile(
+                              title: const Text('Fixture Booking Start Times'),
+                              subtitle: const Text(
+                                'Use permitted start times on Saturdays and Sundays only.',
+                              ),
+                              value: _bookingStartTimesEnabled,
+                              onChanged: widget.readOnly
+                                  ? null
+                                  : (v) {
+                                      setState(
+                                        () => _bookingStartTimesEnabled = v,
+                                      );
+                                      _markDirty();
+                                    },
+                            ),
+                            ListTile(
+                              leading: const Icon(
+                                Icons.timeline,
+                                color: Colors.teal,
+                              ),
+                              title: const Text('Edit Club booking timetable'),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      FixtureBookingStartTimesScreen(
+                                        clubId: widget.clubId,
+                                        readOnly: widget.readOnly,
+                                      ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     DropdownButtonFormField<String>(
                       value: _dressCode,
                       decoration: _dec('Dress code'),

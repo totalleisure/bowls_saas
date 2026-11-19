@@ -42,6 +42,7 @@ class RinkDayViewScreen extends StatefulWidget {
     required this.date,
     this.fixtureId,
     this.greenAreaId,
+    this.onDayChanged,
   });
 
   final String clubId;
@@ -49,6 +50,7 @@ class RinkDayViewScreen extends StatefulWidget {
   final DateTime date;
   final String? fixtureId;
   final String? greenAreaId;
+  final ValueChanged<DateTime>? onDayChanged;
 
   @override
   State<RinkDayViewScreen> createState() => _RinkDayViewScreenState();
@@ -316,6 +318,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
   }
 
   Future<void> _loadDay() async {
+    widget.onDayChanged?.call(_selectedDate);
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -800,6 +803,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
           clubId: widget.clubId,
           clubName: widget.clubName,
           date: _selectedDate,
+          onDayChanged: widget.onDayChanged,
         ),
         elevation: 0,
       ),
@@ -1240,7 +1244,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
       return;
     }
 
-    final changed = await Navigator.of(context).push<bool>(
+    await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => FixtureDetailsPage(fixtureId: fixtureId),
       ),
@@ -1248,9 +1252,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
 
     if (!mounted) return;
 
-    if (changed == true) {
-      _loadDay();
-    }
+    await _loadDay();
   }
 
   void _bookFixtureFromSlot(RinkEmptySlot slot) {

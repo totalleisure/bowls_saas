@@ -58,6 +58,17 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
   }
 
   bool _shownEntryReminder = false;
+  int _revealToken = 0;
+  int _monthLoadVersion = 0;
+  Set<DateTime>? _pendingDays;
+  @override
+  void didPopNext() {
+    super.didPopNext();
+    final pending = _pendingDays;
+    _pendingDays = null;
+    if (pending != null) _refreshDays(pending);
+  }
+
   final _client = Supabase.instance.client;
 
   late DateTime _visibleMonth;
@@ -95,6 +106,8 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
   }
 
   Future<void> _loadMonth() async {
+    final version = ++_monthLoadVersion;
+    final requestedMonth = _visibleMonth;
     _updateWindowTitle();
     setState(() {
       _isLoading = true;
@@ -119,15 +132,15 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
       final rows = await MonthDiaryRepository(
         _client,
         widget.clubId,
-      ).load(_visibleMonth);
-      if (!mounted) return;
+      ).load(requestedMonth);
+      if (!mounted || version != _monthLoadVersion) return;
 
       setState(() {
         _items = rows.map(_mapFixture).toList();
         _isLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || version != _monthLoadVersion) return;
       setState(() {
         _loadError = e.toString();
         _isLoading = false;
@@ -218,11 +231,12 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
   }
 
   Future<void> _goToToday() async {
-    final now = DateTime.now();
+    final now = toClubTime(DateTime.now());
     final today = DateTime(now.year, now.month, now.day);
 
     setState(() {
       _selectedDate = today;
+      _revealToken++;
       _visibleMonth = DateTime(today.year, today.month);
     });
 
@@ -334,6 +348,11 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
       body: SafeArea(
         child: MonthCalendar(
           month: _visibleMonth,
+          revealDate:
+              DateUtils.isSameMonth(_visibleMonth, toClubTime(DateTime.now()))
+              ? DateUtils.dateOnly(toClubTime(DateTime.now()))
+              : _selectedDate,
+          revealToken: _revealToken,
           selectedDate: _selectedDate,
           items: _items,
           onDayTap: _openDay,
@@ -364,18 +383,55 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
       _visibleMonth = DateTime(selected.year, selected.month);
     });
 
+    final refreshedDays = <DateTime>{selected};
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => DiaryDayScreen(
           clubId: widget.clubId,
           clubName: widget.clubName,
           date: selected,
+          onDayChanged: refreshedDays.add,
         ),
       ),
     );
 
     if (!mounted) return;
-    await _loadMonth();
+    if (ModalRoute.of(context)?.isCurrent != true) {
+      _pendingDays = refreshedDays;
+      return;
+    }
+    await _refreshDays(refreshedDays);
+  }
+
+  Future<void> _refreshDays(Set<DateTime> days) async {
+    final month = _visibleMonth, version = _monthLoadVersion;
+    final repo = MonthDiaryRepository(_client, widget.clubId);
+    try {
+      final ids = _items
+          .where((item) => days.contains(DateUtils.dateOnly(item.startAt)))
+          .map((item) => item.fixtureId);
+      final affected = await repo.affectedDays(days, ids);
+      final rows = await Future.wait(affected.map(repo.loadDay));
+      if (!mounted || version != _monthLoadVersion || month != _visibleMonth)
+        return;
+      setState(
+        () => _items = [
+          ..._items.where(
+            (item) => !affected.contains(DateUtils.dateOnly(item.startAt)),
+          ),
+          ...rows.expand((r) => r).map(_mapFixture),
+        ],
+      );
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not refresh the changed day. Please use Refresh to try again.',
+            ),
+          ),
+        );
+    }
   }
 
   Color _parseHexColor(String? hex, Color fallback) {

@@ -1,0 +1,41 @@
+National duration and diary return refresh — 18 November 2026
+
+National & County Matches verified live in staging and production: default
+240 minutes; weekend start restrictions disabled; duration unlocked. The current
+rink page already reads this default. Running staging/production Windows copies
+had been opened before the latest builds, retaining older fixed-duration code.
+Additionally corrected the legacy MemberBookingRepository.book entry point so
+non-150-minute Fixture Type defaults use the duration-aware booking path too.
+Tests prove four hours reaches weekend timeline, availability and creation RPC.
+
+Rinks Day reloads after returning from a fixture regardless of its route's bool
+result. Day already reloaded after fixture return; it now also reports visited /
+changed dates to the parent month and uses UK day boundaries independently of
+the device timezone. Diary view switching preserves this notification for Day /
+Rinks replacements. Month defers refresh until its route is actually visible.
+
+Month return refresh loads only visited/changed days, plus old/new days for a
+moved or rescheduled fixture; it does not reload the full month or profile.
+Month positioning reveals today on entry when displaying the current month;
+explicit other-month entries reveal the selected date. Horizontal and vertical
+scrolling included. Day data refresh preserves existing scroll position. Today
+button can explicitly reveal today again. Calendar loading guards stale requests.
+
+Date-boundary tests found device-local DST arithmetic in shared date helpers.
+Last-Sunday calculations and wall-time comparisons now use UTC components;
+exact spring transition is inclusive. Correct 23/25-hour UK days verified.
+
+Validation: 43 focused Flutter tests passed across rink context, Month navigation,
+Month layout, targeted repository loads, member bookings, time pickers and policy
+checks; another 16 member regression tests including legacy National duration
+passed after the final repository fix. No new analysis errors. Staging Windows
+debug build succeeded before promotion. Shared-source differences reviewed and
+Compare-AppSources.ps1 passed after production alignment. Existing environment
+entry points, credentials, mailbox settings and working changes preserved.
+Live booking-function hash e8bf8ad0356f3d96b5f699d1467001e5 matches both projects.
+
+Source: updated in both trees. Database: no changes in this task; existing weekend
+rules and National configuration verified. Windows debug builds rebuilt in both
+environments. Store: no new submission or version bump. Existing running copies
+must be closed/reopened to load the updated app; no user app was forcibly closed.
+No commit/push performed. Next: guided staging lock/weekend tests, one step at a time.

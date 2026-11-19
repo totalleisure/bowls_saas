@@ -1,0 +1,13 @@
+Competition fixture deletion and rescheduling — 15 November 2026
+
+Final confirmed requirement: Delete and Reschedule available; no Cancel option.
+
+Database: staging migrations 20261115131221 and 20261115131528 applied and history recorded. Production deployed atomically as preserve_competition_on_fixture_deletion with the actor-name correction included. Private trigger function, grants postgres only; normalized live function hash in both projects 026da68a1be8f94743b52aec53b6dba0.
+Delete preserves competition draw IDs, entries, rounds, scores and history; unplayed draw fixture link cleared, existing to_be_arranged state retained. Historical booking-event fixture link becomes null, original ID retained in details. Recorded/pending results and prepared/shared scorecards block deletion, even force deletion. Existing deletion permissions/RPCs unchanged. Ordinary fixtures without draw links unaffected.
+Recovery script scripts/recovery_competition_fixture_deletion.sql removes new trigger; nullable event column deliberately retained to preserve history.
+Synthetic rollback database regression passed in staging. Production synthetic test confirmation expired and did not execute. Actual production fixture 3e3d3f30-ac4d-46dd-9463-cc45d32a3a54 was verified still present/linked; no actual fixture deleted.
+
+App: competition rescheduling permission no longer gated by optional internal fixture-type settings. Existing date/time/rink management route preserved. Prominent button renamed Reschedule competition booking. Global cancellation flag remains false. Shared Dart sources comparison passed; eight rescheduling/arrangement workflow tests passed separately in staging and production.
+No store upload/version bump/commit/push performed. Existing iPhone builds do not receive the source label/control amendment; database deletion fix is server-side.
+
+Production retest: synthetic rollback regression PASSED on 15 November 2026. Draw/history preservation, rink release, recorded-result and prepared-scorecard deletion guards verified. All synthetic changes rolled back. Actual fixture 3e3d3f30-ac4d-46dd-9463-cc45d32a3a54 checked before and after: still present and linked to draw match 297148a3-694f-4a32-a2dc-e9acf69b5330, start 16 November 2026 09:00 UTC.

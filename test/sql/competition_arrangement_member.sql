@@ -27,8 +27,11 @@ begin
  select count(*) into emails from public.email_queue; select count(*) into notices from public.notification_queue;
  select rink_label into strict label from public.get_green_rink_availability(green,'2030-07-02 10:00Z','2030-07-02 12:30Z') where not is_booked and free_capacity_rinks>=1 limit 1;
  f:=public.arrange_competition_match(m,green,'2030-07-02 10:00Z','2030-07-02 12:30Z',array[label]);
- if not exists(select 1 from public.fixture_rink_assignments where fixture_id=f and member_profile_id=profiles[4] and position between 1 and 4) then raise exception 'Side-B entrant not placed on player side'; end if;
+ if not exists(select 1 from public.fixture_rink_assignments where fixture_id=f and member_profile_id=profiles[4] and position between 101 and 104) then raise exception 'Opponent booking player not placed on opponent side'; end if;
  if not exists(select 1 from public.team_selection_members sm join public.team_selections ts on ts.id=sm.team_selection_id where ts.fixture_id=f and sm.member_profile_id=profiles[4] and sm.acceptance='accepted') then raise exception 'Booking player not accepted'; end if;
+ if (select count(*) from public.fixture_rink_assignments where fixture_id=f and member_profile_id=any(profiles[1:2]) and position between 1 and 2)<>2 then raise exception 'Challenger not first'; end if;
+ if exists(select 1 from competition_private.booking_scope where backend_pid=pg_backend_pid() and transaction_id=txid_current()) then raise exception 'Booking scope leaked'; end if;
+ if not exists(select 1 from public.fixtures where id=f and captain_member_profile_id=profiles[4]) then raise exception 'Opponent organiser rights lost'; end if;
  if (select count(*) from public.fixture_rink_assignments where fixture_id=f)<>4 then raise exception 'Missing players'; end if;
  if (select count(*) from public.email_queue)<>emails or (select count(*) from public.notification_queue)<>notices+(select count(*) from public.notification_queue where fixture_id=f and payload ? 'competition_booking_key') then raise exception 'Booking unexpectedly queued communications'; end if;
 end $$;

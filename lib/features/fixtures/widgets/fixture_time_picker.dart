@@ -141,12 +141,11 @@ Future<DateTime?> pickFixtureEndTime(
   BuildContext context, {
   required DateTime start,
   DateTime? end,
+  Duration defaultDuration = const Duration(hours: 2),
 }) async {
   final time = await showTimePicker(
     context: context,
-    initialTime: TimeOfDay.fromDateTime(
-      end ?? start.add(const Duration(hours: 2)),
-    ),
+    initialTime: TimeOfDay.fromDateTime(end ?? start.add(defaultDuration)),
     helpText: 'Fixture end time',
   );
   if (time == null || !context.mounted) return null;

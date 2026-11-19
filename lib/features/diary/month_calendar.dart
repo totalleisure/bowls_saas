@@ -33,6 +33,8 @@ class MonthCalendar extends StatefulWidget {
     required this.onZoomChanged,
     this.header,
     this.showZoomControls = true,
+    this.revealDate,
+    this.revealToken = 0,
   });
   final DateTime month, selectedDate;
   final List<MonthDiaryItem> items;
@@ -41,11 +43,28 @@ class MonthCalendar extends StatefulWidget {
   final ValueChanged<double> onZoomChanged;
   final Widget? header;
   final bool showZoomControls;
+  final DateTime? revealDate;
+  final int revealToken;
   @override
   State<MonthCalendar> createState() => _MonthCalendarState();
 }
 
 class _MonthCalendarState extends State<MonthCalendar> {
+  final Map<DateTime, GlobalKey> _dayKeys = {};
+  String? _revealed;
+  void _revealOnEntry() {
+    final date = widget.revealDate;
+    final signature =
+        '${widget.month.year}-${widget.month.month}-${widget.revealToken}';
+    if (date == null || _revealed == signature) return;
+    _revealed = signature;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _dayKeys[DateUtils.dateOnly(date)]?.currentContext;
+      if (target != null) Scrollable.ensureVisible(target, alignment: 0.0);
+    });
+  }
+
   final _horizontal = ScrollController();
   final _vertical = ScrollController();
   @override
@@ -58,6 +77,7 @@ class _MonthCalendarState extends State<MonthCalendar> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      _revealOnEntry();
       final first = DateTime(widget.month.year, widget.month.month);
       final offset = first.weekday - 1;
       final start = DateTime(first.year, first.month, 1 - offset);
@@ -194,6 +214,7 @@ class _MonthCalendarState extends State<MonthCalendar> {
         .where((i) => !i.isCancelled)
         .fold<int>(0, (sum, i) => sum + i.rinksUsed);
     return Semantics(
+      key: _dayKeys.putIfAbsent(DateUtils.dateOnly(date), () => GlobalKey()),
       button: true,
       label:
           '${DateFormat('EEEE d MMMM yyyy').format(date)}. ${items.length} fixtures. Open Day View.',

@@ -14,6 +14,8 @@ type EmailActionBlock = {
   response_token?: string;
   expires_at?: string | null;
   actions?: EmailAction[];
+  secondary_actions?: EmailAction[];
+  secondary_instructions?: string;
 };
 
 function escapeHtml(value: unknown): string {
@@ -74,6 +76,12 @@ export function buildEmailActionBlock(
       </a>`;
   }).join("");
 
+  const secondaryLinks = (block.secondary_actions ?? []).filter(action => action.command?.trim() && action.label?.trim()).map(action => {
+    const command=String(action.command).trim().toUpperCase();
+    const href=`mailto:${replyAddress}?subject=${encodeURIComponent(`Bowls response: ${command} ${responseCredential}`)}&body=${encodeURIComponent(`${command} ${responseCredential}`)}`;
+    return `<a href="${escapeHtml(href)}" style="color:#555555;text-decoration:underline;">${escapeHtml(action.label)}</a>`;
+  }).join(' &nbsp; ');
+  const secondaryHtml = secondaryLinks ? `<div style="margin-top:18px;padding-top:12px;border-top:1px solid #dddddd;font-size:13px;">${secondaryLinks}<br>${escapeHtml(block.secondary_instructions ?? '')}</div>` : '';
   const expiry = formatExpiry(block.expires_at);
   const heading = block.heading || "Please respond";
   const instructions = block.instructions ||
@@ -91,6 +99,7 @@ export function buildEmailActionBlock(
       <div style="margin:8px 0 10px 0;">
         ${buttons}
       </div>
+      ${secondaryHtml}
       <div style="font-size:13px;color:#555555;margin-top:8px;">
         If the buttons do not open your email application, reply to this email
         with one of the commands shown below, followed by the response code:

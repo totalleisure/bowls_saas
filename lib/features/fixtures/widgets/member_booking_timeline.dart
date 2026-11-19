@@ -20,6 +20,10 @@ class MemberBookingTimeline extends StatelessWidget {
     this.selectedStart,
     this.latestEnd,
     this.enabled = true,
+    this.duration = memberBookingDuration,
+    this.opens = 540,
+    this.closes = 1320,
+    this.allowedStart,
   });
   final DateTime date;
   final List<String> labels;
@@ -29,31 +33,43 @@ class MemberBookingTimeline extends StatelessWidget {
   final DateTime? selectedStart;
   final DateTime? latestEnd;
   final bool enabled;
+  final Duration duration;
+  final int opens, closes;
+  final bool Function(DateTime)? allowedStart;
   final void Function(String label, DateTime start) onSelect;
 
   bool available(String label, DateTime start) =>
       clubTimeToUtc(start).isAfter(DateTime.now().toUtc()) &&
-      start.hour * 60 + start.minute + 150 <= 22 * 60 &&
+      start.hour * 60 + start.minute >= opens &&
+      start.hour * 60 + start.minute + duration.inMinutes <= closes &&
+      (allowedStart?.call(start) ?? true) &&
       (latestEnd == null ||
           !memberBookingWallTime(
-            start.add(memberBookingDuration),
+            start.add(duration),
           ).isAfter(memberBookingWallTime(latestEnd!))) &&
-      day.canBook(label, start, labels);
+      day.canBook(label, start, labels, duration: duration);
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       const labelWidth = 46.0, rowHeight = 48.0;
+      final firstHour = opens ~/ 60, lastHour = (closes / 60).ceil();
+      final hours = lastHour - firstHour;
       final viewport = math.max(1.0, constraints.maxWidth - labelWidth);
       final hourWidth = switch (density) {
-        MemberTimelineDensity.fit => (viewport / 14).clamp(28.0, 80.0),
+        MemberTimelineDensity.fit => (viewport / (hours + 1)).clamp(28.0, 80.0),
         MemberTimelineDensity.compact => 52.0,
         MemberTimelineDensity.detailed => 80.0,
       };
-      final width = hourWidth * 14;
+      final width = hourWidth * (hours + 1);
       final theme = Theme.of(context);
       final border = theme.dividerColor.withValues(alpha: .3);
-      final dateStart = DateTime.utc(date.year, date.month, date.day, 9);
+      final dateStart = DateTime.utc(
+        date.year,
+        date.month,
+        date.day,
+        firstHour,
+      );
       double left(DateTime at) => math.max(
         0,
         memberBookingWallTime(at).difference(dateStart).inMinutes /
@@ -63,7 +79,7 @@ class MemberBookingTimeline extends StatelessWidget {
       Widget block(Map<String, dynamic> row, String title, Color bg, Color fg) {
         final start = parseClubTime(row['start_at'].toString());
         final end = parseClubTime(row['end_at'].toString());
-        final x = left(start), right = math.min(13 * hourWidth, left(end));
+        final x = left(start), right = math.min(hours * hourWidth, left(end));
         if (right <= x) return const SizedBox.shrink();
         return Positioned(
           left: x + 2,
@@ -150,7 +166,7 @@ class MemberBookingTimeline extends StatelessWidget {
                       height: 32,
                       child: Row(
                         children: [
-                          for (var hour = 9; hour <= 22; hour++)
+                          for (var hour = firstHour; hour <= lastHour; hour++)
                             Container(
                               width: hourWidth,
                               alignment: Alignment.centerLeft,
@@ -167,20 +183,33 @@ class MemberBookingTimeline extends StatelessWidget {
                       Container(
                         height: rowHeight,
                         decoration: BoxDecoration(
-                          color: i.isEven
-                              ? theme.colorScheme.surface
-                              : theme.colorScheme.surfaceContainerLow,
+                          color: theme.colorScheme.surface,
                           border: Border(top: BorderSide(color: border)),
                         ),
                         child: Stack(
                           children: [
-                            for (var slot = 0; slot < 26; slot++)
+                            for (var slot = 0; slot < hours * 2; slot++)
                               Builder(
                                 builder: (context) {
                                   final start = dateStart.add(
                                     Duration(minutes: slot * 30),
                                   );
                                   final free = available(labels[i], start);
+                                  final selected =
+                                      selectedLabel == labels[i] &&
+                                      selectedStart != null &&
+                                      start.isBefore(
+                                        memberBookingWallTime(
+                                          selectedStart!,
+                                        ).add(duration),
+                                      ) &&
+                                      start
+                                          .add(const Duration(minutes: 30))
+                                          .isAfter(
+                                            memberBookingWallTime(
+                                              selectedStart!,
+                                            ),
+                                          );
                                   return Positioned(
                                     left: slot * hourWidth / 2,
                                     top: 0,
@@ -195,18 +224,27 @@ class MemberBookingTimeline extends StatelessWidget {
                                             ? () => onSelect(labels[i], start)
                                             : null,
                                         child: Container(
+                                          key: selected
+                                              ? ValueKey(
+                                                  'selected-member-grid-${labels[i]}-$slot',
+                                                )
+                                              : null,
                                           decoration: BoxDecoration(
-                                            color: free
-                                                ? theme.colorScheme.primary
-                                                      .withValues(alpha: .05)
-                                                : theme.disabledColor
-                                                      .withValues(alpha: .08),
-                                            border: Border(
-                                              left: BorderSide(
-                                                color: border,
-                                                width: slot.isEven ? 1 : .4,
-                                              ),
-                                            ),
+                                            color: selected
+                                                ? const Color(0xffffebee)
+                                                : free
+                                                ? const Color(0xffc8e6c9)
+                                                : const Color(0xffb0bec5),
+                                            border: selected
+                                                ? const Border()
+                                                : Border(
+                                                    left: BorderSide(
+                                                      color: border,
+                                                      width: slot.isEven
+                                                          ? 1
+                                                          : .4,
+                                                    ),
+                                                  ),
                                           ),
                                         ),
                                       ),
@@ -252,19 +290,46 @@ class MemberBookingTimeline extends StatelessWidget {
                             if (selectedLabel == labels[i] &&
                                 selectedStart != null)
                               Positioned(
+                                left: left(selectedStart!),
+                                top: 0,
+                                width: hourWidth * duration.inMinutes / 60,
+                                height: rowHeight,
+                                child: IgnorePointer(
+                                  child: Container(
+                                    key: const ValueKey(
+                                      'selected-member-range-outline',
+                                    ),
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: const Color(0xffe53935),
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (selectedLabel == labels[i] &&
+                                selectedStart != null)
+                              Positioned(
                                 left: left(selectedStart!) + 2,
                                 top: 4,
-                                width: hourWidth * 2.5 - 4,
+                                width: math.max(
+                                  0,
+                                  hourWidth * duration.inMinutes / 60 - 4,
+                                ),
                                 height: 40,
                                 child: IgnorePointer(
                                   child: Container(
+                                    key: const ValueKey(
+                                      'selected-member-booking-slot',
+                                    ),
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
                                       color: theme.colorScheme.primary,
                                       borderRadius: BorderRadius.circular(5),
                                     ),
                                     child: Text(
-                                      'Selected slot\n${DateFormat.Hm().format(selectedStart!)}–${DateFormat.Hm().format(selectedStart!.add(memberBookingDuration))}',
+                                      'Selected slot\n${DateFormat.Hm().format(selectedStart!)}–${DateFormat.Hm().format(selectedStart!.add(duration))}',
                                       maxLines: 2,
                                       style: TextStyle(
                                         fontSize: 11,

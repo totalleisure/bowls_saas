@@ -1,0 +1,7 @@
+Competition booking order
+
+New competition bookings always retain draw side A (challenger) first/home/red and draw side B (opponent) second/away/blue. Booker remains captain/organiser, including when on the opponent side. Scorecard setup copies fixed fixture positions.
+
+A private transaction scope authorises only the exact validated competition roster; ordinary fixture permission checks are preserved. Scope removed after creation. Existing fixtures and signed cards are not reordered; the deployed draw-result mapping supports their original order.
+
+Staging then production migration deployed; normalized live function hashes match. Opponent and Admin booking and reversed signed-card workflows passed rollback tests. Shared Dart source comparison passed. No store build needed. Marker pilot remains staging only.

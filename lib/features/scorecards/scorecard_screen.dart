@@ -633,6 +633,10 @@ class _ScorecardScreenState extends State<ScorecardScreen>
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                if (card.fixtureLink?['sharedAdminDecision'] is Map)
+                  Text(
+                    'Admin decision: ${card.fixtureLink!['sharedAdminDecision']['sideAName']} ${card.fixtureLink!['sharedAdminDecision']['scoreA']} – ${card.fixtureLink!['sharedAdminDecision']['scoreB']} ${card.fixtureLink!['sharedAdminDecision']['sideBName']}\nReason: ${card.fixtureLink!['sharedAdminDecision']['reason']}\nEnds below show the original card.',
+                  ),
                 if (card.resultConfirmed && card.confirmedWinner != null)
                   Text(
                     'Winner: ${card.confirmedWinner}',

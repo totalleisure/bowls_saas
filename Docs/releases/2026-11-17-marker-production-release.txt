@@ -1,0 +1,59 @@
+Marker request production deployment — 17 November 2026
+
+Deployed: production process-email-queue v25 (existing JWT setting false;
+body-level worker authorization preserved), process-email-responses v5
+(JWT required), and marker_production_release database migration.
+
+Shared marker rules match staging live definitions, including both approved
+thank-you messages, one green I CAN HELP action, small underlined 13px Leave
+the Markers List link, direct reply forwarding and post-delivery acknowledgement,
+two-step list departure, named marker appointment confirmations, thanks to other
+recorded offers and automatic thanks for late offers. No new inability button;
+already-issued pilot commands remain accepted. Leaving affects future requests
+for that Club and preserves existing appointments.
+
+Production preserves bowls@totalleisure.com, active-member reply scope and its
+ordinary recipient policy (no staging test-recipient restriction). Staging keeps
+its own mailbox and test restrictions. New requests receive the new template;
+previously delivered emails are not rewritten or resent. Historic production
+requests without an MRK reference cannot use the new correlated reply route.
+
+Verification: all three rollback SQL suites passed on staging and production;
+16 marker renderer/parser checks, 14 production reply routing/parser checks,
+9 worker authorization checks and actual production queue mocked-send harness
+passed. No synthetic test emails were sent. Production live bundles match the
+reviewed upload; all marker function hashes match staging; six triggers enabled;
+private tables RLS enabled, worker-only public RPC grants checked by SQL tests.
+Normal live email and reply worker invocations returned HTTP 200 after deployment.
+Production settings and existing leased-delivery DB function hashes unchanged.
+Compare-AppSources.ps1 passed; no shared Dart source changes in this task.
+
+Intentional baseline difference: production retains its existing mail delivery
+leases, uncertain-send reconciliation, retry/backoff and rate controls. Staging
+does not have this production-only recovery subsystem. The marker amendments
+are the same; entire worker files are not identical because staging retains its
+pilot verification/audit routes and production retains its delivery safeguards.
+Do not overwrite production workers wholesale with staging copies.
+
+Security advisor: marker private tables deliberately have RLS with no direct
+client policies; privileged functions mediate access. Existing unrelated notices
+include debug_login_users security-definer view, older public RPC grants,
+btree_gist extension location and disabled leaked-password protection. These were
+not changed by this marker deployment.
+
+Recovery: scripts/recovery_marker_production_release.sql, plus original live
+worker bundles in tmp/prodMarkerQueueBundleParsed.json and
+tmp/prodMarkerResponsesBundleParsed.json. Recovery retains private audit history.
+
+Source: reviewed production worker copies, migrations and recovery saved.
+Database/Edge deployment: complete in both environments for marker behavior.
+App/store deployment: none required. App remains 1.6.7+33; existing versions use
+the server-side request and email flow. No commit or app version bump performed.
+
+Migration history note: staging records its own applied marker migrations;
+production records the consolidated marker_production_release migration. An
+attempt to mark that production-only consolidation as applied in staging was
+rejected by automatic approval review because doing so without executing it
+could misrepresent migration history. It was not performed. Do not blanket-push
+the production-specific consolidation to staging; review environment-specific
+migration histories before a future database release.

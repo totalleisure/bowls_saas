@@ -69,7 +69,12 @@ void main() {
         'attachment.compositionVersion !== selection?.composition_version',
       ),
     );
-    expect(processor, contains('status: "failed"'));
+    if (processor.contains('import {completeDelivery,')) {
+      expect(processor, contains('await finish("permanent", "Required Team Sheet attachment is missing or stale.", {stage:"validation"})'));
+      expect(processor, contains('await completeDelivery(supabase,email,outcome,message,details,delay)'));
+    } else {
+      expect(processor, contains('status: "failed"'));
+    }
   });
 
   test(

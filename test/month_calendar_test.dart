@@ -217,4 +217,50 @@ void main() {
       expect(find.textContaining('Cancelled · '), findsOneWidget);
     },
   );
+  testWidgets(
+    'entry reveals the requested day in both axes and refresh keeps the scroll position',
+    (t) async {
+      t.view.physicalSize = const Size(390, 600);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      late StateSetter update;
+      var items = List.generate(30, fixture);
+      await t.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                update = setState;
+                return MonthCalendar(
+                  month: october,
+                  selectedDate: DateTime(2026, 10, 30),
+                  revealDate: DateTime(2026, 10, 30),
+                  items: items,
+                  onDayTap: (_) {},
+                  zoom: 1,
+                  onZoomChanged: (_) {},
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      final rect = t.getRect(day(30));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.top, lessThan(600));
+      expect(rect.left, lessThan(390));
+      expect(rect.right, greaterThan(0));
+      final vertical = t
+          .stateList<ScrollableState>(find.byType(Scrollable))
+          .firstWhere((s) => s.position.axis == Axis.vertical);
+      final position = vertical.position.pixels;
+      expect(position, greaterThan(0));
+      update(() => items = [...items, fixture(99, day: 30)]);
+      await t.pumpAndSettle();
+      expect(vertical.position.pixels, position);
+      expect(t.takeException(), isNull);
+    },
+  );
 }

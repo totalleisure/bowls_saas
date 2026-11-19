@@ -1,3 +1,4 @@
+import 'fixture_type_booking_policy.dart';
 import 'widgets/fixture_time_picker.dart';
 import '../competitions/widgets/competition_deadline_warning.dart';
 import '../scorecards/fixture_scorecard_screen.dart';
@@ -72,6 +73,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   String? _currentMemberId;
   String _currentMemberName = '';
+
+  List<Map<String, dynamic>> _bookingWindows = [];
+  bool get _bookingRulesPrivileged =>
+      _isSuperuser || _isClubAdmin || _isSuper || _isAdmin;
+  bool _typeLocked(String key) =>
+      !_bookingRulesPrivileged && _selectedCompetitionType?[key] == true;
 
   bool _isSuperuser = false;
   bool _isClubAdmin = false;
@@ -196,9 +203,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canManageEventAttendance =>
       _canWrite &&
       _isEventStyleFixture &&
-      (_hasAdminFixtureAuthority ||
-          _isFixtureCaptain ||
-          _isFixtureViceCaptain);
+      (_hasAdminFixtureAuthority || _isFixtureCaptain || _isFixtureViceCaptain);
 
   bool get _canEditFixtureInformation =>
       _canModifyActiveFixture &&
@@ -240,7 +245,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   String get _selectedCompetitionSelectionMode =>
-      (_selectedCompetitionType?['selection_mode'] ?? '')
+      (_fixture?['participation_mode'] ??
+              _selectedCompetitionType?['selection_mode'] ??
+              '')
           .toString()
           .trim()
           .toLowerCase();
@@ -249,21 +256,21 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       _selectedCompetitionType?['is_internal'] == true;
 
   bool get _canRescheduleMemberBooking =>
-      _selectedCompetitionIsInternal &&
-      _selectedCompetitionType?['bookable_by_members'] == true &&
-      _selectedCompetitionType?['uses_rinks'] != false &&
-      _selectedCompetitionSelectionMode == 'preselect' &&
       !_isCancelledFixture &&
-      (_canManageCompetitionBooking || _canEditFixtureOperationalDetails);
+      (_canManageCompetitionBooking ||
+          (_selectedCompetitionIsInternal &&
+              _selectedCompetitionType?['bookable_by_members'] == true &&
+              _selectedCompetitionType?['uses_rinks'] != false &&
+              _selectedCompetitionSelectionMode == 'preselect' &&
+              _canEditFixtureOperationalDetails));
 
   Future<void> _rescheduleMemberBooking() async {
     if (!_canRescheduleMemberBooking) return;
     if (_canManageCompetitionBooking) {
       final changed = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
-          builder: (_) => CompetitionFixtureManagementScreen(
-            fixtureId: widget.fixtureId,
-          ),
+          builder: (_) =>
+              CompetitionFixtureManagementScreen(fixtureId: widget.fixtureId),
         ),
       );
       if (!mounted) return;
@@ -304,7 +311,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   bool get _hasAdminFixtureAuthority =>
-      _canWrite && (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator);
+      _canWrite &&
+      (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator);
 
   bool get _canEditAdminFixtureDetails =>
       !_isCancelledFixture && _hasAdminFixtureAuthority;
@@ -336,9 +344,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     if (!_usesSimpleBookingWorkflow) return false;
 
     if (_canMaintainMemberPreselectFixture ||
-        (_isCancelledFixture && _canWrite &&
+        (_isCancelledFixture &&
+            _canWrite &&
             (_hasAdminFixtureAuthority ||
-                _isFixtureCaptain || _isFixtureViceCaptain))) return true;
+                _isFixtureCaptain ||
+                _isFixtureViceCaptain)))
+      return true;
 
     final myId = _currentMemberId ?? _myMemberProfileId;
     if (myId == null || myId.isEmpty) return false;
@@ -566,16 +577,26 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         );
       } else {
         final label = persistedLabel;
-        final saved = Map<String,dynamic>.from(await _client.rpc('save_fixture_label_safe', params: {
-          'p_fixture_id': widget.fixtureId,
-          'p_label': label,
-          'p_expected_label': _savedFixtureLabel,
-          'p_dress_code': includeDressCode ? _dressCodeValue(_dressCode) : null,
-        }) as Map);
-        if (saved['id'] != widget.fixtureId || (saved['team_name'] ?? '') != label) {
-          throw StateError('The fixture label was not saved. Please try again.');
+        final saved = Map<String, dynamic>.from(
+          await _client.rpc(
+                'save_fixture_label_safe',
+                params: {
+                  'p_fixture_id': widget.fixtureId,
+                  'p_label': label,
+                  'p_expected_label': _savedFixtureLabel,
+                  'p_dress_code': includeDressCode
+                      ? _dressCodeValue(_dressCode)
+                      : null,
+                },
+              )
+              as Map,
+        );
+        if (saved['id'] != widget.fixtureId ||
+            (saved['team_name'] ?? '') != label) {
+          throw StateError(
+            'The fixture label was not saved. Please try again.',
+          );
         }
-
       }
 
       if (!mounted) return;
@@ -603,7 +624,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool get _canCancelFixture {
     final isCancelled = _fixture?['cancelled_at'] != null;
 
-    return _showFixtureCancellationOptions && _canWrite &&
+    return _showFixtureCancellationOptions &&
+        _canWrite &&
         !isCancelled &&
         (_canEditAdminFixtureDetails ||
             _ownsFixture ||
@@ -619,7 +641,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final isCancelled = _fixture?['cancelled_at'] != null;
     final replacementId = _fixture?['rescheduled_to_fixture_id']?.toString();
 
-    return _showFixtureCancellationOptions && _canWrite &&
+    return _showFixtureCancellationOptions &&
+        _canWrite &&
         isCancelled &&
         (replacementId == null || replacementId.isEmpty) &&
         (_isClubAdmin || _isSuperuser || _isAdmin || _isSuper || _ownsFixture);
@@ -2203,9 +2226,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _refreshFixtureRecord() async {
-    final pendingLabel = _fixture != null &&
-        _teamNameCtrl.text.trim() != _savedFixtureLabel
-        ? _teamNameCtrl.text : null;
+    final pendingLabel =
+        _fixture != null && _teamNameCtrl.text.trim() != _savedFixtureLabel
+        ? _teamNameCtrl.text
+        : null;
     final f = await _client
         .from('fixtures')
         .select(
@@ -2213,10 +2237,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           'start_at, end_at, archived_at, cancelled_at, cancelled_by_member_profile_id, cancellation_reason, '
           'rescheduled_to_fixture_id, rescheduled_from_fixture_id, rescheduled_at, '
           'is_home, section, rinks_required, players_per_rink, orientation, match_fee_pence, '
-          'team_id, team_name, dress_code, notes, '
+          'team_id, team_name, dress_code, notes, participation_mode, '
           'captain_member_profile_id, vice_captain_member_profile_id, requires_rsvp, '
           'competition_type:competition_types!fixtures_competition_type_id_fkey('
-          'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, dress_code, '
+          'id, name, is_internal, selection_mode, uses_rinks, bookable_by_members, dress_code, lock_participation, lock_rinks, lock_format, lock_duration, default_duration_minutes, default_format, default_players_per_rink, booking_start_times_enabled, '
           'colour_scheme:fixture_colour_schemes('
           'id, name, background_hex, foreground_hex'
           ')'
@@ -2242,6 +2266,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     if (!mounted) return;
 
+    _bookingWindows = await loadBookingWindows(
+      _client,
+      f['club_id'].toString(),
+    );
     _rescheduledToFixture = null;
     _rescheduledFromFixture = null;
 
@@ -2299,7 +2327,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       final loadedCompetitionType =
           _fixture?['competition_type'] as Map<String, dynamic>?;
       final loadedSelectionMode =
-          (loadedCompetitionType?['selection_mode'] ?? '').toString().trim();
+          (_fixture?['participation_mode'] ??
+                  loadedCompetitionType?['selection_mode'] ??
+                  '')
+              .toString()
+              .trim();
 
       _isTeamFixtureUi =
           loadedSelectionMode == 'team' || _selectedTeamId != null;
@@ -2396,7 +2428,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   String _friendlyFixtureUpdateError(Object e) {
-    final raw = e.toString();
+    final raw = bookingErrorMessage(e);
 
     if (raw.contains('Not enough rinks available')) {
       return 'There are not enough rinks available for the new date/time.\n\n'
@@ -2474,7 +2506,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final currentLocal = parseClubTime(currentStartAtStr);
 
-    final window = await pickFixtureStart(context, start: currentLocal, end: _endAtLocal);
+    final window = await pickFixtureStart(
+      context,
+      start: currentLocal,
+      end: _endAtLocal,
+    );
     if (window == null || !mounted) return;
     final newLocal = window.start;
 
@@ -2559,9 +2595,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       var canManageCompetition = false;
       String? competitionPlayBy;
       try {
-        final competitionAccess = Map<String,dynamic>.from(await _client.rpc('competition_fixture_access', params: {'p_fixture_id': widget.fixtureId}) as Map);
+        final competitionAccess = Map<String, dynamic>.from(
+          await _client.rpc(
+                'competition_fixture_access',
+                params: {'p_fixture_id': widget.fixtureId},
+              )
+              as Map,
+        );
         competitionPlayBy = competitionAccess['play_by']?.toString();
-        canManageCompetition = access.canWrite && !_isCancelledFixture && competitionAccess['can_manage'] == true;
+        canManageCompetition =
+            access.canWrite &&
+            !_isCancelledFixture &&
+            competitionAccess['can_manage'] == true;
       } catch (e) {
         debugPrint('Competition booking permissions unavailable: $e');
       }
@@ -2610,7 +2655,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           access.canWrite && !isCancelled && canAdminManage;
 
       final canManageTeam =
-          access.canWrite && !isCancelled &&
+          access.canWrite &&
+          !isCancelled &&
           (canAdminManage || isFixtureCaptain || isFixtureVice);
 
       // Team visibility belongs to club members, not just selected players.
@@ -2705,10 +2751,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                       : 'Players are attached, so ordinary deletion is not allowed. As a superuser, you can Force Delete it.',
                 ),
                 const SizedBox(height: 10),
-                if (!captainMemberDelete) Text(
-                  'Linked records: $rsvps RSVPs, $selected selected members, '
-                  '$emailRows email queue rows, $notificationRows notification queue rows.',
-                ),
+                if (!captainMemberDelete)
+                  Text(
+                    'Linked records: $rsvps RSVPs, $selected selected members, '
+                    '$emailRows email queue rows, $notificationRows notification queue rows.',
+                  ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: reasonController,
@@ -2855,8 +2902,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _openTeamFromFixture() async {
     if (!_canViewTeam || _fixture == null) return;
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => ManageTeamScreen(
-      fixture: _fixture!, readOnly: !_canManageTeam || _fixture?['cancelled_at'] != null)));
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ManageTeamScreen(
+          fixture: _fixture!,
+          readOnly: !_canManageTeam || _fixture?['cancelled_at'] != null,
+        ),
+      ),
+    );
     if (mounted) await _refreshAfterTeamManagement();
   }
 
@@ -2865,19 +2919,32 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final requestId = const Uuid().v4();
     int? recipients;
     final result = await showDialog<String>(
-      context: context, barrierDismissible: false,
+      context: context,
+      barrierDismissible: false,
       builder: (_) => PublicationInstructionsDialog(
-        initialInstructions: expectedNotes ?? '', published: published,
+        initialInstructions: expectedNotes ?? '',
+        published: published,
         readOnly: !_canEditFixtureInformation,
         onSave: (notes, sendUpdate) async {
           if (sendUpdate) {
-            recipients = (await _client.rpc('send_fixture_instructions_update', params: {
-              'p_fixture_id': widget.fixtureId, 'p_notes': notes,
-              'p_expected_notes': expectedNotes, 'p_request_id': requestId,
-            }) as num).toInt();
+            recipients =
+                (await _client.rpc(
+                          'send_fixture_instructions_update',
+                          params: {
+                            'p_fixture_id': widget.fixtureId,
+                            'p_notes': notes,
+                            'p_expected_notes': expectedNotes,
+                            'p_request_id': requestId,
+                          },
+                        )
+                        as num)
+                    .toInt();
           } else {
-            await _fixturesRepository.updateFixtureNotes(fixtureId: widget.fixtureId,
-              notes: notes.isEmpty ? null : notes, expectedNotes: expectedNotes);
+            await _fixturesRepository.updateFixtureNotes(
+              fixtureId: widget.fixtureId,
+              notes: notes.isEmpty ? null : notes,
+              expectedNotes: expectedNotes,
+            );
           }
         },
       ),
@@ -2886,9 +2953,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     _didChangeFixture = true;
     await _reloadPreservingScroll();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(recipients == null
-      ? 'Special instructions saved. No email sent.'
-      : 'Special instructions saved. Update queued for $recipients team member(s). Members without email will need a phone call.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          recipients == null
+              ? 'Special instructions saved. No email sent.'
+              : 'Special instructions saved. Update queued for $recipients team member(s). Members without email will need a phone call.',
+        ),
+      ),
+    );
   }
 
   Future<void> _editFixtureInformation() async {
@@ -2918,13 +2991,19 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isEventStyleFixture ? 'Event information updated.' : 'Special instructions updated.')),
+        SnackBar(
+          content: Text(
+            _isEventStyleFixture
+                ? 'Event information updated.'
+                : 'Special instructions updated.',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save information: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save information: $e')));
     }
   }
 
@@ -3370,7 +3449,11 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final startLocal = parseClubTime(_fixture!['start_at'].toString());
     final endLocal = _endAtLocal ?? startLocal.add(const Duration(hours: 2));
 
-    final window = await pickFixtureStart(context, start: startLocal, end: endLocal);
+    final window = await pickFixtureStart(
+      context,
+      start: startLocal,
+      end: endLocal,
+    );
     if (window == null || !mounted) return;
     final newStart = window.start;
     final newEnd = window.end;
@@ -3684,10 +3767,25 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   }
 
   Future<void> _changeFixtureTime(DateTime start, DateTime end) async {
+    final ruleError = fixtureTypeTimingError(
+      _selectedCompetitionType,
+      _bookingWindows,
+      start,
+      end,
+      privileged: _bookingRulesPrivileged,
+      home: _isHome,
+    );
+    if (ruleError != null) throw Exception(ruleError);
+
     final oldStart = parseClubTime(_fixture!['start_at'].toString());
-    final timingError = fixtureTimingError(start, end,
-      requireFuture: !DateUtils.isSameDay(start, oldStart) ||
-          start.hour != oldStart.hour || start.minute != oldStart.minute);
+    final timingError = fixtureTimingError(
+      start,
+      end,
+      requireFuture:
+          !DateUtils.isSameDay(start, oldStart) ||
+          start.hour != oldStart.hour ||
+          start.minute != oldStart.minute,
+    );
     if (timingError != null) throw StateError(timingError);
     await _client.rpc(
       'change_fixture_time_safe',
@@ -4274,7 +4372,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final service = FixtureTeamStructureService(_client);
     final labels = await service.availablePhysicalRinks(widget.fixtureId);
     if (!mounted) return;
-    String format = (rink?['format'] ?? 'rinks').toString();
+    if (rink == null && _typeLocked('lock_rinks')) return;
+    String format =
+        (rink?['format'] ??
+                _selectedCompetitionType?['default_format'] ??
+                'rinks')
+            .toString();
     if (!FixtureTeamStructureService.formats.containsKey(format))
       format = 'rinks';
     String? physical = rink?['home_rink_label']?.toString();
@@ -4300,8 +4403,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                       ),
                     )
                     .toList(),
-                onChanged: (value) =>
-                    setDialogState(() => format = value ?? format),
+                onChanged: _typeLocked('lock_format')
+                    ? null
+                    : (value) => setDialogState(() => format = value ?? format),
               ),
               if (_isHome) ...[
                 const SizedBox(height: 12),
@@ -4331,7 +4435,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             ],
           ),
           actions: [
-            if (rink != null)
+            if (rink != null && !_typeLocked('lock_rinks'))
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, 'delete'),
                 child: const Text('Delete team'),
@@ -4419,7 +4523,8 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
                   ),
                 ),
-                if (_canMaintainMemberPreselectFixture)
+                if (_canMaintainMemberPreselectFixture &&
+                    !_typeLocked('lock_rinks'))
                   ActionPill(
                     label: 'Add Team/Rink',
                     tone: ActionPillTone.green,
@@ -4450,7 +4555,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                   builder: (context) {
                     final rinkId = rink['id'].toString();
                     final teamNo = rink['fixture_rink_no'] ?? '';
-                    final rinkLabel = (rink['home_rink_label'] ?? '').toString().trim();
+                    final rinkLabel = (rink['home_rink_label'] ?? '')
+                        .toString()
+                        .trim();
                     final playersPerSide =
                         int.tryParse(
                           (rink['players_per_rink'] ?? '2').toString(),
@@ -5006,22 +5113,29 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     _openingRinksDay = true;
     try {
       final club = await Supabase.instance.client
-          .from('clubs').select('name').eq('id', clubId).maybeSingle();
+          .from('clubs')
+          .select('name')
+          .eq('id', clubId)
+          .maybeSingle();
       if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => RinkDayViewScreen(
-          clubId: clubId,
-          clubName: club?['name']?.toString() ?? 'Club',
-          date: DateTime(date.year, date.month, date.day),
-          greenAreaId: _greenAreaId,
-          fixtureId: widget.fixtureId,
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => RinkDayViewScreen(
+            clubId: clubId,
+            clubName: club?['name']?.toString() ?? 'Club',
+            date: DateTime(date.year, date.month, date.day),
+            greenAreaId: _greenAreaId,
+            fixtureId: widget.fixtureId,
+          ),
         ),
-      ));
+      );
       if (mounted) await _loadRinkAvailability(showLoading: false);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open the Rinks view. Please try again.')),
+          const SnackBar(
+            content: Text('Could not open the Rinks view. Please try again.'),
+          ),
         );
       }
     } finally {
@@ -5094,71 +5208,73 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             onLongPress: _openRinksDay,
             behavior: HitTestBehavior.opaque,
             child: Container(
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: enoughRinks ? Colors.green.shade50 : Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: enoughRinks ? Colors.green.shade300 : Colors.red.shade300,
-                  ),
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: enoughRinks ? Colors.green.shade50 : Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: enoughRinks
+                      ? Colors.green.shade300
+                      : Colors.red.shade300,
                 ),
-                child: Column(
-                  children: [
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    '$freeRinks of $totalRinks rinks free',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                      color: enoughRinks
+                          ? Colors.green.shade900
+                          : Colors.red.shade900,
+                    ),
+                  ),
+
+                  const SizedBox(height: 5),
+
+                  Text(
+                    '$capacityBookedRinks reserved by fixtures · '
+                    '$physicallyBookedRinks physically allocated',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: enoughRinks
+                          ? Colors.green.shade900
+                          : Colors.red.shade900,
+                    ),
+                  ),
+
+                  if (unallocatedReservedRinks > 0) ...[
+                    const SizedBox(height: 5),
                     Text(
-                      '$freeRinks of $totalRinks rinks free',
+                      '$unallocatedReservedRinks reserved '
+                      '${unallocatedReservedRinks == 1 ? 'rink is' : 'rinks are'} '
+                      'still awaiting physical allocation',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        color: enoughRinks
-                            ? Colors.green.shade900
-                            : Colors.red.shade900,
+                        color: Colors.orange.shade900,
                       ),
                     ),
+                  ],
 
+                  if (!enoughRinks) ...[
                     const SizedBox(height: 5),
-
                     Text(
-                      '$capacityBookedRinks reserved by fixtures · '
-                      '$physicallyBookedRinks physically allocated',
+                      '${capacityBookedRinks - totalRinks} more '
+                      '${capacityBookedRinks - totalRinks == 1 ? 'rink is' : 'rinks are'} '
+                      'required than this green can provide',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: enoughRinks
-                            ? Colors.green.shade900
-                            : Colors.red.shade900,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.red.shade900,
                       ),
                     ),
-
-                    if (unallocatedReservedRinks > 0) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        '$unallocatedReservedRinks reserved '
-                        '${unallocatedReservedRinks == 1 ? 'rink is' : 'rinks are'} '
-                        'still awaiting physical allocation',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Colors.orange.shade900,
-                        ),
-                      ),
-                    ],
-
-                    if (!enoughRinks) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        '${capacityBookedRinks - totalRinks} more '
-                        '${capacityBookedRinks - totalRinks == 1 ? 'rink is' : 'rinks are'} '
-                        'required than this green can provide',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Colors.red.shade900,
-                        ),
-                      ),
-                    ],
                   ],
-                ),
+                ],
+              ),
             ),
           ),
         ),
@@ -5333,6 +5449,7 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
   bool _editingOpenRinks = false;
 
   bool get _canEditOpenRinkRequirements =>
+      !_typeLocked('lock_rinks') &&
       _selectedCompetitionSelectionMode == 'open' &&
       !_isEventStyleFixture &&
       _fixture?['archived_at'] == null &&
@@ -5347,11 +5464,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       await _loadMemberPreselectData();
       if (!mounted || !_canEditOpenRinkRequirements) return;
       final required = (_fixture?['rinks_required'] as int?) ?? 0;
-      final snapshot = _memberPreselectRinks.map((r) => {
-        'id': r['id'], 'home_rink_label': r['home_rink_label'],
-      }).toList();
-      final assigned = snapshot.where((r) =>
-          (r['home_rink_label'] ?? '').toString().trim().isNotEmpty).length;
+      final snapshot = _memberPreselectRinks
+          .map((r) => {'id': r['id'], 'home_rink_label': r['home_rink_label']})
+          .toList();
+      final assigned = snapshot
+          .where(
+            (r) => (r['home_rink_label'] ?? '').toString().trim().isNotEmpty,
+          )
+          .length;
       if (required < 1 || assigned > required) {
         throw StateError('The fixture rink records need checking.');
       }
@@ -5364,12 +5484,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
           maximum: 99,
           onSave: (count) async {
             try {
-              await _client.rpc('set_open_fixture_rinks_required', params: {
-                'p_fixture_id': widget.fixtureId,
-                'p_rinks_required': count,
-                'p_expected_rinks_required': required,
-                'p_expected_rinks': snapshot,
-              });
+              await _client.rpc(
+                'set_open_fixture_rinks_required',
+                params: {
+                  'p_fixture_id': widget.fixtureId,
+                  'p_rinks_required': count,
+                  'p_expected_rinks_required': required,
+                  'p_expected_rinks': snapshot,
+                },
+              );
             } on PostgrestException catch (error) {
               throw error.message;
             }
@@ -5404,13 +5527,17 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       context: context,
       builder: (_) => MatchFeeDialog(initialPence: previous),
     );
-    if (result == null || !mounted || !_canEditFixtureOperationalDetails) return;
+    if (result == null || !mounted || !_canEditFixtureOperationalDetails)
+      return;
     try {
-      await _client.rpc('set_fixture_match_fee', params: {
-        'p_fixture_id': widget.fixtureId,
-        'p_match_fee_pence': result.pence,
-        'p_expected_match_fee_pence': previous,
-      });
+      await _client.rpc(
+        'set_fixture_match_fee',
+        params: {
+          'p_fixture_id': widget.fixtureId,
+          'p_match_fee_pence': result.pence,
+          'p_expected_match_fee_pence': previous,
+        },
+      );
       await _refreshFixtureRecord();
     } catch (error) {
       if (mounted) {
@@ -5437,7 +5564,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
             child: TextButton.icon(
               onPressed: _editingOpenRinks ? null : _editOpenRinkRequirements,
               icon: const Icon(Icons.edit_outlined, size: 18),
-              label: Text('Rinks required: ${_fixture?['rinks_required']} · Edit'),
+              label: Text(
+                'Rinks required: ${_fixture?['rinks_required']} · Edit',
+              ),
             ),
           ),
         _buildRinkAvailabilitySection(),
@@ -5473,11 +5602,15 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Future<void> _refreshDetails() async {
     if (_refreshingDetails) return;
-    if (_preselectDirty || _teamNameCtrl.text.trim() != _savedFixtureLabel.trim() ||
-        _dressCode != _savedDressCode || _selectedTeamId != _savedTeamId) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Save or discard your edits before refreshing.'),
-      ));
+    if (_preselectDirty ||
+        _teamNameCtrl.text.trim() != _savedFixtureLabel.trim() ||
+        _dressCode != _savedDressCode ||
+        _selectedTeamId != _savedTeamId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Save or discard your edits before refreshing.'),
+        ),
+      );
       return;
     }
     setState(() => _refreshingDetails = true);
@@ -5490,9 +5623,10 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
       if (!mounted) return;
       setState(() => _detailsRefreshVersion++);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not refresh fixture: $e')),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not refresh fixture: $e')),
+        );
     } finally {
       if (mounted) setState(() => _refreshingDetails = false);
     }
@@ -6212,9 +6346,12 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
     final competitionTypeName = (competitionType?['name'] ?? '')
         .toString()
         .trim();
-    final competitionSelectionMode = (competitionType?['selection_mode'] ?? '')
-        .toString()
-        .trim();
+    final competitionSelectionMode =
+        (fixture['participation_mode'] ??
+                competitionType?['selection_mode'] ??
+                '')
+            .toString()
+            .trim();
     final isInternalFixtureType = competitionType?['is_internal'] == true;
 
     final selectionMode = competitionSelectionMode
@@ -6379,514 +6516,528 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
         _canEditFixture;
 
     final isCancelled = _fixture?['cancelled_at'] != null;
-    final showAcceptance = isPublished && !isCancelled && !isEventStyleFixture &&
-        !isOpenSessionFixture && canRespondToTeamSelection;
-    final showAvailability = !isCancelled && !isEventStyleFixture &&
-        !showAcceptance && showRsvpControls && _canRsvpToFixture && _isEligibleForFixtureSection(fixture);
-    final responseNeeded = (showAcceptance &&
-        !['accepted', 'declined'].contains(_myTeamSelectionStatus)) ||
+    final showAcceptance =
+        isPublished &&
+        !isCancelled &&
+        !isEventStyleFixture &&
+        !isOpenSessionFixture &&
+        canRespondToTeamSelection;
+    final showAvailability =
+        !isCancelled &&
+        !isEventStyleFixture &&
+        !showAcceptance &&
+        showRsvpControls &&
+        _canRsvpToFixture &&
+        _isEligibleForFixtureSection(fixture);
+    final responseNeeded =
+        (showAcceptance &&
+            !['accepted', 'declined'].contains(_myTeamSelectionStatus)) ||
         (showAvailability && !['yes', 'maybe', 'no'].contains(_myRsvp));
 
     return PreselectLeaveGuard(
       hasChanges: _preselectDirty,
       saving: _savingPreselect,
       child: Scaffold(
-      appBar: AppBar(
-        leading: BackButton(
-          onPressed: () => Navigator.maybePop(context, _didChangeFixture),
-        ),
-        title: Text(pageTitle),
-        actions: [
-          if (_canMaintainMemberPreselectFixture && _preselectDirty)
-            FilledButton.icon(
-              onPressed: _savingPreselect ? null : _savePreselectState,
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
-                foregroundColor: Colors.white,
-              ),
-              icon: _savingPreselect
-                  ? const SizedBox(width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.check_circle),
-              label: Text(_savingPreselect ? 'Saving...' : 'Confirm Team Changes'),
-            ),
-          IconButton(
-            tooltip: 'Refresh fixture',
-            onPressed: _refreshingDetails || _savingPreselect || _savingTeam || _savingTeamName
-                ? null : _refreshDetails,
-            icon: _refreshingDetails
-                ? const SizedBox(width: 20, height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.refresh),
+        appBar: AppBar(
+          leading: BackButton(
+            onPressed: () => Navigator.maybePop(context, _didChangeFixture),
           ),
-          if (_canRepeatFixture)
+          title: Text(pageTitle),
+          actions: [
+            if (_canMaintainMemberPreselectFixture && _preselectDirty)
+              FilledButton.icon(
+                onPressed: _savingPreselect ? null : _savePreselectState,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade700,
+                  foregroundColor: Colors.white,
+                ),
+                icon: _savingPreselect
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_circle),
+                label: Text(
+                  _savingPreselect ? 'Saving...' : 'Confirm Team Changes',
+                ),
+              ),
             IconButton(
-              tooltip: 'Repeat fixture',
-              icon: _repeatingFixture
+              tooltip: 'Refresh fixture',
+              onPressed:
+                  _refreshingDetails ||
+                      _savingPreselect ||
+                      _savingTeam ||
+                      _savingTeamName
+                  ? null
+                  : _refreshDetails,
+              icon: _refreshingDetails
                   ? const SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.copy_all_outlined),
-              onPressed: _repeatingFixture ? null : _openRepeatFixturePlanner,
+                  : const Icon(Icons.refresh),
             ),
-
-          if (_canRescheduleMemberBooking)
-            IconButton(
-              tooltip: 'Reschedule booking',
-              icon: const Icon(Icons.event_repeat),
-              onPressed: _rescheduleMemberBooking,
-            ),
-
-          if (_canRescheduleFixture)
-            IconButton(
-              tooltip: 'Reschedule fixture',
-              icon: const Icon(Icons.event_repeat),
-              onPressed: _openRescheduleFixture,
-            ),
-
-          if (_canCancelFixture)
-            IconButton(
-              tooltip: 'Cancel or reschedule fixture',
-              icon: const Icon(Icons.event_busy_outlined),
-              onPressed: _confirmAndCancelFixture,
-            ),
-
-          if (_canDeleteFixture)
-            IconButton(
-              tooltip: 'Delete fixture',
-              icon: const Icon(Icons.delete_outline),
-              onPressed: _confirmAndDelete,
-            ),
-
-          IconButton(
-            tooltip: isEventStyleFixture
-                ? 'Send Event Message'
-                : 'Send Fixture Message',
-            icon: const Icon(Icons.message),
-            onPressed: !_canEditFixtureOperationalDetails
-                ? null
-                : () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => FixtureMessageScreen(
-                          fixtureId: widget.fixtureId,
-                          currentMemberProfileId: _currentMemberId,
-                          senderName: _fixtureMessageSenderName,
-                        ),
-                      ),
-                    );
-                  },
-          ),
-        ],
-      ),
-      bottomNavigationBar: responseNeeded ? SafeArea(
-        child: Material(color: const Color(0xFFFFF3CD), child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(children: [
-            const Icon(Icons.notification_important_outlined, color: Colors.black87),
-            const SizedBox(width: 8),
-            const Expanded(child: Text('Response needed', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold))),
-            TextButton(onPressed: () => _scrollController.animateTo(0,
-              duration: const Duration(milliseconds: 300), curve: Curves.easeOut),
-              child: const Text('Respond')),
-          ]),
-        )),
-      ) : null,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: ListView(
-              key: PageStorageKey<String>(
-                'fixture-details-${widget.fixtureId}',
+            if (_canRepeatFixture)
+              IconButton(
+                tooltip: 'Repeat fixture',
+                icon: _repeatingFixture
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.copy_all_outlined),
+                onPressed: _repeatingFixture ? null : _openRepeatFixturePlanner,
               ),
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: fixtureTypeBg ?? Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: fixtureTypeFg?.withOpacity(0.25) ?? Colors.black12,
+
+            if (_canRescheduleMemberBooking)
+              IconButton(
+                tooltip: 'Reschedule booking',
+                icon: const Icon(Icons.event_repeat),
+                onPressed: _rescheduleMemberBooking,
+              ),
+
+            if (_canRescheduleFixture)
+              IconButton(
+                tooltip: 'Reschedule fixture',
+                icon: const Icon(Icons.event_repeat),
+                onPressed: _openRescheduleFixture,
+              ),
+
+            if (_canCancelFixture)
+              IconButton(
+                tooltip: 'Cancel or reschedule fixture',
+                icon: const Icon(Icons.event_busy_outlined),
+                onPressed: _confirmAndCancelFixture,
+              ),
+
+            if (_canDeleteFixture)
+              IconButton(
+                tooltip: 'Delete fixture',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: _confirmAndDelete,
+              ),
+
+            IconButton(
+              tooltip: isEventStyleFixture
+                  ? 'Send Event Message'
+                  : 'Send Fixture Message',
+              icon: const Icon(Icons.message),
+              onPressed: !_canEditFixtureOperationalDetails
+                  ? null
+                  : () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => FixtureMessageScreen(
+                            fixtureId: widget.fixtureId,
+                            currentMemberProfileId: _currentMemberId,
+                            senderName: _fixtureMessageSenderName,
+                          ),
+                        ),
+                      );
+                    },
+            ),
+          ],
+        ),
+        bottomNavigationBar: responseNeeded
+            ? SafeArea(
+                child: Material(
+                  color: const Color(0xFFFFF3CD),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.notification_important_outlined,
+                          color: Colors.black87,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Response needed',
+                            style: TextStyle(
+                              color: Colors.black87,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => _scrollController.animateTo(
+                            0,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOut,
+                          ),
+                          child: const Text('Respond'),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(child: Text(lockedFixtureLabel,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: fixtureTypeFg, fontWeight: FontWeight.w700))),
-                        if (isInternalFixtureType && isPreselectFixture && usesRinks && competitionType?['bookable_by_members'] == true)
-                          Padding(padding: const EdgeInsets.only(left: 8), child: OutlinedButton.icon(
-                            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => FixtureScorecardScreen(fixtureId: widget.fixtureId))),
-                            icon: const Icon(Icons.scoreboard_outlined, size: 18), label: const Text('Score Card'),
-                            style: OutlinedButton.styleFrom(backgroundColor: const Color(0xfffff3b0), foregroundColor: const Color(0xff3a3210), side: const BorderSide(color: Color(0xff655516), width: 1.5)),
-                          )),
-                        if (isPublished && canViewTeam && !isOpenSessionFixture && !_usesSimpleBookingWorkflow)
-                          OutlinedButton.icon(onPressed: _openTeamFromFixture,
-                            icon: const Icon(Icons.groups_outlined),
-                            label: Text(canManageTeam && !isCancelled ? 'Manage Team' : 'View Team'),
-                            style: OutlinedButton.styleFrom(foregroundColor: fixtureTypeFg,
-                              side: BorderSide(color: fixtureTypeFg ?? Theme.of(context).colorScheme.primary))),
-                      ]),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${DateFormat('EEEE d MMMM yyyy').format(when)} · '
-                        '${DateFormat('HH:mm').format(when)}',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodyMedium?.copyWith(color: fixtureTypeFg),
-                      ),
-                    ],
-                  ),
                 ),
-
-                CompetitionDeadlineWarning(scheduledClubTime: when, playBy: _competitionPlayBy),
-
-                if (showAcceptance)
-                  FixtureResponsePanel(
-                    acceptance: true, status: _myTeamSelectionStatus,
-                    onResponse: _respondToTeamSelection,
-                  ),
-                if (showAvailability)
-                  FixtureResponsePanel(
-                    status: _myRsvp,
-                    onResponse: (status) => _setRsvp(status,
-                      {'yes': 'Available', 'maybe': 'Maybe', 'no': 'Not available'}[status]!),
-                  ),
-
-                if (fixture['rescheduled_to_fixture_id'] != null ||
-                    fixture['rescheduled_from_fixture_id'] != null) ...[
-                  const SizedBox(height: 12),
-                  _buildRescheduleLinkCard(),
-                ],
-
-                const SizedBox(height: 12),
-
-                if (_canViewFixtureMaintenanceStatus) ...[
-                  _buildFixtureReadinessCard(),
-                  const SizedBox(height: 16),
-                ],
-
-                if (_canManageCompetitionBooking) ...[
-                  FilledButton.icon(
-                    icon: const Icon(Icons.event_available),
-                    label: const Text('Manage competition booking'),
-                    onPressed: () async {
-                      final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => CompetitionFixtureManagementScreen(fixtureId: widget.fixtureId)));
-                      if (!mounted) return;
-                      if (changed == true) _didChangeFixture = true;
-                      await _refreshDetails();
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                Text(
-                  matchHeader,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              )
+            : null,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: ListView(
+                key: PageStorageKey<String>(
+                  'fixture-details-${widget.fixtureId}',
                 ),
-
-                const SizedBox(height: 10),
-
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (!isEventStyleFixture)
-                      AppBadge(text: isHome ? 'HOME' : 'AWAY'),
-
-                    if (displayFixtureLabel.isNotEmpty)
-                      AppBadge(text: displayFixtureLabel.toUpperCase()),
-
-                    if (!isEventStyleFixture && section.isNotEmpty)
-                      AppBadge(text: section.toUpperCase()),
-
-                    if (isPreselectFixture && _dressCode != 'open')
-                      AppBadge(text: _dressCode.toUpperCase()),
-
-                    if (!isEventStyleFixture) ...[
-                      AppBadge(text: _formatLabel(ppr).toUpperCase()),
-                      AppBadge(text: '$rinks TEAMS'),
-                    ],
-
-                    if (!isEventStyleFixture && isHome && green.isNotEmpty)
-                      AppBadge(text: 'GREEN: $green'),
-
-                    if (!isEventStyleFixture)
-                      _canEditFixtureOperationalDetails
-                          ? ActionPill(
-                              label: fixture['match_fee_pence'] == null
-                                  ? 'Match fee: not set · Edit'
-                                  : 'Match fee: £${matchFeeAmount((fixture['match_fee_pence'] as num).toInt())} · Edit',
-                              onPressed: _editMatchFee,
-                            )
-                          : AppBadge(text: fixture['match_fee_pence'] == null
-                              ? 'MATCH FEE: NOT SET'
-                              : 'MATCH FEE: £${matchFeeAmount((fixture['match_fee_pence'] as num).toInt())}'),
-
-                    if (!isEventStyleFixture && showOrientation)
-                      AppBadge(
-                        text:
-                            'ORIENTATION: ${(orientation ?? 'NOT SET').replaceAll('_', ' ').toUpperCase()}',
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: fixtureTypeBg ?? Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color:
+                            fixtureTypeFg?.withOpacity(0.25) ?? Colors.black12,
                       ),
-                  ],
-                ),
-
-                if (isHome &&
-                    !isInternalFixtureType &&
-                    !isOpenSessionFixture &&
-                    !isEventStyleFixture) ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.sports_outlined,
-                        size: 18,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Opponent:',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          opponent.isEmpty ? 'To be confirmed' : opponent,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (canChangeOpponent)
-                        TextButton.icon(
-                          onPressed: _changeHomeOpponent,
-                          icon: Icon(
-                            opponent.isEmpty ? Icons.add : Icons.edit_outlined,
-                            size: 17,
-                          ),
-                          label: Text(opponent.isEmpty ? 'Set' : 'Change'),
-                        ),
-                    ],
-                  ),
-                ],
-
-                const SizedBox(height: 12),
-
-                _buildFixtureVenueCard(),
-
-                if (!isEventStyleFixture) ...[
-                  const SizedBox(height: 12),
-                  Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
-                    onPressed: () => _openSpecialInstructions(isPublished && !isCancelled),
-                    style: (fixture['notes'] ?? '').toString().trim().isNotEmpty
-                      ? OutlinedButton.styleFrom(backgroundColor: Colors.amber.shade100,
-                          foregroundColor: Colors.brown.shade900,
-                          side: BorderSide(color: Colors.amber.shade700))
-                      : null,
-                    icon: Icon((fixture['notes'] ?? '').toString().trim().isNotEmpty
-                      ? Icons.info : Icons.info_outline),
-                    label: Text((fixture['notes'] ?? '').toString().trim().isNotEmpty
-                      ? 'Special Instructions • Added' : 'Special Instructions'),
-                  )),
-                ],
-
-                if (isEventStyleFixture) ...[
-                  const SizedBox(height: 12),
-                  _buildEventRsvpCard(),
-                  const SizedBox(height: 4),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Event information',
-                                  style: Theme.of(context).textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                lockedFixtureLabel,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(
+                                      color: fixtureTypeFg,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                            if (isInternalFixtureType &&
+                                isPreselectFixture &&
+                                usesRinks &&
+                                competitionType?['bookable_by_members'] == true)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: OutlinedButton.icon(
+                                  onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => FixtureScorecardScreen(
+                                        fixtureId: widget.fixtureId,
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.scoreboard_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Score Card'),
+                                  style: OutlinedButton.styleFrom(
+                                    backgroundColor: const Color(0xfffff3b0),
+                                    foregroundColor: const Color(0xff3a3210),
+                                    side: const BorderSide(
+                                      color: Color(0xff655516),
+                                      width: 1.5,
+                                    ),
+                                  ),
                                 ),
                               ),
-                              if (_canEditFixtureInformation)
-                                TextButton.icon(
-                                  onPressed: _editFixtureInformation,
-                                  icon: const Icon(Icons.edit_outlined),
-                                  label: const Text('Edit'),
+                            if (isPublished &&
+                                canViewTeam &&
+                                !isOpenSessionFixture &&
+                                !_usesSimpleBookingWorkflow)
+                              OutlinedButton.icon(
+                                onPressed: _openTeamFromFixture,
+                                icon: const Icon(Icons.groups_outlined),
+                                label: Text(
+                                  canManageTeam && !isCancelled
+                                      ? 'Manage Team'
+                                      : 'View Team',
                                 ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            (fixture['notes'] ?? '').toString().trim().isEmpty
-                                ? 'No information has been added.'
-                                : (fixture['notes'] ?? '').toString(),
-                          ),
-                        ],
-                      ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: fixtureTypeFg,
+                                  side: BorderSide(
+                                    color:
+                                        fixtureTypeFg ??
+                                        Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '${DateFormat('EEEE d MMMM yyyy').format(when)} · '
+                          '${DateFormat('HH:mm').format(when)}',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: fixtureTypeFg),
+                        ),
+                      ],
                     ),
                   ),
-                  _buildEventOrganisersCard(),
-                ],
 
-                const SizedBox(height: 20),
+                  CompetitionDeadlineWarning(
+                    scheduledClubTime: when,
+                    playBy: _competitionPlayBy,
+                  ),
 
-                if (!isEventStyleFixture &&
-                    _canViewFixtureSettings &&
-                    (isPreselectFixture || !isWorkflowLocked)) ...[
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Fixture settings',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w600),
+                  if (showAcceptance)
+                    FixtureResponsePanel(
+                      acceptance: true,
+                      status: _myTeamSelectionStatus,
+                      onResponse: _respondToTeamSelection,
+                    ),
+                  if (showAvailability)
+                    FixtureResponsePanel(
+                      status: _myRsvp,
+                      onResponse: (status) => _setRsvp(
+                        status,
+                        {
+                          'yes': 'Available',
+                          'maybe': 'Maybe',
+                          'no': 'Not available',
+                        }[status]!,
+                      ),
+                    ),
+
+                  if (fixture['rescheduled_to_fixture_id'] != null ||
+                      fixture['rescheduled_from_fixture_id'] != null) ...[
+                    const SizedBox(height: 12),
+                    _buildRescheduleLinkCard(),
+                  ],
+
+                  const SizedBox(height: 12),
+
+                  if (_canViewFixtureMaintenanceStatus) ...[
+                    _buildFixtureReadinessCard(),
+                    const SizedBox(height: 16),
+                  ],
+
+                  if (_canManageCompetitionBooking) ...[
+                    FilledButton.icon(
+                      icon: const Icon(Icons.event_available),
+                      label: const Text('Reschedule competition booking'),
+                      onPressed: () async {
+                        final changed = await Navigator.of(context).push<bool>(
+                          MaterialPageRoute(
+                            builder: (_) => CompetitionFixtureManagementScreen(
+                              fixtureId: widget.fixtureId,
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            fixtureTypeHelpText,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
+                        );
+                        if (!mounted) return;
+                        if (changed == true) _didChangeFixture = true;
+                        await _refreshDetails();
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  Text(
+                    matchHeader,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
 
-                          if (isPreselectFixture) ...[
-                            const SizedBox(height: 16),
-                            const Text(
-                              'Fixture label',
-                              style: TextStyle(fontWeight: FontWeight.bold),
+                  const SizedBox(height: 10),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (!isEventStyleFixture)
+                        AppBadge(text: isHome ? 'HOME' : 'AWAY'),
+
+                      if (displayFixtureLabel.isNotEmpty)
+                        AppBadge(text: displayFixtureLabel.toUpperCase()),
+
+                      if (!isEventStyleFixture && section.isNotEmpty)
+                        AppBadge(text: section.toUpperCase()),
+
+                      if (isPreselectFixture && _dressCode != 'open')
+                        AppBadge(text: _dressCode.toUpperCase()),
+
+                      if (!isEventStyleFixture) ...[
+                        AppBadge(text: _formatLabel(ppr).toUpperCase()),
+                        AppBadge(text: '$rinks TEAMS'),
+                      ],
+
+                      if (!isEventStyleFixture && isHome && green.isNotEmpty)
+                        AppBadge(text: 'GREEN: $green'),
+
+                      if (!isEventStyleFixture)
+                        _canEditFixtureOperationalDetails
+                            ? ActionPill(
+                                label: fixture['match_fee_pence'] == null
+                                    ? 'Match fee: not set · Edit'
+                                    : 'Match fee: £${matchFeeAmount((fixture['match_fee_pence'] as num).toInt())} · Edit',
+                                onPressed: _editMatchFee,
+                              )
+                            : AppBadge(
+                                text: fixture['match_fee_pence'] == null
+                                    ? 'MATCH FEE: NOT SET'
+                                    : 'MATCH FEE: £${matchFeeAmount((fixture['match_fee_pence'] as num).toInt())}',
+                              ),
+
+                      if (!isEventStyleFixture && showOrientation)
+                        AppBadge(
+                          text:
+                              'ORIENTATION: ${(orientation ?? 'NOT SET').replaceAll('_', ' ').toUpperCase()}',
+                        ),
+                    ],
+                  ),
+
+                  if (isHome &&
+                      !isInternalFixtureType &&
+                      !isOpenSessionFixture &&
+                      !isEventStyleFixture) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.sports_outlined,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Opponent:',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            opponent.isEmpty ? 'To be confirmed' : opponent,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (canChangeOpponent)
+                          TextButton.icon(
+                            onPressed: _changeHomeOpponent,
+                            icon: Icon(
+                              opponent.isEmpty
+                                  ? Icons.add
+                                  : Icons.edit_outlined,
+                              size: 17,
+                            ),
+                            label: Text(opponent.isEmpty ? 'Set' : 'Change'),
+                          ),
+                      ],
+                    ),
+                  ],
+
+                  const SizedBox(height: 12),
+
+                  _buildFixtureVenueCard(),
+
+                  if (!isEventStyleFixture) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openSpecialInstructions(
+                          isPublished && !isCancelled,
+                        ),
+                        style:
+                            (fixture['notes'] ?? '')
+                                .toString()
+                                .trim()
+                                .isNotEmpty
+                            ? OutlinedButton.styleFrom(
+                                backgroundColor: Colors.amber.shade100,
+                                foregroundColor: Colors.brown.shade900,
+                                side: BorderSide(color: Colors.amber.shade700),
+                              )
+                            : null,
+                        icon: Icon(
+                          (fixture['notes'] ?? '').toString().trim().isNotEmpty
+                              ? Icons.info
+                              : Icons.info_outline,
+                        ),
+                        label: Text(
+                          (fixture['notes'] ?? '').toString().trim().isNotEmpty
+                              ? 'Special Instructions • Added'
+                              : 'Special Instructions',
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  if (isEventStyleFixture) ...[
+                    const SizedBox(height: 12),
+                    _buildEventRsvpCard(),
+                    const SizedBox(height: 4),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Event information',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                                if (_canEditFixtureInformation)
+                                  TextButton.icon(
+                                    onPressed: _editFixtureInformation,
+                                    icon: const Icon(Icons.edit_outlined),
+                                    label: const Text('Edit'),
+                                  ),
+                              ],
                             ),
                             const SizedBox(height: 8),
-                            TextField(
-                              controller: _teamNameCtrl,
-                              enabled: _canEditFixtureLabel,
-                              onChanged: (_) => setState(() {}),
-                              decoration: const InputDecoration(
-                                hintText:
-                                    'e.g. Club Championship Semi-final or Mixed Singles',
-                                border: OutlineInputBorder(),
-                              ),
+                            Text(
+                              (fixture['notes'] ?? '').toString().trim().isEmpty
+                                  ? 'No information has been added.'
+                                  : (fixture['notes'] ?? '').toString(),
                             ),
-                            if (_canEditFixtureLabel) ...[
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: ElevatedButton(
-                                  style: _fixtureDetailsDirty
-                                      ? ElevatedButton.styleFrom(
-                                          backgroundColor:
-                                              _unsavedSaveButtonColor,
-                                          foregroundColor: Colors.white,
-                                        )
-                                      : null,
-                                  onPressed: _savingTeam
-                                      ? null
-                                      : () => _saveFixtureDetails(
-                                          includeDressCode: true,
-                                        ),
-                                  child: _savingTeam
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Text('Save'),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 16),
-                            DropdownButtonFormField<String>(
-                              value: _dressCode,
-                              decoration: const InputDecoration(
-                                labelText: 'Dress Code',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'open',
-                                  child: Text('Open'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'whites',
-                                  child: Text('Whites'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'greys',
-                                  child: Text('Greys'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'blacks',
-                                  child: Text('Blacks'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'jackets',
-                                  child: Text('Jackets'),
-                                ),
-                              ],
-                              onChanged: !_canEditFixtureLabel
-                                  ? null
-                                  : (value) {
-                                      if (value == null) return;
-                                      setState(() => _dressCode = value);
-                                    },
-                            ),
-                            if (_canEditFixtureLabel) ...[
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton.icon(
-                                  onPressed: () => setState(
-                                    () => _dressCode = fixtureTypeDressCode,
-                                  ),
-                                  icon: const Icon(Icons.restart_alt),
-                                  label: const Text(
-                                    'Reset Dress Code to Fixture Type default',
-                                  ),
-                                ),
-                              ),
-                            ],
                           ],
+                        ),
+                      ),
+                    ),
+                    _buildEventOrganisersCard(),
+                  ],
 
-                          if (!isWorkflowLocked) ...[
-                            const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
-                            if (isTeamFixture) ...[
-                              const Text(
-                                'Team',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              DropdownButtonFormField<String>(
-                                value: _selectedTeamId,
-                                decoration: const InputDecoration(
-                                  hintText: 'Select a team',
-                                  border: OutlineInputBorder(),
-                                ),
-                                items: _teams.map((t) {
-                                  return DropdownMenuItem(
-                                    value: t['id'].toString(),
-                                    child: Text(t['name'].toString()),
-                                  );
-                                }).toList(),
-                                onChanged: (v) =>
-                                    setState(() => _selectedTeamId = v),
-                              ),
-                            ] else ...[
+                  if (!isEventStyleFixture &&
+                      _canViewFixtureSettings &&
+                      (isPreselectFixture || !isWorkflowLocked)) ...[
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Fixture settings',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              fixtureTypeHelpText,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+
+                            if (isPreselectFixture) ...[
+                              const SizedBox(height: 16),
                               const Text(
                                 'Fixture label',
                                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -6897,173 +7048,311 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                                 enabled: _canEditFixtureLabel,
                                 onChanged: (_) => setState(() {}),
                                 decoration: const InputDecoration(
-                                  hintText: 'Enter fixture details (optional)',
+                                  hintText:
+                                      'e.g. Club Championship Semi-final or Mixed Singles',
                                   border: OutlineInputBorder(),
                                 ),
                               ),
+                              if (_canEditFixtureLabel) ...[
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: ElevatedButton(
+                                    style: _fixtureDetailsDirty
+                                        ? ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                _unsavedSaveButtonColor,
+                                            foregroundColor: Colors.white,
+                                          )
+                                        : null,
+                                    onPressed: _savingTeam
+                                        ? null
+                                        : () => _saveFixtureDetails(
+                                            includeDressCode: true,
+                                          ),
+                                    child: _savingTeam
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Text('Save'),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 16),
+                              DropdownButtonFormField<String>(
+                                value: _dressCode,
+                                decoration: const InputDecoration(
+                                  labelText: 'Dress Code',
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'open',
+                                    child: Text('Open'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'whites',
+                                    child: Text('Whites'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'greys',
+                                    child: Text('Greys'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'blacks',
+                                    child: Text('Blacks'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'jackets',
+                                    child: Text('Jackets'),
+                                  ),
+                                ],
+                                onChanged: !_canEditFixtureLabel
+                                    ? null
+                                    : (value) {
+                                        if (value == null) return;
+                                        setState(() => _dressCode = value);
+                                      },
+                              ),
+                              if (_canEditFixtureLabel) ...[
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton.icon(
+                                    onPressed: () => setState(
+                                      () => _dressCode = fixtureTypeDressCode,
+                                    ),
+                                    icon: const Icon(Icons.restart_alt),
+                                    label: const Text(
+                                      'Reset Dress Code to Fixture Type default',
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
 
-                            const SizedBox(height: 8),
+                            if (!isWorkflowLocked) ...[
+                              const SizedBox(height: 16),
 
-                            if (_canEditFixtureLabel)
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: ElevatedButton(
-                                  style: _fixtureDetailsDirty
-                                      ? ElevatedButton.styleFrom(
-                                          backgroundColor:
-                                              _unsavedSaveButtonColor,
-                                          foregroundColor: Colors.white,
-                                        )
-                                      : null,
-                                  onPressed: _savingTeam
-                                      ? null
-                                      : _saveFixtureDetails,
-                                  child: _savingTeam
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Text('Save'),
+                              if (isTeamFixture) ...[
+                                const Text(
+                                  'Team',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
                                 ),
-                              ),
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<String>(
+                                  value: _selectedTeamId,
+                                  decoration: const InputDecoration(
+                                    hintText: 'Select a team',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: _teams.map((t) {
+                                    return DropdownMenuItem(
+                                      value: t['id'].toString(),
+                                      child: Text(t['name'].toString()),
+                                    );
+                                  }).toList(),
+                                  onChanged: (v) =>
+                                      setState(() => _selectedTeamId = v),
+                                ),
+                              ] else ...[
+                                const Text(
+                                  'Fixture label',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: _teamNameCtrl,
+                                  enabled: _canEditFixtureLabel,
+                                  onChanged: (_) => setState(() {}),
+                                  decoration: const InputDecoration(
+                                    hintText:
+                                        'Enter fixture details (optional)',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ],
+
+                              const SizedBox(height: 8),
+
+                              if (_canEditFixtureLabel)
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: ElevatedButton(
+                                    style: _fixtureDetailsDirty
+                                        ? ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                _unsavedSaveButtonColor,
+                                            foregroundColor: Colors.white,
+                                          )
+                                        : null,
+                                    onPressed: _savingTeam
+                                        ? null
+                                        : _saveFixtureDetails,
+                                    child: _savingTeam
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Text('Save'),
+                                  ),
+                                ),
+                            ],
                           ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isEventStyleFixture
+                                ? 'Event timing'
+                                : 'Fixture timing',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 8),
+                          FixtureBookingRulesHint(
+                            type: _selectedCompetitionType,
+                            windows: _bookingWindows,
+                            privileged: _bookingRulesPrivileged,
+                          ),
+                          FixtureTimingControls(
+                            start: DateFormat('EEE d MMM yyyy, h:mm a')
+                                .format(when)
+                                .replaceAll('AM', 'a.m.')
+                                .replaceAll('PM', 'p.m.'),
+                            end: DateFormat('EEE d MMM yyyy, h:mm a')
+                                .format(endWhen)
+                                .replaceAll('AM', 'a.m.')
+                                .replaceAll('PM', 'p.m.'),
+                            onEditStart: _canEditFixtureOperationalDetails
+                                ? _editStartTime
+                                : null,
+                            onEditEnd: _canEditFixtureOperationalDetails
+                                ? _editEndTime
+                                : null,
+                          ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                ],
 
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isEventStyleFixture
-                              ? 'Event timing'
-                              : 'Fixture timing',
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 8),
-                        FixtureTimingControls(
-                          start: DateFormat('EEE d MMM yyyy, h:mm a').format(when).replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.'),
-                          end: DateFormat('EEE d MMM yyyy, h:mm a').format(endWhen).replaceAll('AM', 'a.m.').replaceAll('PM', 'p.m.'),
-                          onEditStart: _canEditFixtureOperationalDetails ? _editStartTime : null,
-                          onEditEnd: _canEditFixtureOperationalDetails ? _editEndTime : null,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                  const SizedBox(height: 20),
 
-                const SizedBox(height: 20),
-
-                if (isEventStyleFixture) ...[
-                  _buildEventAttendanceSummary(),
-                  const SizedBox(height: 8),
-                ],
-
-                if (!isEventStyleFixture) ...[
-                  if (isRsvpFixture && isPublished && !showRsvpControls) ...[
-                    const SizedBox(height: 24),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          'RSVP closed — fixture has been published.',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ),
-                    ),
+                  if (isEventStyleFixture) ...[
+                    _buildEventAttendanceSummary(),
+                    const SizedBox(height: 8),
                   ],
 
-                  if (isRsvpFixture && !isPublished) ...[
-                    CaptainViewSection(fixture: fixture),
-                  ],
-
-                  Text(
-                    'Captain & vice-captain',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  SetCaptainSection(
-                    fixture: fixture,
-                    readOnly: isCancelled || !_canAssignCaptaincy,
-                  ),
-
-                  if (!_usesSimpleBookingWorkflow) ...[
-                    const SizedBox(height: 12),
-                    KeyedSubtree(
-                      key: _rinksSectionKey,
-                      child: _buildRinkAvailabilityCard(),
-                    ),
-                  ],
-
-                  if (_canViewMemberPreselectFixture) ...[
-                    _buildMemberPreselectEditorPlaceholder(),
-                  ],
-
-                  if (!_usesSimpleBookingWorkflow &&
-                      !isOpenSessionFixture &&
-                      canViewTeam) ...[
-                    const SizedBox(height: 12),
-                    TeamSection(
-                      key: ValueKey(
-                        '${widget.fixtureId}-$_detailsRefreshVersion-'
-                        '${_myTeamSelectionStatus ?? ''}-'
-                        '${fixture['ts']?['status'] ?? ''}',
-                      ),
-                      fixture: fixture,
-                      readOnly: isCancelled || !canManageTeam,
-                      onTeamChanged: _refreshAfterTeamManagement,
-                    ),
-                  ],
-                ],
-              ],
-            ),
-          ),
-
-          // ------------------------------------------------------------
-          // CANCELLED STAMP
-          // ------------------------------------------------------------
-          if (isCancelled)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Center(
-                  child: Transform.rotate(
-                    angle: -0.30,
-                    child: Opacity(
-                      opacity: 0.22,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 28,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Colors.red.shade700,
-                            width: 5,
+                  if (!isEventStyleFixture) ...[
+                    if (isRsvpFixture && isPublished && !showRsvpControls) ...[
+                      const SizedBox(height: 24),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(
+                            'RSVP closed — fixture has been published.',
+                            style: Theme.of(context).textTheme.bodyMedium,
                           ),
-                          borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
-                          'CANCELLED',
-                          style: TextStyle(
-                            color: Colors.red.shade700,
-                            fontSize: 42,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 4,
+                      ),
+                    ],
+
+                    if (isRsvpFixture && !isPublished) ...[
+                      CaptainViewSection(fixture: fixture),
+                    ],
+
+                    Text(
+                      'Captain & vice-captain',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    SetCaptainSection(
+                      fixture: fixture,
+                      readOnly: isCancelled || !_canAssignCaptaincy,
+                    ),
+
+                    if (!_usesSimpleBookingWorkflow) ...[
+                      const SizedBox(height: 12),
+                      KeyedSubtree(
+                        key: _rinksSectionKey,
+                        child: _buildRinkAvailabilityCard(),
+                      ),
+                    ],
+
+                    if (_canViewMemberPreselectFixture) ...[
+                      _buildMemberPreselectEditorPlaceholder(),
+                    ],
+
+                    if (!_usesSimpleBookingWorkflow &&
+                        !isOpenSessionFixture &&
+                        canViewTeam) ...[
+                      const SizedBox(height: 12),
+                      TeamSection(
+                        key: ValueKey(
+                          '${widget.fixtureId}-$_detailsRefreshVersion-'
+                          '${_myTeamSelectionStatus ?? ''}-'
+                          '${fixture['ts']?['status'] ?? ''}',
+                        ),
+                        fixture: fixture,
+                        readOnly: isCancelled || !canManageTeam,
+                        onTeamChanged: _refreshAfterTeamManagement,
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+
+            // ------------------------------------------------------------
+            // CANCELLED STAMP
+            // ------------------------------------------------------------
+            if (isCancelled)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: Transform.rotate(
+                      angle: -0.30,
+                      child: Opacity(
+                        opacity: 0.22,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 28,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.red.shade700,
+                              width: 5,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'CANCELLED',
+                            style: TextStyle(
+                              color: Colors.red.shade700,
+                              fontSize: 42,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 4,
+                            ),
                           ),
                         ),
                       ),
@@ -7071,10 +7360,9 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 }
@@ -7112,7 +7400,11 @@ class _RescheduleFixturePageState extends State<_RescheduleFixturePage> {
   }
 
   Future<void> _pickStartDateTime() async {
-    final window = await pickFixtureStart(context, start: _startAtLocal, end: _endAtLocal);
+    final window = await pickFixtureStart(
+      context,
+      start: _startAtLocal,
+      end: _endAtLocal,
+    );
     if (window == null || !mounted) return;
     setState(() {
       _startAtLocal = window.start;
@@ -7122,9 +7414,16 @@ class _RescheduleFixturePageState extends State<_RescheduleFixturePage> {
   }
 
   Future<void> _pickEndDateTime() async {
-    final end = await pickFixtureEndTime(context, start: _startAtLocal, end: _endAtLocal);
+    final end = await pickFixtureEndTime(
+      context,
+      start: _startAtLocal,
+      end: _endAtLocal,
+    );
     if (end == null || !mounted) return;
-    setState(() { _endAtLocal = end; _error = null; });
+    setState(() {
+      _endAtLocal = end;
+      _error = null;
+    });
   }
 
   Future<void> _reschedule() async {

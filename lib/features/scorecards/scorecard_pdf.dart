@@ -37,6 +37,7 @@ Future<Uint8List> scorecardPdf(
   );
   final pageCount = scorecardPdfPageCount(card);
   final title = card.title.trim().isEmpty ? 'Scorecard' : card.title;
+  final decision = card.fixtureLink?['sharedAdminDecision'] as Map?;
   const mm = PdfPageFormat.mm;
   const width = 91 * mm;
   final red = PdfColor.fromHex('#fff4f3'), blue = PdfColor.fromHex('#f1f6fc');
@@ -216,6 +217,14 @@ Future<Uint8List> scorecardPdf(
                               ),
                           ],
                         ),
+                        if (decision != null)
+                          pw.Text(
+                            'Admin decision: ${decision['sideAName']} ${decision['scoreA']} : ${decision['scoreB']} ${decision['sideBName']}\nWinner: ${decision['winnerName']}\nReason: ${decision['reason']}\nEnds and signatures below are the original card record.',
+                            style: pw.TextStyle(
+                              fontSize: 6.5,
+                              fontWeight: pw.FontWeight.bold,
+                            ),
+                          ),
                         if (card.playerNotes.isNotEmpty)
                           pw.Text(
                             'Notes: ${card.playerNotes}',
@@ -226,7 +235,11 @@ Future<Uint8List> scorecardPdf(
                     27 * mm,
                   ),
                   pw.Text(
-                    '${card.complete ? 'Finished' : 'In progress'} · ${card.sideA} ${card.totalA} : ${card.totalB} ${card.sideB}',
+                    '${decision != null
+                        ? 'Original card'
+                        : card.complete
+                        ? 'Finished'
+                        : 'In progress'} · ${card.sideA} ${card.totalA} : ${card.totalB} ${card.sideB}',
                     maxLines: 1,
                     style: pw.TextStyle(
                       fontSize: 7,
@@ -319,7 +332,11 @@ Future<Uint8List> scorecardPdf(
               style: const pw.TextStyle(fontSize: 6),
             ),
             pw.Text(
-              'Local scorecard · not an official confirmed competition result',
+              decision != null
+                  ? 'Competition result confirmed by Admin decision · Original card retained'
+                  : card.resultConfirmed
+                  ? 'Competition result confirmed by Club Admin'
+                  : 'Local scorecard · not an official confirmed competition result',
               style: const pw.TextStyle(fontSize: 5.5),
             ),
           ],

@@ -1,3 +1,4 @@
+import { processMarkerMail } from "./marker_reply.ts";
 import { parseResponse } from "./response_parser.ts";
 import { candidate, correlate, automated, header, buildReminderHtml, responseTokenHash, writtenReplySenderEnabled } from "./written_reply.ts";
 import type { Mail } from "./written_reply.ts";
@@ -218,6 +219,7 @@ export async function handleRequest(req: Request, dependencies: {
         const received = Date.parse(completeMessage.receivedDateTime ?? "");
         if (!Number.isFinite(received) || received > Date.now() + 300000) continue;
         if (automated(completeMessage, mailbox)) continue;
+        if (await processMarkerMail(completeMessage, mailbox, graphToken, supabase, fetch)) continue;
         const parsed = parseResponse(completeMessage);
         if (!parsed) {
           if (writtenReplySenderEnabled(config, String(completeMessage.from?.emailAddress?.address ?? "")) && candidate(completeMessage, mailbox, config.enabled_at, new Date().toISOString())) {
@@ -370,3 +372,5 @@ export async function processWrittenReply(message: GraphMessage, mailbox: string
     .update({delivery_status:deliveryStatus,updated_at:new Date().toISOString()}).eq("reply_id",claim.reply_id);
   if (saveError) throw new Error("Unable to record reminder delivery outcome");
 }
+
+

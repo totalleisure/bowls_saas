@@ -4,22 +4,22 @@ DateTime parseClubTime(String isoUtc) {
   final utc = DateTime.parse(isoUtc).toUtc();
   final year = utc.year;
 
-  final marchLastSunday = DateTime(
+  final marchLastSunday = DateTime.utc(
     year,
     4,
     0,
-  ).subtract(Duration(days: DateTime(year, 4, 0).weekday % 7));
+  ).subtract(Duration(days: DateTime.utc(year, 4, 0).weekday % 7));
 
-  final octoberLastSunday = DateTime(
+  final octoberLastSunday = DateTime.utc(
     year,
     11,
     0,
-  ).subtract(Duration(days: DateTime(year, 11, 0).weekday % 7));
+  ).subtract(Duration(days: DateTime.utc(year, 11, 0).weekday % 7));
 
   final bstStart = DateTime.utc(year, 3, marchLastSunday.day, 1);
   final bstEnd = DateTime.utc(year, 10, octoberLastSunday.day, 1);
 
-  final isBst = utc.isAfter(bstStart) && utc.isBefore(bstEnd);
+  final isBst = !utc.isBefore(bstStart) && utc.isBefore(bstEnd);
 
   return utc.add(Duration(hours: isBst ? 1 : 0));
 }
@@ -68,23 +68,33 @@ String formatAuditRecordLabel(String label) {
 DateTime clubTimeToUtc(DateTime clubTime) {
   final year = clubTime.year;
 
-  final marchLastSunday = DateTime(
+  final marchLastSunday = DateTime.utc(
     year,
     4,
     0,
-  ).subtract(Duration(days: DateTime(year, 4, 0).weekday % 7));
+  ).subtract(Duration(days: DateTime.utc(year, 4, 0).weekday % 7));
 
-  final octoberLastSunday = DateTime(
+  final octoberLastSunday = DateTime.utc(
     year,
     11,
     0,
-  ).subtract(Duration(days: DateTime(year, 11, 0).weekday % 7));
+  ).subtract(Duration(days: DateTime.utc(year, 11, 0).weekday % 7));
 
-  final bstStartLocal = DateTime(year, 3, marchLastSunday.day, 2);
-  final bstEndLocal = DateTime(year, 10, octoberLastSunday.day, 2);
+  final bstStartLocal = DateTime.utc(year, 3, marchLastSunday.day, 2);
+  final bstEndLocal = DateTime.utc(year, 10, octoberLastSunday.day, 2);
 
+  final wallTime = DateTime.utc(
+    clubTime.year,
+    clubTime.month,
+    clubTime.day,
+    clubTime.hour,
+    clubTime.minute,
+    clubTime.second,
+    clubTime.millisecond,
+    clubTime.microsecond,
+  );
   final isBst =
-      clubTime.isAfter(bstStartLocal) && clubTime.isBefore(bstEndLocal);
+      !wallTime.isBefore(bstStartLocal) && wallTime.isBefore(bstEndLocal);
 
   return DateTime.utc(
     clubTime.year,

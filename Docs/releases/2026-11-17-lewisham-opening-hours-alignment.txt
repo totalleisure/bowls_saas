@@ -1,0 +1,9 @@
+Lewisham rink opening hours alignment - 17 November 2026
+
+Production's existing public.enforce_lewisham_rink_opening_hours() and the enabled triggers on fixtures and fixture_rinks were copied unchanged to staging via corrective migration 20261117122354. Function hash matches in both projects: 7f7dc5faeb0b8c52414fbebcfaa500f7. Production database behavior was not changed.
+
+Database protection covers new Lewisham home rink fixtures, date/time and relevant booking changes, and attaching/moving a physical rink. Start must be at/after 09:00, end at/before 22:00, on the same UK local date. Europe/London handles GMT/BST. Where end_at is absent the existing production rule assumes four hours. Non-rink events and away fixtures are excluded. Unrelated edits to historical bookings do not revalidate their old times. Existing records are not retrospectively altered.
+
+This is a table-trigger check, independent of client version and platform: old/new Windows, iOS, Android or web versions saving to either database receive the same rejection. Offline drafts can only be checked when submitted/synchronised. No store release or client rebuild is needed. It is currently specific to Lewisham, not a configurable hours system for every club.
+
+Verification: rollback-only direct insertion and rescheduling tests passed in both databases; exact opening/closing boundaries accepted, earlier/later and overnight intervals rejected in winter and summer. Shared Dart source comparison passed. Migration/test/recovery source copied to both installations, with environment settings and staging-only marker pilot preserved. No live fixture changed, no actual emails dispatched, and no unrelated files committed.

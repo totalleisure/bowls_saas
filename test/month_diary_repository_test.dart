@@ -58,4 +58,81 @@ void main() {
       expect(requests.first.queryParameters['start_at'], isNotNull);
     },
   );
+  test(
+    'single-day refresh queries only that UK day across daylight-saving boundaries',
+    () async {
+      final requests = <Uri>[];
+      final client = SupabaseClient(
+        'https://example.invalid',
+        'anon',
+        httpClient: MockClient((r) async {
+          requests.add(r.url);
+          return http.Response(
+            '[]',
+            200,
+            headers: {'content-range': '*/0'},
+            request: r,
+          );
+        }),
+      );
+      addTearDown(client.dispose);
+      await MonthDiaryRepository(client, 'club').loadDay(DateTime(2026, 3, 29));
+      expect(
+        requests.single.queryParametersAll['start_at'],
+        containsAll([
+          'gte.2026-03-29T00:00:00.000Z',
+          'lt.2026-03-29T23:00:00.000Z',
+        ]),
+      );
+      requests.clear();
+      await MonthDiaryRepository(
+        client,
+        'club',
+      ).loadDay(DateTime(2026, 10, 25));
+      expect(
+        requests.single.queryParametersAll['start_at'],
+        containsAll([
+          'gte.2026-10-24T23:00:00.000Z',
+          'lt.2026-10-26T00:00:00.000Z',
+        ]),
+      );
+    },
+  );
+  test(
+    'moved and rescheduled fixtures identify only their affected days',
+    () async {
+      final client = SupabaseClient(
+        'https://example.invalid',
+        'anon',
+        httpClient: MockClient((r) async {
+          final next = (r.url.queryParameters['id'] ?? '').contains(
+            'successor',
+          );
+          return http.Response(
+            jsonEncode([
+              {
+                'id': next ? 'successor' : 'original',
+                'start_at': next
+                    ? '2026-07-04T09:00:00Z'
+                    : '2026-07-02T09:00:00Z',
+                'rescheduled_to_fixture_id': next ? null : 'successor',
+              },
+            ]),
+            200,
+            request: r,
+          );
+        }),
+      );
+      addTearDown(client.dispose);
+      final days = await MonthDiaryRepository(
+        client,
+        'club',
+      ).affectedDays({DateTime(2026, 7, 1)}, ['original']);
+      expect(days, {
+        DateTime(2026, 7, 1),
+        DateTime(2026, 7, 2),
+        DateTime(2026, 7, 4),
+      });
+    },
+  );
 }

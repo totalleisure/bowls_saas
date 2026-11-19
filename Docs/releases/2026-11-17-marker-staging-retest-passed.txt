@@ -1,0 +1,22 @@
+Staging interactive marker retest completed successfully, 17 November 2026.
+
+Fixture request 1d601fd4-331b-415c-b9f5-e78ed393a17b: 100 up Competition,
+30 November, 10:00–12:30, R3. Direct iCloud reply forwarded and acknowledged;
+iCloud and Streem offers recorded; organiser appointed iCloud; appointment
+confirmations and Streem thank-you delivered and wording accepted by user.
+Later Gmail offer recorded, late-offer thank-you delivered and accepted;
+iCloud appointment unchanged. iCloud confirmed leaving the Markers List;
+list rows removed, club membership active, existing appointment retained,
+leave receipt sent. All confirmed by database checks and user inbox review.
+
+On user request, staging normal timings restored: incoming replies every
+2 minutes, notification and email queues every 5 minutes; adaptive email
+scheduler remains enabled. No test records or real appointments reset.
+
+Production already contained the complete marker release. Rechecked live
+marker function definitions against staging: all match, six triggers enabled.
+Production queue v25 and replies v5 ACTIVE; shared email renderer, action block
+and marker reply module match tested staging sources. Production mailbox and
+active-member scope unchanged; normal 2/5-minute schedules confirmed. No
+additional redeployment needed. Production-only delivery recovery preserved.
+Compare-AppSources.ps1 passed. No app/store release or version change required.

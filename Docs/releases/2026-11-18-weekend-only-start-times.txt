@@ -1,0 +1,16 @@
+Weekend-only Fixture Booking Start Times — 18 November 2026
+
+User amendment: fixed start times apply only on Saturdays and Sundays.
+Migration 20261118055609 updates only the existing permitted-start condition,
+using ISO weekday in Europe/London. Weekday starts are unrestricted within
+Club opening hours. Duration caps, field locks, Club opening hours and Admin/
+superuser exemptions remain as previously configured. No fixture records moved.
+
+Staging first, then production: rollback workflow suites passed in both, testing
+weekday freedom and Saturday/Sunday rejection in winter and summer; all-day
+duration cap retained. Six Flutter policy/timetable tests passed. Shared sources
+compared with Compare-AppSources.ps1. Editor and booking hints say weekend-only.
+Windows debug builds updated in both trees; no Store submission or version bump.
+
+Recovery: scripts/recovery_weekend_start_times.sql removes only the weekday filter.
+This amendment supersedes the earlier release note's all-week start restrictions.

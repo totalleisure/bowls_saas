@@ -1,3 +1,4 @@
+import 'fixture_type_booking_policy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/date_format.dart';
 
@@ -45,9 +46,14 @@ class MemberBookingDay {
 
   /// Includes unallocated capacity reservations and maintenance, not just blocks
   /// drawn on physical rinks. Adjacent bookings can share an interval boundary.
-  bool canBook(String label, DateTime start, List<String> labels) {
+  bool canBook(
+    String label,
+    DateTime start,
+    List<String> labels, {
+    Duration duration = memberBookingDuration,
+  }) {
     start = memberBookingWallTime(start);
-    final end = start.add(memberBookingDuration);
+    final end = start.add(duration);
     final overlapping = fixtures
         .where((f) => _overlaps(f, start, end))
         .toList();
@@ -125,30 +131,35 @@ class MemberBookingRepository {
     return row['id'].toString();
   }
 
-  Future<List<Map<String, dynamic>>> fixtureTypes(
-    String clubId,
-  ) async => List<Map<String, dynamic>>.from(
-    await client
-        .from('competition_types')
-        .select(
-          'id, name, section, default_players_per_rink, dress_code, '
-          'colour_scheme:fixture_colour_schemes(background_hex, foreground_hex)',
-        )
-        .eq('club_id', clubId)
-        .eq('is_active', true)
-        .eq('bookable_by_members', true)
-        .eq('is_internal', true)
-        .eq('uses_rinks', true)
-        .eq('team_selection_enabled', true)
-        .eq('selection_mode', 'preselect')
-        .order('name'),
-  );
+  Future<List<Map<String, dynamic>>> fixtureTypes(String clubId) async {
+    final rows = List<Map<String, dynamic>>.from(
+      await client
+          .from('competition_types')
+          .select(
+            'id, name, section, default_players_per_rink, default_format, default_duration_minutes, lock_duration, lock_format, lock_rinks, lock_participation, bookable_by_members, booking_start_times_enabled, dress_code, '
+            'colour_scheme:fixture_colour_schemes(background_hex, foreground_hex)',
+          )
+          .eq('club_id', clubId)
+          .eq('is_active', true)
+          .eq('bookable_by_members', true)
+          .eq('is_internal', true)
+          .eq('uses_rinks', true)
+          .eq('team_selection_enabled', true)
+          .eq('selection_mode', 'preselect')
+          .order('name'),
+    );
+    if (rows.isEmpty) return rows;
+    final windows = await loadBookingWindows(client, clubId);
+    return rows.map((row) => {...row, 'booking_windows': windows}).toList();
+  }
 
   Future<List<Map<String, dynamic>>> venues(String clubId) async =>
       List<Map<String, dynamic>>.from(
         await client
             .from('venues')
-            .select('id, name, latitude, longitude')
+            .select(
+              'id, name, latitude, longitude, club_start_time, club_end_time',
+            )
             .eq('club_id', clubId)
             .eq('is_home_venue', true)
             .order('name'),
@@ -237,6 +248,22 @@ class MemberBookingRepository {
     required String label,
     required DateTime start,
   }) async {
+    final configuredMinutes = (type['default_duration_minutes'] as num?)
+        ?.toInt();
+    if (configuredMinutes != null &&
+        configuredMinutes > 0 &&
+        configuredMinutes != memberBookingDuration.inMinutes) {
+      return bookWindow(
+        clubId: clubId,
+        memberId: memberId,
+        type: type,
+        venueId: venueId,
+        green: green,
+        label: label,
+        start: start,
+        duration: Duration(minutes: configuredMinutes),
+      );
+    }
     if (clubTimeToUtc(start).isBefore(DateTime.now().toUtc())) {
       throw StateError('Choose a start time in the future.');
     }
@@ -254,6 +281,110 @@ class MemberBookingRepository {
     if (id is! String || id.isEmpty) {
       throw StateError('Booking did not return a fixture.');
     }
+    return id;
+  }
+
+  Future<void> checkSlotWindow(
+    String greenId,
+    String label,
+    DateTime start,
+    Duration duration,
+  ) async {
+    if (duration == memberBookingDuration)
+      return checkSlot(greenId, label, start);
+    final rows = List<Map<String, dynamic>>.from(
+      await client.rpc(
+        'get_green_rink_availability',
+        params: {
+          'p_green_area_id': greenId,
+          'p_start_at': clubTimeToUtc(start).toIso8601String(),
+          'p_end_at': clubTimeToUtc(start.add(duration)).toIso8601String(),
+          'p_exclude_fixture_id': null,
+        },
+      ),
+    );
+    final rink = rows.where((r) => r['rink_label'] == label).firstOrNull;
+    if (rink == null ||
+        rink['is_booked'] == true ||
+        ((rink['free_capacity_rinks'] as num?)?.toInt() ?? 0) < 1)
+      throw StateError(
+        'That space is no longer available. Choose another rink or time.',
+      );
+  }
+
+  Future<String> bookWindow({
+    required String clubId,
+    required String memberId,
+    required Map<String, dynamic> type,
+    required String venueId,
+    required Map<String, dynamic> green,
+    required String label,
+    required DateTime start,
+    required Duration duration,
+  }) async {
+    if (!type.containsKey('lock_duration') && duration == memberBookingDuration)
+      return book(
+        clubId: clubId,
+        memberId: memberId,
+        type: type,
+        venueId: venueId,
+        green: green,
+        label: label,
+        start: start,
+      );
+    await checkSlotWindow(green['id'].toString(), label, start, duration);
+    final players = (type['default_players_per_rink'] as num?)?.toInt() ?? 1;
+    final format =
+        type['default_format'] ??
+        ({1: 'singles', 2: 'pairs', 3: 'triples', 4: 'rinks'}[players] ??
+            'singles');
+    final id = await client.rpc(
+      'create_fixture_with_booking_policy',
+      params: {
+        'p_participation_mode': 'preselect',
+        'p_booking': {
+          'p_club_id': clubId,
+          'p_start_at': clubTimeToUtc(start).toIso8601String(),
+          'p_end_at': clubTimeToUtc(start.add(duration)).toIso8601String(),
+          'p_is_home': true,
+          'p_section': type['section'] ?? 'open',
+          'p_rinks_required': 1,
+          'p_players_per_rink': players,
+          'p_format': format,
+          'p_competition_type_id': type['id'],
+          'p_dress_code': type['dress_code'] ?? 'open',
+          'p_team_name': type['name'],
+          'p_requires_rsvp': false,
+          'p_venue_id': venueId,
+          'p_green_area_id': green['id'],
+          'p_orientation':
+              green['discipline'] == 'outdoor' &&
+                  green['orientation_mode'] != 'not_applicable' &&
+                  (green['allowed_orientations'] as List? ?? []).isNotEmpty
+              ? (green['allowed_orientations'] as List).first
+              : null,
+          'p_captain_member_profile_id': memberId,
+          'p_create_team_selection': true,
+          'p_team_selection_status': 'published',
+          'p_home_rink_labels': [
+            {'team_no': 1, 'home_rink_label': label},
+          ],
+          'p_rink_assignments': [
+            {'team_no': 1, 'member_profile_id': memberId, 'position': 1},
+          ],
+          'p_team_selection_members': [
+            {
+              'member_profile_id': memberId,
+              'role': 'player',
+              'is_selected': true,
+              'acceptance': 'accepted',
+            },
+          ],
+        },
+      },
+    );
+    if (id is! String || id.isEmpty)
+      throw StateError('Booking did not return a fixture.');
     return id;
   }
 }

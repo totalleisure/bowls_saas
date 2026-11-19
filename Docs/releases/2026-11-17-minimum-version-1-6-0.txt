@@ -1,0 +1,9 @@
+Minimum supported app version - 17 November 2026
+
+User requested refusal of app versions before 1.6.0. Existing database-driven startup gate uses build numbers. Git release 98f76cf declares 1.6.0+28; its predecessor declares 1.5.6+27. Threshold is therefore build 28, including both 1.6.0 builds 28 and 29 and later versions.
+
+Staging first: previously app_version_policy was empty. Inserted ios/android/windows rows, minimum_build=28. Production previously had all three rows minimum/latest=17; applied the same minimum. latest_build was raised only to 28 to satisfy the existing latest_build >= minimum_build database constraint; no claim is made that this is the latest store release. Existing update URLs and optional custom update_message were preserved. The update-required message asks for version 1.6.0 or later. Both databases were verified readable as anon, as required before login.
+
+15 existing service-path tests verified ios/android/windows builds 17/27 rejected and 28/29/33 accepted. Both live databases return the same three minimum_build=28 policies. No Dart app behavior, store version or binary changed. Migration and recovery source retained in both source sets. No unrelated changes committed.
+
+This is database-configured client startup enforcement, not a blanket rejection of every API request from an old binary. Existing gate fails open if policy retrieval fails, unsupported web/macOS platforms do not use this gate, and an app already open is not remotely closed. Normal native versions containing the gate will show Update Required on their next successful online startup; source inspection confirms the gate exists in 1.5.6. No store rebuild is needed to activate the policy. A stricter API-level ban would require a separate version-identification/enforcement design.

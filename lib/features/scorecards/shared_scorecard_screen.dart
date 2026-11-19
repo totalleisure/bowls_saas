@@ -536,6 +536,14 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
     final card = doc == null
         ? null
         : Scorecard.fromJson(Map<String, dynamic>.from(doc));
+    if (card != null &&
+        cloud != null &&
+        cloud['competitionStatus'] == 'completed') {
+      card.fixtureLink = {
+        ...?card.fixtureLink,
+        ...SharedScorecardApi.confirmationMetadata(cloud),
+      };
+    }
     final phase = cloud?['phase'];
     final canAgree =
         actor['side'] != null &&
@@ -687,6 +695,15 @@ class _SharedScorecardScreenState extends State<SharedScorecardScreen> {
               Text(
                 'Winner: ${SharedScorecardApi.confirmationMetadata(cloud)['sharedWinnerName']}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            if (cloud['adminDecision'] is Map)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    'Admin decision: ${cloud['adminDecision']['sideAName']} ${cloud['adminDecision']['scoreA']} – ${cloud['adminDecision']['scoreB']} ${cloud['adminDecision']['sideBName']}\nReason: ${cloud['adminDecision']['reason']}\nThe ends below are the original scorecard record.',
+                  ),
+                ),
               ),
             ScorecardTable(card: card),
             ExpansionTile(

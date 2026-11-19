@@ -1,3 +1,4 @@
+import '../../fixtures/fixture_type_booking_policy.dart';
 import '../widgets/competition_deadline_warning.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -67,7 +68,7 @@ class _CompetitionFixtureManagementScreenState
     } catch (e) {
       if (mounted)
         setState(() {
-          error = '$e';
+          error = bookingErrorMessage(e);
           loading = false;
           data = null;
         });
@@ -84,7 +85,7 @@ class _CompetitionFixtureManagementScreenState
       changed = true;
       await load();
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = bookingErrorMessage(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -129,7 +130,7 @@ class _CompetitionFixtureManagementScreenState
         ),
       );
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = bookingErrorMessage(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }

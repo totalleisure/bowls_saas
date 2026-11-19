@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'local_scorecard_store.dart';
 import 'scorecard.dart';
 import 'shared_scorecard_api.dart';
@@ -88,7 +89,10 @@ class ScorecardRepository {
           row['fixtureLink'] as Map? ?? {},
         );
         if (link['sharedCardId'] != shared['id']) continue;
-        if (metadata.entries.every((e) => link[e.key] == e.value)) continue;
+        if (metadata.entries.every(
+          (e) => jsonEncode(link[e.key]) == jsonEncode(e.value),
+        ))
+          continue;
         row['fixtureLink'] = {...link, ...metadata};
         changed = true;
       }

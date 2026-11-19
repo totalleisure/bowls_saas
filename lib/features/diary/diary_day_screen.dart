@@ -18,11 +18,13 @@ class DiaryDayScreen extends StatefulWidget {
     required this.clubId,
     required this.clubName,
     required this.date,
+    this.onDayChanged,
   });
 
   final String clubId;
   final String clubName;
   final DateTime date;
+  final ValueChanged<DateTime>? onDayChanged;
 
   @override
   State<DiaryDayScreen> createState() => _DiaryDayScreenState();
@@ -51,6 +53,7 @@ class _DiaryDayScreenState extends State<DiaryDayScreen>
   }
 
   Future<void> _load() async {
+    widget.onDayChanged?.call(_date);
     setState(() {
       _loading = true;
       _error = null;
@@ -62,8 +65,8 @@ class _DiaryDayScreenState extends State<DiaryDayScreen>
       final startLocal = DateTime(_date.year, _date.month, _date.day);
       final endLocal = startLocal.add(const Duration(days: 1));
 
-      final startUtc = startLocal.toUtc();
-      final endUtc = endLocal.toUtc();
+      final startUtc = clubTimeToUtc(startLocal);
+      final endUtc = clubTimeToUtc(endLocal);
 
       final res = await _client
           .from('fixtures')
@@ -265,6 +268,7 @@ class _DiaryDayScreenState extends State<DiaryDayScreen>
           clubId: widget.clubId,
           clubName: widget.clubName,
           date: _date,
+          onDayChanged: widget.onDayChanged,
         ),
       ),
     );
@@ -283,6 +287,7 @@ class _DiaryDayScreenState extends State<DiaryDayScreen>
         clubId: widget.clubId,
         clubName: widget.clubName,
         date: _date,
+        onDayChanged: widget.onDayChanged,
       ),
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
@@ -494,6 +499,15 @@ class _DiaryItemTile extends StatelessWidget {
     final teams = item.rinksRequired > 0
         ? item.rinksRequired
         : item.rinkLabels.length;
+    final allocatedRinks = item.rinkLabels.toSet().toList();
+    final unallocatedRinks = teams > allocatedRinks.length
+        ? teams - allocatedRinks.length
+        : 0;
+    final rinkSummary = [
+      if (allocatedRinks.isNotEmpty) allocatedRinks.join(', '),
+      if (unallocatedRinks > 0)
+        '$unallocatedRinks rink${unallocatedRinks == 1 ? '' : 's'} reserved',
+    ].join(' · ');
     final secondary = item.fixtureTypeName.trim();
     final showSecondary =
         secondary.isNotEmpty &&
@@ -653,6 +667,11 @@ class _DiaryItemTile extends StatelessWidget {
                               _MiniChip(
                                 icon: Icons.groups_outlined,
                                 text: '$teams team${teams == 1 ? '' : 's'}',
+                              ),
+                            if (item.usesRinks && rinkSummary.isNotEmpty)
+                              _MiniChip(
+                                icon: Icons.grid_view_outlined,
+                                text: rinkSummary,
                               ),
                             if (item.dressCode.isNotEmpty)
                               _MiniChip(
