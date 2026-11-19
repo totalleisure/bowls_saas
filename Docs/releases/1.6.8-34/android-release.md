@@ -1,29 +1,50 @@
-# Windows Android release automation
+# Windows Android build and Google Play publishing
 
-From the production checkout in PowerShell:
+Run from C:\src\bowls_saas in PowerShell.
 
-    .\scripts\Build-AndroidRelease.ps1
+## Next release: one command
 
-To check prerequisites without building:
+Set the version in pubspec.yaml, with a build number greater than every version code already uploaded to Play. Build 34 is already used. Write plain English release notes (1-500 characters, no language tags) in Docs/releases/VERSION-BUILD/play-release-notes.txt and review them before running:
 
-    .\scripts\Build-AndroidRelease.ps1 -ValidateOnly
+```powershell
+.\scripts\Release-Android.ps1 -ReleaseNotesPath .\Docs\releases\VERSION-BUILD\play-release-notes.txt -SubmitForReview
+```
 
-The command verifies the production package and release signing configuration, checks shared staging/production Dart sources, restores packages, runs the full Flutter test suite, builds the signed production App Bundle and verifies its signature. It uses the version/build in pubspec.yaml and the same feature flags as the iPhone release. It does not increment the version, change database settings, commit other changes or upload the bundle.
+Replace VERSION-BUILD with the real folder, for example 1.6.9-35. The script reads the actual version from pubspec.yaml; it never increments it automatically. This command builds, tests, uploads directly to Production and requests review/full rollout after Google approval. Internal testing remains unchanged.
 
-Each run writes a dated folder under tmp/releases/android/VERSION-BUILD containing the AAB, checksums/source manifest, available release notes and dependency/test/build/signature logs. Signing passwords are read locally by Gradle; they are not copied into release metadata or Git. The signature check proves the bundle is signed, but its upload certificate must also match Google Play's registered upload certificate.
+Omit -SubmitForReview to save a Production draft instead. Google approval, policy declarations and managed publishing settings can still require Console action. The script refuses to cancel an existing review. Wait until the current 1.6.8 review finishes before publishing another release. Avoid editing Play Console while automation runs.
 
-Before upload, confirm the build number has not already been used in Google Play Console. Upload the generated AAB to the intended testing track first. Review the release notes and test on Android before a production rollout.
+## Separate build and upload, or resume after build
 
-Google Play upload is currently manual. Automated upload requires separately configured publishing credentials and a chosen testing track; no publishing credentials are included in this script.
+```powershell
+.\scripts\Build-AndroidRelease.ps1
+.\scripts\Publish-AndroidRelease.ps1 -ManifestPath PATH\manifest.json -ReleaseNotesPath PATH\play-release-notes.txt -SubmitForReview
+```
 
-## Adding upload and publishing
+Use the manifest from the exact dated output folder printed by the build. Omit -SubmitForReview for a draft. Optional -Track internal explicitly selects Internal testing.
 
-Enable the Google Play Android Developer API in a Google Cloud project and create a dedicated publishing service account. In Play Console, invite its email under Users and permissions and grant access only to Total Leisure Bowls. Grant app visibility and testing-track release permissions first; grant production release permission only when production promotion is required. Account administration and financial access are not needed for this workflow.
+Local checks without Google requests:
 
-For local Windows automation, keep the service-account JSON credential outside the repositories and restrict its file access. Pass its path through an environment variable; never paste the key into chat, source files or release notes. The Android keystore signs the app; this separate credential authorises the upload to Google Play.
+```powershell
+.\scripts\Build-AndroidRelease.ps1 -ValidateOnly
+.\scripts\Publish-AndroidRelease.ps1 -ManifestPath PATH\manifest.json -ReleaseNotesPath PATH\play-release-notes.txt -ValidateOnly
+.\scripts\Test-AndroidPublishing.ps1
+```
 
-Recommended workflow: a build/upload command targets Internal testing and includes release notes; a separate explicit promotion command promotes the tested version to production with the selected rollout percentage. Confirm version-code availability and that the signing certificate matches Play before upload. Google review, policy declarations and managed publishing settings can still require action in Play Console.
+Build checks include production identity/release signing, shared staging/production Dart comparison, full Flutter tests, signature verification and checksum. Uses production lib/main.dart with ACCOUNT_USERNAME_ENABLED, PROFILE_PHOTOS_ENABLED and QUICK_UNLOCK_ENABLED all false, matching iPhone. The uploader checks manifest and exact bundle hash, rejects reused/lower version codes and unfinished target releases, uploads en-GB notes, validates the edit, then commits with ERROR_IF_IN_REVIEW. Play checks the signing certificate on upload. Drafts retain the current completed release; full rollout replaces it.
 
-Setup reference: https://developers.google.com/android-publisher/getting_started
+Build outputs are under tmp/releases/android/VERSION-BUILD/date-time. Publishing writes play-production.json (or play-internal.json). A receipt prevents blind duplicate commits. If it says commit_started, the result may be uncertain: inspect Play Console before retrying. Never delete a receipt without checking whether upload/submission succeeded. Failed edits are removed where possible. Uploads/commits are not automatically retried. Policy failures are reported, never bypassed or retried in a way that cancels another review.
 
-Build reference: https://docs.flutter.dev/deployment/android
+## Sign-in (already configured)
+
+Uses Google Cloud CLI and short-lived service account impersonation; no JSON private key. CLI lookup checks PATH then LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd. If sign-in expires:
+
+```powershell
+& "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd" auth login wayne.s.sayers@gmail.com
+```
+
+IAM Service Account Credentials API and Google Play Android Developer API must remain enabled in project project-b887e914-dd44-4a28-9ec. Wayne has Service Account Token Creator on bowls-play-publisher@project-b887e914-dd44-4a28-9ec.iam.gserviceaccount.com. That service account has app-specific publishing permissions for totalleisuresolutions.bowls. Tokens stay in memory. Android signing credentials stay local. Organisation policy disabling private key creation remains enabled.
+
+This automation changes no application source or databases. Existing fixture-type configuration differences between staging and production are separate from store publication.
+
+References: [bundle upload](https://developers.google.com/android-publisher/api-ref/rest/v3/edits.bundles/upload), [track releases](https://developers.google.com/android-publisher/api-ref/rest/v3/edits.tracks), [commit and review guard](https://developers.google.com/android-publisher/api-ref/rest/v3/edits/commit).

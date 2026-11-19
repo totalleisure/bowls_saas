@@ -2,7 +2,8 @@ param(
     [string]$ProjectRoot = (Split-Path $PSScriptRoot -Parent),
     [string]$StagingRoot = 'C:\src\bowls_staging',
     [string]$FlutterExecutable = 'flutter',
-    [switch]$ValidateOnly
+    [switch]$ValidateOnly,
+    [switch]$PassThru
 )
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
@@ -99,6 +100,7 @@ try {
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output 'manifest.json')
     Write-Output "READY: $artifact"
     Write-Output 'No upload performed. Check the version code and upload certificate in Google Play Console before upload.'
+    if ($PassThru) { [pscustomobject]@{ ManifestPath = (Join-Path $output 'manifest.json') } }
 } finally {
     Pop-Location
     $env:JAVA_TOOL_OPTIONS = $oldJavaOptions

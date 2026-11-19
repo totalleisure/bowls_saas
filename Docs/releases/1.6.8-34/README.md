@@ -22,8 +22,8 @@ No database push is required from the Mac. Do not run a blanket migration push: 
 
 ## Android
 
-The current Android release configuration uses the debug signing key. No Google Play release bundle has been prepared. Production Android signing must be configured with the existing authorised release key before a Store build.
+Android release signing is configured with the existing release key. The verified production bundle for 1.6.8 (34) was built, uploaded through Play Console and submitted for Production review on 19 November 2026. See android-release.md for the one-command build, upload and optional review submission workflow for future releases. Version code 34 must not be reused.
 
 ## Validation and deployment
 
-See verification.txt for completed checks, database definition comparison, configuration differences and artifact status. Desktop release builds are prepared separately from Store distribution. No Apple or Google Store upload is included in this preparation.
+See verification.txt for the original preparation checks, database comparison and configuration differences. Desktop release builds are prepared separately from Store distribution. Subsequent store status: iPhone 1.6.8 is available per the user's confirmation; Android 1.6.8 (34) has been submitted for review, with availability not yet confirmed.

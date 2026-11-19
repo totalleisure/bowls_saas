@@ -1,0 +1,5 @@
+Easier rink booking with clearer availability, duration selection and weekend booking rules.
+Improved diary navigation and rink allocation details.
+Better marker requests, volunteer responses and email confirmations.
+Fixes for competition results, player changes and scorecards.
+Layout and accessibility improvements.
