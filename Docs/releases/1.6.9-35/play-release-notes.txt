@@ -1,0 +1,1 @@
+Corrects a minor bug that prevented certain members from booking or cancelling a rink on particular days. Administrators can now book coaching sessions and other rink-based fixtures directly from the rink diary, with the selected date, time, green and rink retained. Improved booking setup when a club has more than one home venue.
