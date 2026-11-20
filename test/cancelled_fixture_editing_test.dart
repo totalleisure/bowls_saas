@@ -10,6 +10,7 @@ import 'package:bowls_saas/features/fixtures/fixture_details_page.dart';
 import 'package:bowls_saas/features/team/manage_team_screen.dart';
 
 void main() {
+  final fixtureYear = DateTime.now().year + 1;
   bool cancelled = true,
       superuser = true,
       normalMember = false,
@@ -27,8 +28,8 @@ void main() {
     'captain_member_profile_id': captainDelete
         ? 'member'
         : (normalMember ? 'creator-member' : 'member'),
-    'start_at': '2026-11-19T10:00:00Z',
-    'end_at': '2026-11-19T12:00:00Z',
+    'start_at': '${fixtureYear}-11-19T10:00:00Z',
+    'end_at': '${fixtureYear}-11-19T12:00:00Z',
     'cancelled_at': cancelled ? '2026-10-28T00:00:00Z' : null,
     'cancellation_reason': 'Cancelled test',
     'is_home': true,
@@ -299,8 +300,8 @@ void main() {
       await t.tap(find.text('Change'));
       await t.pumpAndSettle();
       expect(timingWrites, hasLength(1));
-      expect(timingWrites.single['p_new_start_at'], '2026-11-20T10:00:00.000Z');
-      expect(timingWrites.single['p_new_end_at'], '2026-11-20T12:00:00.000Z');
+      expect(timingWrites.single['p_new_start_at'], '${fixtureYear}-11-20T10:00:00.000Z');
+      expect(timingWrites.single['p_new_end_at'], '${fixtureYear}-11-20T12:00:00.000Z');
       expect(
         find.byWidgetPredicate(
           (w) =>

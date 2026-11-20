@@ -1297,7 +1297,7 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
             builder: (_) => CreateFixturePage(
               clubId: widget.clubId,
               clubName: widget.clubName,
-              memberBookingMode: true,
+              // Resolve the member/admin workflow from club permissions.
               initialRinkBooking: InitialRinkBookingContext(
                 greenAreaId: greenAreaId,
                 greenName: greenName,
@@ -2580,6 +2580,7 @@ class _RinkTimelineRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      key: ValueKey('rink-timeline-${rink.label}'),
       behavior: HitTestBehavior.opaque,
       onTapUp: (details) {
         if (_isAfterBookableCutoff(details.localPosition.dx)) {

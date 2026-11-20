@@ -238,6 +238,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       if (widget.memberBookingMode || !_canSeeAllFixtureTypes) return;
 
       await _loadVenues();
+      await _loadInitialBookingVenue();
       await _loadFixtureTypes();
       await _loadTeams();
 
@@ -502,7 +503,12 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       return nameA.compareTo(nameB);
     });
 
-    final loaded = List<Map<String, dynamic>>.from(rows);
+    final loaded = List<Map<String, dynamic>>.from(rows)
+        .where(
+          (type) =>
+              widget.initialRinkBooking == null || type['uses_rinks'] == true,
+        )
+        .toList();
 
     _fixtureTypes = _canSeeAllFixtureTypes
         ? loaded
@@ -1166,6 +1172,25 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         );
       },
     );
+  }
+
+  Future<void> _loadInitialBookingVenue() async {
+    final booking = widget.initialRinkBooking;
+    if (booking == null) return;
+    final green = await _client
+        .from('green_areas')
+        .select('venue_id')
+        .eq('id', booking.greenAreaId)
+        .eq('club_id', widget.clubId)
+        .maybeSingle();
+    final venueId = green?['venue_id']?.toString();
+    if (venueId == null || !_homeVenues.any((v) => v['id'] == venueId)) {
+      throw StateError(
+        'The selected rink is no longer at an available home venue. '
+        'Please reopen the rink diary.',
+      );
+    }
+    _homeVenueId = venueId;
   }
 
   Future<void> _loadTeams() async {
