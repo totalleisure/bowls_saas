@@ -1,0 +1,34 @@
+Total Leisure Bowls 1.6.10 (36) — publication record, 24 November 2026
+
+SOURCE
+Release branch: codex/release-1.6.10-36
+Application source commit: 51467fb411589c0c191de2d9003be6509962fdc0
+Production and signing Mac used this same commit. Shared staging/Production Dart comparison passed; project entry points, credentials, mailbox configuration and Production manual editions were preserved.
+The five original fixture-duration checks now exercise the diary-to-rink-picker-to-details route. The occupied-slot test supplies the following real booking in its fixture data, so the refreshed picker must reject an interval that cannot fit. Duration reselection and field-lock assertions remain. All 24 focused route tests passed. Full Production and Mac suites each passed 824 tests with four existing opt-in skips. The separate iPhone publishing-note workflow passed 13 offline tests.
+
+DATABASE
+Production migrations applied and verified: 20261124140629 onboarding_newsletter_defaults; 20261124140641 onboarding_friendly_four_hour_triples_rsvp_defaults; 20261124140643 member_availability_overlap_choice.
+Portable rollback tests passed in both projects, including deferred Newsletter membership, Friendly defaults, overlapping/rescheduled availability and untouched selections/acceptances, two-rink administrator/member bookings, and a four-rink Friendly alongside two occupied rinks. Test records and communications were rolled back.
+Full live function comparison left only the three intentional project-specific mail scheduling differences. Existing advisory category counts did not increase. Production-only fixes survived. Staging's test recipient restrictions were not copied into Production.
+Production's previously applied migration statements were recovered into correctly versioned source files without reapplying or rewriting the live history. Unrelated older local migration copies were left unstaged.
+
+ANDROID
+Signed bundle: bowls-1.6.10-36.aab
+SHA256: 48C725AB42CE78BA6EABA3FE15DA705AFCD9A0D717F33B9CF28BFB25C9C436CE
+Google Play Production edit committed with build 36 and status completed. Independent readback verified the version and public notes. This records submission/full-rollout intent; it does not assert availability on every user's device.
+
+WINDOWS
+Package: Total-Leisure-Bowls-1.6.10-build-36-Windows-x64.msix
+Store version: 1.6.10.0; app version: 1.6.10+36
+SHA256: f19e6abd32f3d2ba289d9cbaaaaa9d02eb7097eb2219cf25a873031f21506162
+All 56 package payload files verified. Existing Store identity, artwork and capabilities retained. Partner Center submission 11 (1152921505702494282) accepted for certification with automatic publication after approval. Public What's new saved. Availability of the new version was not yet confirmed.
+
+IPHONE / TESTFLIGHT
+The remote archive/export attempt could not access the signing key. No signing permissions or certificates were weakened. The user built and uploaded through the normal Xcode Organizer workflow.
+Verified archive: Runner 24-11-2026, 16.08.xcarchive, version 1.6.10 build 36, bundle com.totalleisure.bowlssaas, team XX6FPA95YH; archive signature, Production entry point and source commit checked.
+Apple build ID: 3f876b03-ebcc-427a-845c-c04615a333f9; processing VALID.
+App Store: WAITING_FOR_REVIEW; release type AFTER_APPROVAL. Independent API readback verified selected build 36 and exact public notes.
+TestFlight: LCPIBC Testing group assigned; WAITING_FOR_BETA_REVIEW / WAITING_FOR_REVIEW. Committee testing notes read back exactly and omit onboarding. Public App Store/Play/Microsoft notes include guided new-club setup for Club Secretaries.
+No direct committee email was sent. Store review and tester availability remain controlled by Apple/Google/Microsoft.
+
+Evidence and recovery records are retained in staging tmp/release-readiness-2026-11-24; Android publishing receipts and Windows package verification are retained in Production output/tmp release folders. The Mac has its Organizer submission receipt separately from the earlier failed remote-signing attempt.
