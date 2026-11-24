@@ -796,7 +796,11 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
         automaticallyImplyLeading: true,
         toolbarHeight: 44,
         actions: [
-          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+          ClubOptionsButton(
+            clubId: widget.clubId,
+            clubName: widget.clubName,
+            onRefresh: _loadDay,
+          ),
         ],
         bottom: DiaryViewBar(
           selected: DiaryView.rinks,
@@ -832,6 +836,37 @@ class _RinkDayViewScreenState extends State<RinkDayViewScreen>
                 setState(() => _density = value);
               },
             ),
+            if (_canWrite &&
+                (_isSuperuser || _isClubAdmin || _membershipRole == 'selector'))
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                  child: OutlinedButton.icon(
+                    key: const Key('book-away-fixture'),
+                    icon: const Icon(Icons.directions),
+                    label: const Text('Book away fixture'),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: const Color(0xffe7f1fc),
+                      foregroundColor: const Color(0xff0d47a1),
+                      side: const BorderSide(color: Color(0xff0d47a1)),
+                    ),
+                    onPressed: () async {
+                      final created = await Navigator.of(context).push<bool>(
+                        MaterialPageRoute(
+                          builder: (_) => CreateFixturePage(
+                            clubId: widget.clubId,
+                            clubName: widget.clubName,
+                            initialLocation: FixtureLocationType.away,
+                            initialDate: _selectedDate,
+                          ),
+                        ),
+                      );
+                      if (mounted && created == true) _loadDay();
+                    },
+                  ),
+                ),
+              ),
             _SummaryBar(
               totalRinks: rinks.length,
               assignedCount: _maxConcurrentAssignments(

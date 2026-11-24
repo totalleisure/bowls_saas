@@ -1,3 +1,4 @@
+import 'fixture_availability_service.dart';
 import 'fixture_type_booking_policy.dart';
 import 'widgets/fixture_time_picker.dart';
 import '../competitions/widgets/competition_deadline_warning.dart';
@@ -2843,21 +2844,14 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
     final previous = _myRsvp;
 
-    // Update UI immediately
-    setState(() => _myRsvp = status);
-
     try {
-      final client = Supabase.instance.client;
-      final fixtureId = widget.fixtureId;
-
-      final myId = (await client.rpc('my_member_profile_id')).toString();
-
-      await client.from('fixture_rsvps').upsert({
-        'fixture_id': fixtureId,
-        'member_profile_id': myId,
-        'status': status,
-        'responded_at': DateTime.now().toUtc().toIso8601String(),
-      }, onConflict: 'fixture_id,member_profile_id');
+      final changes = await saveFixtureAvailability(
+        context,
+        fixtureId: widget.fixtureId,
+        status: status,
+      );
+      if (!mounted || changes == null) return;
+      setState(() => _myRsvp = changes[widget.fixtureId] ?? status);
 
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -3867,12 +3861,18 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
 
   Color get _selectedFixtureBgColor {
     final cs = _fixture?['competition_type']?['colour_scheme'];
-    return _colourFromHex((cs?['background_hex'] ?? '#6D4BB3').toString());
+    return colorFromHex(
+      cs?['background_hex']?.toString(),
+      fallback: Colors.grey.shade300,
+    );
   }
 
   Color get _selectedFixtureFgColor {
     final cs = _fixture?['competition_type']?['colour_scheme'];
-    return _colourFromHex((cs?['foreground_hex'] ?? '#FFFFFF').toString());
+    return colorFromHex(
+      cs?['foreground_hex']?.toString(),
+      fallback: const Color(0xFF212121),
+    );
   }
 
   Color _acceptanceBackgroundColor(String? acceptance) {
@@ -5343,20 +5343,20 @@ class _FixtureDetailsPageState extends State<FixtureDetailsPage> {
                 decoration: BoxDecoration(
                   color: isSelectedBooked
                       ? Colors.amber.shade100
-                      : isSelected
-                      ? _selectedFixtureBgColor
                       : isBooked
                       ? bookedBgColor
+                      : isSelected
+                      ? _selectedFixtureBgColor
                       : Colors.green.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     width: (isSelected || isSelectedBooked) ? 2 : 1,
                     color: isSelectedBooked
                         ? Colors.orange.shade700
+                        : isBooked
+                        ? bookedFgColor.withOpacity(isSelected ? 1 : 0.35)
                         : isSelected
                         ? _selectedFixtureFgColor
-                        : isBooked
-                        ? bookedFgColor.withOpacity(0.35)
                         : Colors.green.shade300,
                   ),
                 ),

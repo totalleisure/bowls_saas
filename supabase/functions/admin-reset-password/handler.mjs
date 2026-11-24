@@ -13,7 +13,7 @@ const data = async (query) => {
   return result.data;
 };
 
-export async function handleReset(req, admin) {
+export async function handleReset(req, admin, {stagingInitialChoice=false} = {}) {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return reply({ error: 'Method not allowed' }, 405);
   const token = req.headers.get('Authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1];
@@ -58,6 +58,13 @@ export async function handleReset(req, admin) {
     if (account.error || !account.data.user?.email) return reply({ error: 'Login account could not be found.' }, 400);
     const changed = await admin.auth.admin.updateUserById(target.user_id, { password: body.password });
     if (changed.error) return reply({ error: 'Password was not changed. Check the password meets the account requirements and try again.' }, 400);
+    if (stagingInitialChoice) {
+      const marked = await admin.rpc('record_staging_admin_initial_password', {
+        p_user: target.user_id, p_caller: callerId, p_club: body.club_id,
+      });
+      if (marked.error) return reply({reset:true,email:account.data.user.email,
+        warning:'Password updated, but the first-login choice could not be prepared. Ask the administrator to review before resetting again.'});
+    }
     // Never log, persist, or return the password. Auth records the admin update.
     return reply({ reset: true, email: account.data.user.email });
   } catch {

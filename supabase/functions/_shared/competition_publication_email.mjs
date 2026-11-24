@@ -2,12 +2,13 @@
 export const COMPETITION_TEST_RECIPIENTS = Object.freeze([
  'wayne@totalleisure.com','wayne.s.sayers@gmail.com','wayne.streem@gmail.com',
  'wayne.sayers@telius.co.uk','wayne.sayers@icloud.com','wayne.sayers@me.com','suesayers9@gmail.com',
+ 'wayne.s.sayers+bowls-new-member@gmail.com',
 ]);
 export function requireCompetitionTestRecipients(projectRef, recipients) {
  if(projectRef !== 'egxdkaotepgfjmszxlyn') throw new Error('Competition test sending is staging-only');
  if(!Array.isArray(recipients) || recipients.length===0) throw new Error('Select test recipients');
  const values=recipients.map(x=>String(x).trim().toLowerCase());
- if(values.some(x=>!COMPETITION_TEST_RECIPIENTS.includes(x))) throw new Error('Recipient is not on the competition test allowlist');
+ if(values.some(x=>!COMPETITION_TEST_RECIPIENTS.includes(x) && !/^wayne\.s\.sayers\+member[0-9]{2,3}@gmail\.com$/.test(x))) throw new Error('Recipient is not on the competition test allowlist');
  return [...new Set(values)];
 }
 export function requireCompetitionRecipients(projectRef,recipients) {

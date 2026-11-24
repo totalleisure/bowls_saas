@@ -39,11 +39,13 @@ class InitialRinkBookingContext {
     required this.startAt,
     required this.latestEndAt,
     this.suggestedEndAt,
+    this.rinkLabels = const [],
   });
 
   final String greenAreaId;
   final String greenName;
   final String rinkLabel;
+  final List<String> rinkLabels;
 
   /// Suggested booking start time in club time.
   final DateTime startAt;
@@ -60,6 +62,9 @@ class CreateFixturePage extends StatefulWidget {
   final String clubName;
   final bool memberBookingMode;
   final InitialRinkBookingContext? initialRinkBooking;
+  final String? initialFixtureTypeId;
+  final FixtureLocationType? initialLocation;
+  final DateTime? initialDate;
 
   const CreateFixturePage({
     super.key,
@@ -67,6 +72,9 @@ class CreateFixturePage extends StatefulWidget {
     required this.clubName,
     this.memberBookingMode = false,
     this.initialRinkBooking,
+    this.initialFixtureTypeId,
+    this.initialLocation,
+    this.initialDate,
   });
 
   @override
@@ -201,6 +209,10 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialLocation != null) {
+      _fixtureLocation = widget.initialLocation!;
+      _isHome = _fixtureLocation == FixtureLocationType.home;
+    }
     _teamNameCtrl.addListener(_markDirty);
     _notesCtrl.addListener(_markDirty);
     _loadAndChooseFixtureType();
@@ -218,6 +230,8 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   Future<void> _loadAndChooseFixtureType() async {
     await _load();
+    if (widget.initialFixtureTypeId != null) return;
+    if (widget.initialRinkBooking != null) return;
     if (widget.memberBookingMode || !_canSeeAllFixtureTypes) return;
     if (!mounted || !_canWrite || _error != null || _fixtureTypes.isEmpty)
       return;
@@ -235,7 +249,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
     try {
       await _loadUserPermissions();
       if (!_canWrite) return;
-      if (widget.memberBookingMode || !_canSeeAllFixtureTypes) return;
+      if (widget.initialFixtureTypeId == null &&
+          (widget.memberBookingMode ||
+              widget.initialRinkBooking != null ||
+              !_canSeeAllFixtureTypes))
+        return;
 
       await _loadVenues();
       await _loadInitialBookingVenue();
@@ -245,7 +263,18 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
       // Only load greens once we have a home venue selected
       await _loadGreenAreas();
 
+      if (widget.initialFixtureTypeId != null) {
+        if (!_fixtureTypes.any(
+          (t) => t['id'].toString() == widget.initialFixtureTypeId,
+        )) {
+          throw StateError(
+            'This Fixture Type is no longer available to you. Please choose again.',
+          );
+        }
+        _applyFixtureType(widget.initialFixtureTypeId);
+      }
       _applyInitialRinkBookingContext();
+      await _loadRinkAvailability();
 
       await _loadClubMembers();
 
@@ -507,6 +536,11 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         .where(
           (type) =>
               widget.initialRinkBooking == null || type['uses_rinks'] == true,
+        )
+        .where(
+          (type) =>
+              widget.initialLocation != FixtureLocationType.away ||
+              (type['is_internal'] != true && type['uses_rinks'] == true),
         )
         .toList();
 
@@ -1455,8 +1489,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
     _selectedHomeRinkByTeam.clear();
 
-    if (booking.rinkLabel.trim().isNotEmpty) {
-      _selectedHomeRinkByTeam[1] = booking.rinkLabel;
+    final labels = booking.rinkLabels.isEmpty
+        ? [booking.rinkLabel]
+        : booking.rinkLabels;
+    if (booking.rinkLabels.isNotEmpty && !_typeLocked('lock_rinks'))
+      _rinksRequired = booking.rinkLabels.length;
+    for (var i = 0; i < labels.length && i < _rinksRequired; i++) {
+      if (labels[i].trim().isNotEmpty)
+        _selectedHomeRinkByTeam[i + 1] = labels[i];
     }
 
     _syncOrientationToSelectedGreen();
@@ -1564,8 +1604,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
         _teamId = null;
 
         _teamNameCtrl.text = name;
-      } else if (selectionMode == 'opensession') {
-        //        _workflowType = FixtureWorkflowType.rsvp; // neutral existing workflow
+      } else if (const {
+        'open',
+        'opensession',
+        'open_session',
+        'open-session',
+      }.contains(selectionMode)) {
+        _workflowType = FixtureWorkflowType
+            .rsvp; // Open participation uses the neutral creation workflow.
         _isTeamFixture = false;
         _isPreselectFixture = false;
         _teamId = null;
@@ -2237,6 +2283,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   }
 
   bool get _isOpenSessionFixture =>
+      _selectedFixtureSelectionMode == 'open' ||
       _selectedFixtureSelectionMode == 'opensession' ||
       _selectedFixtureSelectionMode == 'open_session' ||
       _selectedFixtureSelectionMode == 'open-session';
@@ -3555,6 +3602,7 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
   Future<void> _pickDateTime() async {
     final window = await pickFixtureStart(
       context,
+      initialDate: widget.initialDate,
       start: _startAtLocal,
       end: _endTimeManuallySet ? _endAtLocal : null,
       defaultDuration: _recommendedFixtureDuration,
@@ -4784,11 +4832,14 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Only ordinary members take the availability-led route. Admin creation
-    // retains its existing form, type picker, setup and save routines.
+    // Every diary-slot booking starts with the same availability-led selection.
+    // A confirmed type/rink selection continues into the existing details form.
     if (!_loading &&
         _canWrite &&
-        (widget.memberBookingMode || !_canSeeAllFixtureTypes)) {
+        widget.initialFixtureTypeId == null &&
+        (widget.memberBookingMode ||
+            widget.initialRinkBooking != null ||
+            !_canSeeAllFixtureTypes)) {
       return MemberFixtureCreationPage(
         clubId: widget.clubId,
         clubName: widget.clubName,
@@ -4962,10 +5013,20 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           ),
                           const SizedBox(height: 8),
 
-                          if (_fixtureTypeById(
-                                _fixtureTypeId,
-                              )?['is_internal'] ==
-                              true) ...[
+                          if (widget.initialLocation ==
+                              FixtureLocationType.away) ...[
+                            const InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Location',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: Text('Away'),
+                            ),
+                          ] else if (widget.initialRinkBooking != null ||
+                              _fixtureTypeById(
+                                    _fixtureTypeId,
+                                  )?['is_internal'] ==
+                                  true) ...[
                             InputDecorator(
                               decoration: const InputDecoration(
                                 labelText: 'Location',
@@ -5610,8 +5671,16 @@ class _CreateFixturePageState extends State<CreateFixturePage> {
                           DropdownButtonFormField<int>(
                             key: ValueKey('rinks_$_rinksRequiredFieldVersion'),
                             value: _rinksRequired,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Rinks required',
+                              helperText:
+                                  _bookingRulesPrivileged &&
+                                      _selectedFixtureType?['lock_rinks'] ==
+                                          true &&
+                                      _rinksRequired !=
+                                          _selectedFixtureType?['default_rinks_required']
+                                  ? 'Admin override: outside the normal member rink limit (${_selectedFixtureType?['default_rinks_required']}).'
+                                  : null,
                             ),
                             items: List.generate(12, (i) => i + 1).map((n) {
                               return DropdownMenuItem(

@@ -76,4 +76,3 @@ export async function findSentMessages(email, mailbox, token, fetcher = fetch) {
   if (next) throw new Error('Sent Items check exceeded page limit; manual review required');
   return {matches,scanned,window_start:start,window_end:end};
 }
-

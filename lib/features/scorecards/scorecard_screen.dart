@@ -1,3 +1,4 @@
+import 'scorecard_recovery_host.dart';
 import 'fixture_scorecard_availability.dart';
 import 'scorecard_match_summary.dart';
 import 'package:flutter/gestures.dart';
@@ -33,6 +34,16 @@ class _ScorecardsScreenState extends State<ScorecardsScreen> {
   List<Scorecard> cards = [];
   String? error;
   bool loading = true;
+  bool restoredShortcut = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!restoredShortcut) {
+      restoredShortcut = true;
+      restoreOfflineScorecardsShortcut(context);
+    }
+  }
+
   @override
   void initState() {
     super.initState();

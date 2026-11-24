@@ -70,3 +70,16 @@ test('platform admin may assist a privileged member but still needs club members
   const f = fixture({ callerSuper: true, foreignAdmin: true });
   assert.equal((await handleReset(request(), f.admin)).status, 200);
 });
+
+test('staging admin reset marks first-login choice without persisting or returning the password', async()=>{
+ const f=fixture();let marked;
+ f.admin.rpc=async(name,args)=>{marked={name,args};return {data:null,error:null};};
+ const response=await handleReset(request(),f.admin,{stagingInitialChoice:true});
+ assert.equal(response.status,200);
+ assert.deepEqual(marked,{name:'record_staging_admin_initial_password',args:{p_user:'target-user',p_caller:'caller',p_club:club}});
+ assert.ok(!(await response.text()).includes('Example9!Password'));
+});
+test('failed Auth update never marks an initial password choice',async()=>{
+ const f=fixture({updateError:true});f.admin.rpc=async()=>{throw Error('Must not mark');};
+ assert.equal((await handleReset(request(),f.admin,{stagingInitialChoice:true})).status,400);
+});

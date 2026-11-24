@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'venue_maintain_screen.dart';
+import '../clubs/opponent_discovery_screen.dart';
 
 // Stable venue UI baseline: Phase 2D.3, 2026-07-28.
 const String venuesScreenRevision = '20260728-phase2d3-stable';
@@ -10,11 +11,7 @@ class VenuesScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
 
-  const VenuesScreen({
-    super.key,
-    required this.clubId,
-    required this.clubName,
-  });
+  const VenuesScreen({super.key, required this.clubId, required this.clubName});
 
   @override
   State<VenuesScreen> createState() => _VenuesScreenState();
@@ -111,9 +108,9 @@ class _VenuesScreenState extends State<VenuesScreen> {
 
       _allVenues = List<Map<String, dynamic>>.from(rows)
         ..sort(
-          (a, b) => _s(a['name'])
-              .toLowerCase()
-              .compareTo(_s(b['name']).toLowerCase()),
+          (a, b) => _s(
+            a['name'],
+          ).toLowerCase().compareTo(_s(b['name']).toLowerCase()),
         );
       _applyFilter(updateState: false);
     } catch (error) {
@@ -228,16 +225,16 @@ class _VenuesScreenState extends State<VenuesScreen> {
       await Supabase.instance.client.from('venues').delete().eq('id', id);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Venue deleted.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Venue deleted.')));
       }
       await _load();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete venue error: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Delete venue error: $error')));
     }
   }
 
@@ -247,6 +244,21 @@ class _VenuesScreenState extends State<VenuesScreen> {
       appBar: AppBar(
         title: Text('Venues — ${widget.clubName}'),
         actions: [
+          if (_canManage)
+            IconButton(
+              tooltip: 'Find opponent clubs',
+              icon: const Icon(Icons.travel_explore),
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        OpponentDiscoveryScreen(clubId: widget.clubId),
+                  ),
+                );
+                await _load();
+              },
+            ),
+
           IconButton(
             tooltip: 'Refresh venues',
             onPressed: _load,
@@ -264,94 +276,88 @@ class _VenuesScreenState extends State<VenuesScreen> {
       body: (_loading || _loadingPermissions)
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : _allVenues.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          _canManage
-                              ? 'No venues yet.\nTap + to add one.'
-                              : 'No venues available.',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                    )
-                  : Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                          child: TextField(
-                            decoration: InputDecoration(
-                              hintText: 'Search venues…',
-                              prefixIcon: const Icon(Icons.search),
-                              suffixIcon: _searchText.isEmpty
-                                  ? null
-                                  : IconButton(
-                                      tooltip: 'Clear search',
-                                      icon: const Icon(Icons.clear),
-                                      onPressed: () {
-                                        _searchText = '';
-                                        _applyFilter();
-                                      },
-                                    ),
-                              border: const OutlineInputBorder(),
-                              isDense: true,
+          ? Center(child: Text('Error: $_error'))
+          : _allVenues.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _canManage
+                      ? 'No venues yet.\nTap + to add one.'
+                      : 'No venues available.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search venues…',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchText.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchText = '';
+                                _applyFilter();
+                              },
                             ),
-                            onChanged: (value) {
-                              _searchText = value;
-                              _applyFilter();
-                            },
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: _venues.length,
-                            itemBuilder: (_, index) {
-                              final venue = _venues[index];
-                              final isHome =
-                                  venue['is_home_venue'] == true;
-                              final town = _s(venue['town_city']);
-                              final postcode = _s(venue['postcode']);
-
-                              return ListTile(
-                                onTap: () => _openVenue(venue),
-                                tileColor: isHome
-                                    ? Colors.green.withValues(alpha: 0.08)
-                                    : Colors.orange.withValues(alpha: 0.08),
-                                title: Text(_s(venue['name'])),
-                                subtitle: Text(
-                                  [
-                                    isHome
-                                        ? 'Home venue'
-                                        : 'Opponent venue',
-                                    if (town.isNotEmpty) town,
-                                    if (postcode.isNotEmpty) postcode,
-                                  ].join(' • '),
-                                ),
-                                trailing: _canManage
-                                    ? Wrap(
-                                        spacing: 0,
-                                        children: [
-                                          const Icon(Icons.chevron_right),
-                                          IconButton(
-                                            tooltip: 'Delete venue',
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                            ),
-                                            onPressed: () =>
-                                                _deleteVenue(venue),
-                                          ),
-                                        ],
-                                      )
-                                    : const Icon(Icons.chevron_right),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                      border: const OutlineInputBorder(),
+                      isDense: true,
                     ),
+                    onChanged: (value) {
+                      _searchText = value;
+                      _applyFilter();
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _venues.length,
+                    itemBuilder: (_, index) {
+                      final venue = _venues[index];
+                      final isHome = venue['is_home_venue'] == true;
+                      final town = _s(venue['town_city']);
+                      final postcode = _s(venue['postcode']);
+
+                      return ListTile(
+                        onTap: () => _openVenue(venue),
+                        tileColor: isHome
+                            ? Colors.green.withValues(alpha: 0.08)
+                            : Colors.orange.withValues(alpha: 0.08),
+                        title: Text(_s(venue['name'])),
+                        subtitle: Text(
+                          [
+                            isHome ? 'Home venue' : 'Opponent venue',
+                            if (town.isNotEmpty) town,
+                            if (postcode.isNotEmpty) postcode,
+                          ].join(' • '),
+                        ),
+                        trailing: _canManage
+                            ? Wrap(
+                                spacing: 0,
+                                children: [
+                                  const Icon(Icons.chevron_right),
+                                  IconButton(
+                                    tooltip: 'Delete venue',
+                                    icon: const Icon(Icons.delete_outline),
+                                    onPressed: () => _deleteVenue(venue),
+                                  ),
+                                ],
+                              )
+                            : const Icon(Icons.chevron_right),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'scorecard.dart';
 import 'scorecard_repository.dart';
 import 'scorecard_screen.dart';
@@ -22,9 +23,48 @@ class _ScorecardRecoveryHostState extends State<ScorecardRecoveryHost> {
   bool checked = false, local = false, recovering = false;
   List<Scorecard> unfinished = [];
   String? checkError;
+  bool shortcutHidden = false;
+  int shortcutRevision = 0;
+  static const shortcutPreference = 'offline_scorecards_shortcut_hidden_v1';
+
+  Future<void> loadShortcutPreference() async {
+    final revision = shortcutRevision;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted && revision == shortcutRevision) {
+        setState(
+          () => shortcutHidden = prefs.getBool(shortcutPreference) ?? false,
+        );
+      }
+    } catch (_) {
+      // A device preference must never prevent access to saved scorecards.
+    }
+  }
+
+  void setShortcutHidden(bool hidden) {
+    if (!mounted) return;
+    shortcutRevision++;
+    setState(() => shortcutHidden = hidden);
+    saveShortcutPreference(hidden);
+  }
+
+  Future<void> saveShortcutPreference(bool hidden) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(shortcutPreference, hidden);
+    } catch (_) {
+      // The shortcut still follows the choice for this app session.
+    }
+  }
+
+  void restoreShortcut() {
+    if (shortcutHidden) setShortcutHidden(false);
+  }
+
   @override
   void initState() {
     super.initState();
+    loadShortcutPreference();
     check();
   }
 
@@ -60,11 +100,15 @@ class _ScorecardRecoveryHostState extends State<ScorecardRecoveryHost> {
   }
 
   Scorecard? selectedCard;
-  void open([Scorecard? card]) => setState(() {
-    selectedCard = card;
-    local = true;
-    recovering = false;
-  });
+  void open([Scorecard? card]) {
+    setShortcutHidden(false);
+    setState(() {
+      selectedCard = card;
+      local = true;
+      recovering = false;
+    });
+  }
+
   void close() => setState(() => local = false);
   @override
   Widget build(BuildContext context) {
@@ -75,6 +119,9 @@ class _ScorecardRecoveryHostState extends State<ScorecardRecoveryHost> {
     }
     return _LocalScorecardAccess(
       open: open,
+      shortcutHidden: shortcutHidden,
+      hide: () => setShortcutHidden(true),
+      restore: restoreShortcut,
       child: Stack(
         textDirection: TextDirection.ltr,
         fit: StackFit.expand,
@@ -173,10 +220,20 @@ class _ScorecardRecoveryHostState extends State<ScorecardRecoveryHost> {
 }
 
 class _LocalScorecardAccess extends InheritedWidget {
-  const _LocalScorecardAccess({required this.open, required super.child});
+  const _LocalScorecardAccess({
+    required this.open,
+    required this.shortcutHidden,
+    required this.hide,
+    required this.restore,
+    required super.child,
+  });
+  final bool shortcutHidden;
+  final VoidCallback hide;
+  final VoidCallback restore;
   final void Function([Scorecard? card]) open;
   @override
-  bool updateShouldNotify(covariant _LocalScorecardAccess oldWidget) => false;
+  bool updateShouldNotify(covariant _LocalScorecardAccess oldWidget) =>
+      shortcutHidden != oldWidget.shortcutHidden;
 }
 
 void openOfflineScorecards(
@@ -195,4 +252,43 @@ void openOfflineScorecards(
           ScorecardsScreen(initialCard: card, repository: repository),
     ),
   );
+}
+
+/// Hide affects only the welcome shortcut, never saved cards or recovery.
+class OfflineScorecardsShortcut extends StatelessWidget {
+  const OfflineScorecardsShortcut({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final access = context
+        .dependOnInheritedWidgetOfExactType<_LocalScorecardAccess>();
+    if (access?.shortcutHidden ?? false) return const SizedBox.shrink();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FloatingActionButton.extended(
+          heroTag: 'offline-scorecards',
+          onPressed: () => openOfflineScorecards(context),
+          icon: const Icon(Icons.scoreboard_outlined),
+          label: const Text('Offline scorecards'),
+        ),
+        if (access != null) ...[
+          const SizedBox(width: 8),
+          Tooltip(
+            message: 'Hide this shortcut until you next open Scorecards',
+            child: FilledButton.tonal(
+              onPressed: access.hide,
+              child: const Text('Hide'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Called on entry to either local or fixture scorecards.
+void restoreOfflineScorecardsShortcut(BuildContext context) {
+  final access = context.getInheritedWidgetOfExactType<_LocalScorecardAccess>();
+  if (access == null) return;
+  WidgetsBinding.instance.addPostFrameCallback((_) => access.restore());
 }

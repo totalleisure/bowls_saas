@@ -10,6 +10,8 @@ import 'member_edit_screen.dart';
 import 'member_directory_loader.dart';
 import 'member_import_options_dialog.dart';
 import 'member_invitation_screen.dart';
+import 'inactive_member_invitations_screen.dart';
+import '../../secrets.dart';
 import 'captain_managed_member_dialog.dart';
 
 class MembersScreen extends StatefulWidget {
@@ -544,6 +546,22 @@ class _MembersScreenState extends State<MembersScreen>
                               ),
                             ),
                           ),
+                          if (const {
+                            'egxdkaotepgfjmszxlyn.supabase.co',
+                            'xfjelvvfoguzukgvxchh.supabase.co',
+                          }.contains(Uri.parse(Secrets.supabaseUrl).host))
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.mail_outline),
+                              label: const Text('Invite inactive members'),
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      InactiveMemberInvitationsScreen(
+                                        clubId: widget.clubId,
+                                      ),
+                                ),
+                              ),
+                            ),
                           FilledButton.icon(
                             onPressed: _addCaptainManagedMember,
                             icon: const Icon(Icons.person_add),

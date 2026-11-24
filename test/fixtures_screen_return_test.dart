@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:bowls_saas/features/fixtures/fixtures_screen.dart';
 import 'package:bowls_saas/features/fixtures/fixture_display.dart';
+import 'package:bowls_saas/features/fixtures/create_fixture_page.dart';
+import 'package:bowls_saas/features/fixtures/member_fixture_creation_page.dart';
 
 class DetailsRoute extends StatefulWidget {
   const DetailsRoute({super.key});
@@ -45,6 +47,7 @@ void main() {
   final requests = <Uri>[];
   String? opened;
   String outcome = 'changed';
+  String role = 'member';
   final first = DateTime.now().toUtc().add(const Duration(days: 30));
   Map<String, dynamic> row(int i) => {
     'id': 'f$i',
@@ -93,14 +96,25 @@ void main() {
         else if (path.endsWith('/app_superusers'))
           data = null;
         else if (path.endsWith('/club_memberships'))
-          data = {'id': 'membership', 'role': 'member'};
+          data = {'id': 'membership', 'role': role};
+        else if (path.endsWith('/member_profiles'))
+          data = {
+            'id': 'member',
+            'club_memberships': [
+              {'id': 'membership', 'role': role},
+            ],
+          };
+        else if (path.endsWith('/venues') ||
+            path.endsWith('/competition_types'))
+          data = [];
         else if (path.endsWith('/clubs'))
           data = {
             'name': 'Test Club',
             'primary_color_hex': '#194d85',
             'secondary_color_hex': '#ffff00',
           };
-        else if (path.endsWith('/team_selection_members') || path.endsWith('/club_competitions'))
+        else if (path.endsWith('/team_selection_members') ||
+            path.endsWith('/club_competitions'))
           data = [];
         else if (path.endsWith('/fixtures')) {
           final id = req.url.queryParameters['id'];
@@ -126,7 +140,11 @@ void main() {
           jsonEncode(data),
           200,
           request: req,
-          headers: {'content-type': 'application/json', if (path.endsWith('/team_selection_members')) 'content-range': '*/0'},
+          headers: {
+            'content-type': 'application/json',
+            if (path.endsWith('/team_selection_members'))
+              'content-range': '*/0',
+          },
         );
       }),
     );
@@ -136,6 +154,42 @@ void main() {
     );
   });
   tearDownAll(() => Supabase.instance.dispose());
+  for (final bookingRole in ['member', 'admin']) {
+    testWidgets('Personal fixture list opens Book a rink for $bookingRole', (
+      t,
+    ) async {
+      role = bookingRole;
+      addTearDown(() => role = 'member');
+      await t.pumpWidget(
+        const MaterialApp(
+          home: FixturesScreen(
+            clubId: 'club',
+            clubName: 'Test Club',
+            memberBookingsOnly: true,
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.byType(FloatingActionButton));
+      await t.pumpAndSettle();
+      expect(
+        t
+            .widget<CreateFixturePage>(find.byType(CreateFixturePage))
+            .memberBookingMode,
+        isTrue,
+      );
+      expect(find.byType(MemberFixtureCreationPage), findsOneWidget);
+      expect(
+        find.text(
+          bookingRole == 'admin'
+              ? 'Choose Home Fixture Type'
+              : 'Choose Member Fixture Type',
+        ),
+        findsOneWidget,
+      );
+      expect(t.takeException(), isNull);
+    });
+  }
   for (final mode in ['changed', 'deleted', 'failed']) {
     testWidgets(
       'Fixtures list survives direct visit then Team Manager round trip: $mode',
@@ -189,7 +243,9 @@ void main() {
         expect(queries.last.queryParameters['id'], 'eq.$opened');
         expect(queries.last.queryParameters['club_id'], 'eq.club');
         expect(
-          requests.singleWhere((r) => r.path.endsWith('/team_selection_members')).queryParameters['member_profile_id'],
+          requests
+              .singleWhere((r) => r.path.endsWith('/team_selection_members'))
+              .queryParameters['member_profile_id'],
           'eq.member',
         );
         expect(requests.where((r) => r.path.endsWith('/clubs')), hasLength(1));

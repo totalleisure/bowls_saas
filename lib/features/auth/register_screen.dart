@@ -1,3 +1,4 @@
+import '../clubs/club_registration_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -84,10 +85,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           TextSpan(text: text),
           const TextSpan(
             text: ' *',
-            style: TextStyle(
-              color: Colors.red,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -485,9 +483,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   label: _requiredLabel('Select your Club'),
                                   border: const OutlineInputBorder(),
                                 ),
-                                validator: (value) => value == null
-                                    ? 'Club is required'
-                                    : null,
+                                validator: (value) =>
+                                    value == null ? 'Club is required' : null,
                                 items: _clubs.map((club) {
                                   return DropdownMenuItem<String>(
                                     value: club['id'].toString(),
@@ -514,6 +511,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               ),
                             ),
 
+                            const ClubSetupEntry(),
                             const SizedBox(height: 16),
 
                             Container(

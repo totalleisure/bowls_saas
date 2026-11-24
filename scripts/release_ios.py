@@ -98,6 +98,11 @@ def verify_ipa(ipa, version, build):
 def release(args):
     root = args.project_root.resolve()
     version, build, notes = read_release(root, args.notes.resolve())
+    beta_notes = notes
+    if getattr(args, 'testflight_notes', None):
+        beta_notes = args.testflight_notes.read_text(encoding='utf-8-sig').strip()
+        if not beta_notes or len(beta_notes) > 4000 or re.search(r'</?en-', beta_notes):
+            raise ValueError('Supply plain TestFlight notes, 1-4000 characters, without language tags.')
     outside(args.api_key, root)
     key_data = json.loads(args.api_key.read_text())
     if not all(key_data.get(k) for k in ('key_id', 'issuer_id', 'key')):
@@ -173,7 +178,7 @@ def release(args):
                          skip_waiting_for_build_processing=False, distribute_external=False,
                          notify_external_testers=False, submit_beta_review=False,
                          reject_build_waiting_for_review=False, expire_previous_builds=False,
-                         wait_processing_timeout_duration=3600, changelog=notes), output, log, env)
+                         wait_processing_timeout_duration=3600, changelog=beta_notes), output, log, env)
     save('uploaded_and_processed')
     metadata = output / 'metadata/en-GB'
     metadata.mkdir(parents=True, exist_ok=True)
@@ -196,6 +201,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project-root', type=Path, default=ROOT)
     parser.add_argument('--notes', type=Path)
+    parser.add_argument('--testflight-notes', type=Path)
     parser.add_argument('--api-key', type=Path, default=KEY)
     parser.add_argument('--submit-for-review', action='store_true')
     parser.add_argument('--validate-only', action='store_true')

@@ -1,3 +1,4 @@
+import '../clubs/club_registration_screen.dart';
 import '../scorecards/scorecard_recovery_host.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -278,7 +279,9 @@ class _AuthScreenState extends State<AuthScreen> {
   void initState() {
     super.initState();
     _loadAppInfo();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _resumePasswordRecovery());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _resumePasswordRecovery(),
+    );
     _loadRememberedBranding();
     //    debugPrint('kDebugMode: $kDebugMode');
     //    debugPrint('kProfileMode: $kProfileMode');
@@ -518,11 +521,14 @@ class _AuthScreenState extends State<AuthScreen> {
     if (_loading || _selectingSavedLogin) return;
     final identifier = _email.text.trim();
     final password = _password.text;
-    final appleSavedAttempt = !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.iOS && _selectedSavedLogin;
+    final appleSavedAttempt =
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        _selectedSavedLogin;
     setState(() => _loading = true);
     try {
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS &&
+      if (!kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.iOS &&
           !_obscurePassword) {
         // Restore secure native input before authentication can remove this form.
         // Revealing the password changes iOS secureTextEntry; Apple needs the
@@ -552,8 +558,11 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (e) {
       if (mounted) setState(() => _loading = false);
       await _showAuthFailure(error: e, signingUp: false, retry: _signIn);
-      if (mounted && appleSavedAttempt && e is AuthException &&
-          (e.code == 'invalid_credentials' || e.message == 'Invalid login credentials')) {
+      if (mounted &&
+          appleSavedAttempt &&
+          e is AuthException &&
+          (e.code == 'invalid_credentials' ||
+              e.message == 'Invalid login credentials')) {
         // Discard the rejected native credential before the member corrects it.
         // Replacing the group cancels once and gives both fields new native IDs;
         // autofocus then registers a fresh paired context, keeping the username.
@@ -572,11 +581,15 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   void _appleAutofilled(Set<String> hints) {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS ||
-        !mounted || _loading || _selectingSavedLogin ||
+    if (kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        !mounted ||
+        _loading ||
+        _selectingSavedLogin ||
         ModalRoute.of(context)?.isCurrent != true ||
         !hints.contains(AutofillHints.password) ||
-        _password.text.isEmpty) return;
+        _password.text.isEmpty)
+      return;
     // iOS may fill only the password when the username is already present.
     // Remember its origin for rejection handling even without auto-submitting.
     _selectedSavedLogin = true;
@@ -604,16 +617,25 @@ class _AuthScreenState extends State<AuthScreen> {
       signInWithSelection = true;
     } on PlatformException catch (error) {
       if (mounted && error.code != 'cancelled') {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-          error.code == 'hello_unavailable'
-              ? 'Windows Hello is unavailable or did not verify you. Enter your Bowls details manually.'
-              : error.code == 'no_credentials'
-              ? 'No saved login matched this app. Sign in manually, then save your login when offered.'
-              : 'Your password manager is unavailable. Enter your details manually.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error.code == 'hello_unavailable'
+                  ? 'Windows Hello is unavailable or did not verify you. Enter your Bowls details manually.'
+                  : error.code == 'no_credentials'
+                  ? 'No saved login matched this app. Sign in manually, then save your login when offered.'
+                  : 'Your password manager is unavailable. Enter your details manually.',
+            ),
+          ),
+        );
       }
     } on MissingPluginException {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Update this app to use the saved-login button.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Update this app to use the saved-login button.'),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _selectingSavedLogin = false);
     }
@@ -730,12 +752,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
     return Scaffold(
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'offline-scorecards',
-        onPressed: () => openOfflineScorecards(context),
-        icon: const Icon(Icons.scoreboard_outlined),
-        label: const Text('Offline scorecards'),
-      ),
+      floatingActionButton: const OfflineScorecardsShortcut(),
       body: Stack(
         children: [
           Positioned.fill(
@@ -775,7 +792,7 @@ class _AuthScreenState extends State<AuthScreen> {
             child: SingleChildScrollView(
               child: SizedBox(
                 width: width,
-                height: height,
+                height: height + (stagingClubRegistrationEnabled ? 160 : 0),
                 child: Stack(
                   children: [
                     Positioned(
@@ -788,144 +805,156 @@ class _AuthScreenState extends State<AuthScreen> {
                         shouldSaveOnDispose: () => _saveAppleLoginOnDispose,
                         onDisposeAction: AutofillContextAction.cancel,
                         child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildOverlayField(
-                            controller: _email,
-                            hintText: AccountUsernameService.enabled
-                                ? 'Email or username'
-                                : 'Email address',
-                            keyboardType: TextInputType.emailAddress,
-                            autofillHints: const [AutofillHints.username, AutofillHints.email],
-                            textInputAction: TextInputAction.next,
-                            height: fieldHeight,
-                          ),
-                          const SizedBox(height: 12),
-                          _buildOverlayField(
-                            controller: _password,
-                            autofocus: _appleLoginGeneration > 0,
-                            hintText: 'Password',
-                            obscureText: _obscurePassword,
-                            autofillHints: const [AutofillHints.password],
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => _signIn(),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                              ),
-                              onPressed: _loading ? null : () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                            ),
-                            height: fieldHeight,
-                          ),
-                          const SizedBox(height: 14),
-                          if (SavedLoginService.supported) ...[
-                            FilledButton.icon(
-                              onPressed: _loading || _selectingSavedLogin ? null : _useSavedLogin,
-                              icon: const Icon(Icons.key),
-                              label: Text(_selectingSavedLogin ? 'Opening password manager…' : 'Use saved login'),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildOverlayField(
+                              controller: _email,
+                              hintText: AccountUsernameService.enabled
+                                  ? 'Email or username'
+                                  : 'Email address',
+                              keyboardType: TextInputType.emailAddress,
+                              autofillHints: const [
+                                AutofillHints.username,
+                                AutofillHints.email,
+                              ],
+                              textInputAction: TextInputAction.next,
+                              height: fieldHeight,
                             ),
                             const SizedBox(height: 12),
-                          ],
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildOverlayButton(
-                                  label: 'Sign In',
-                                  onTap: _loading ? null : _signIn,
-                                  backgroundColor: const Color(0xFF0B56C4),
-                                  textColor: Colors.white,
-                                  borderColor: const Color(0xFF4D8BE6),
-                                  height: buttonHeight,
+                            _buildOverlayField(
+                              controller: _password,
+                              autofocus: _appleLoginGeneration > 0,
+                              hintText: 'Password',
+                              obscureText: _obscurePassword,
+                              autofillHints: const [AutofillHints.password],
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _signIn(),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility
+                                      : Icons.visibility_off,
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildOverlayButton(
-                                  label: 'Register',
-                                  onTap: _loading
-                                      ? null
-                                      : () {
-                                          Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (_) =>
-                                                  const RegisterScreen(),
-                                            ),
-                                          );
-                                        },
-                                  backgroundColor: const Color(0xFFF2B600),
-                                  textColor: Colors.white,
-                                  borderColor: const Color(0xFFFFD54A),
-                                  height: buttonHeight,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            spacing: 8,
-                            children: [
-                              TextButton(
                                 onPressed: _loading
                                     ? null
-                                    : _openForgotPassword,
-                                child: const Text(
-                                  'Forgotten password?',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                    shadows: [
-                                      Shadow(
-                                        blurRadius: 4,
-                                        color: Colors.black38,
-                                        offset: Offset(0, 1),
-                                      ),
-                                    ],
-                                  ),
+                                    : () {
+                                        setState(() {
+                                          _obscurePassword = !_obscurePassword;
+                                        });
+                                      },
+                              ),
+                              height: fieldHeight,
+                            ),
+                            const SizedBox(height: 14),
+                            if (SavedLoginService.supported) ...[
+                              FilledButton.icon(
+                                onPressed: _loading || _selectingSavedLogin
+                                    ? null
+                                    : _useSavedLogin,
+                                icon: const Icon(Icons.key),
+                                label: Text(
+                                  _selectingSavedLogin
+                                      ? 'Opening password manager…'
+                                      : 'Use saved login',
                                 ),
                               ),
-                              TextButton(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => const PlayerHelpScreen(
-                                        showAdminGuide: false,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: const Text(
-                                  'User Guide',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                    shadows: [
-                                      Shadow(
-                                        blurRadius: 4,
-                                        color: Colors.black38,
-                                        offset: Offset(0, 1),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                              const SizedBox(height: 12),
                             ],
-                          ),
-                          if (_loading) ...[
-                            const SizedBox(height: 12),
-                            const Center(child: CircularProgressIndicator()),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildOverlayButton(
+                                    label: 'Sign In',
+                                    onTap: _loading ? null : _signIn,
+                                    backgroundColor: const Color(0xFF0B56C4),
+                                    textColor: Colors.white,
+                                    borderColor: const Color(0xFF4D8BE6),
+                                    height: buttonHeight,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildOverlayButton(
+                                    label: 'Register',
+                                    onTap: _loading
+                                        ? null
+                                        : () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const RegisterScreen(),
+                                              ),
+                                            );
+                                          },
+                                    backgroundColor: const Color(0xFFF2B600),
+                                    textColor: Colors.white,
+                                    borderColor: const Color(0xFFFFD54A),
+                                    height: buttonHeight,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 8,
+                              children: [
+                                TextButton(
+                                  onPressed: _loading
+                                      ? null
+                                      : _openForgotPassword,
+                                  child: const Text(
+                                    'Forgotten password?',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      shadows: [
+                                        Shadow(
+                                          blurRadius: 4,
+                                          color: Colors.black38,
+                                          offset: Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const PlayerHelpScreen(
+                                          showAdminGuide: false,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text(
+                                    'User Guide',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      shadows: [
+                                        Shadow(
+                                          blurRadius: 4,
+                                          color: Colors.black38,
+                                          offset: Offset(0, 1),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const ClubSetupEntry(welcome: true),
+                            if (_loading) ...[
+                              const SizedBox(height: 12),
+                              const Center(child: CircularProgressIndicator()),
+                            ],
+                            if (kShowDebugQuickLogins) ...[
+                              const SizedBox(height: 16),
+                              _buildDebugQuickLoginList(),
+                            ],
                           ],
-                          if (kShowDebugQuickLogins) ...[
-                            const SizedBox(height: 16),
-                            _buildDebugQuickLoginList(),
-                          ],
-                        ],
                         ),
                       ),
                     ),

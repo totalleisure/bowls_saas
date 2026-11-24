@@ -1,6 +1,7 @@
 import 'fixture_type_booking_policy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils/date_format.dart';
+import '../clubs/club_access.dart';
 
 const memberBookingDuration = Duration(minutes: 150);
 
@@ -36,6 +37,27 @@ class MemberBookingDay {
   final List<Map<String, dynamic>> fixtures;
   final List<Map<String, dynamic>> maintenance;
 
+  int availableRinks(
+    DateTime start,
+    List<String> labels, {
+    required Duration duration,
+  }) {
+    final free = labels
+        .where((label) => canBook(label, start, labels, duration: duration))
+        .toList();
+    for (var count = free.length; count > 0; count--) {
+      if (canBook(
+        free.first,
+        start,
+        labels,
+        duration: duration,
+        rinksRequired: count,
+      ))
+        return count;
+    }
+    return 0;
+  }
+
   bool _overlaps(Map<String, dynamic> row, DateTime start, DateTime end) =>
       parseClubTime(
         row['start_at'].toString(),
@@ -51,6 +73,7 @@ class MemberBookingDay {
     DateTime start,
     List<String> labels, {
     Duration duration = memberBookingDuration,
+    int rinksRequired = 1,
   }) {
     start = memberBookingWallTime(start);
     final end = start.add(duration);
@@ -90,7 +113,7 @@ class MemberBookingDay {
           .map((m) => m['rink_number'])
           .toSet()
           .length;
-      if (occupied + blocked + 1 > labels.length) return false;
+      if (occupied + blocked + rinksRequired > labels.length) return false;
     }
     return true;
   }
@@ -100,6 +123,27 @@ class MemberBookingRepository {
   MemberBookingRepository([SupabaseClient? client])
     : client = client ?? Supabase.instance.client;
   final SupabaseClient client;
+
+  Future<bool> canManageFixtures(String clubId) async => (await loadClubAccess(
+    clubId: clubId,
+    client: client,
+  )).canAdminManageFixtures;
+
+  Future<List<Map<String, dynamic>>> adminFixtureTypes(String clubId) async {
+    final rows = List<Map<String, dynamic>>.from(
+      await client
+          .from('competition_types')
+          .select(
+            '*, colour_scheme:fixture_colour_schemes(background_hex, foreground_hex)',
+          )
+          .eq('club_id', clubId)
+          .eq('is_active', true)
+          .eq('uses_rinks', true)
+          .order('name'),
+    );
+    final windows = await loadBookingWindows(client, clubId);
+    return rows.map((row) => {...row, 'booking_windows': windows}).toList();
+  }
 
   Future<String?> venueForGreen(String greenId) async {
     final row = await client
@@ -124,6 +168,8 @@ class MemberBookingRepository {
     if (row == null ||
         memberships.isEmpty ||
         memberships.every((m) => m['role'] == 'guest')) {
+      final access = await loadClubAccess(clubId: clubId, client: client);
+      if (access.isSuperuser) return access.currentMemberId;
       throw StateError(
         'An active non-guest club membership is needed to book.',
       );
@@ -136,7 +182,7 @@ class MemberBookingRepository {
       await client
           .from('competition_types')
           .select(
-            'id, name, section, default_players_per_rink, default_format, default_duration_minutes, lock_duration, lock_format, lock_rinks, lock_participation, bookable_by_members, booking_start_times_enabled, dress_code, '
+            'id, name, section, default_rinks_required, default_players_per_rink, default_format, default_duration_minutes, lock_duration, lock_format, lock_rinks, lock_participation, bookable_by_members, booking_start_times_enabled, dress_code, '
             'colour_scheme:fixture_colour_schemes(background_hex, foreground_hex)',
           )
           .eq('club_id', clubId)

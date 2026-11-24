@@ -11,6 +11,9 @@ import '../competitions/screens/competition_type_list_screen.dart';
 import '../competitions/screens/competitions_screen.dart';
 import '../admin/superuser_screen.dart';
 import 'club_access.dart';
+import 'club_onboarding_screen.dart';
+import 'pending_onboarding_members_screen.dart';
+import '../../secrets.dart';
 
 class ClubHomeScreen extends StatefulWidget {
   final String clubId;
@@ -30,6 +33,7 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
   bool _loadingPermissions = true;
   bool _isSuperuser = false;
   bool _canWrite = false;
+  bool _canSetUpClub = false;
 
   Future<void> _loadPermissions() async {
     final client = Supabase.instance.client;
@@ -44,6 +48,9 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
       setState(() {
         _isSuperuser = access.isSuperuser;
         _canWrite = access.canWrite;
+        _canSetUpClub =
+            access.isSuperuser ||
+            (access.hasActiveMembership && access.isClubAdmin);
         _loadingPermissions = false;
       });
     } catch (_) {
@@ -93,6 +100,46 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
         children: [
           Text('Club ID: ${widget.clubId}'),
           const SizedBox(height: 16),
+          if (_canSetUpClub &&
+              const {
+                'egxdkaotepgfjmszxlyn.supabase.co',
+                'xfjelvvfoguzukgvxchh.supabase.co',
+              }.contains(Uri.parse(Secrets.supabaseUrl).host))
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.people_outline),
+                title: const Text('Onboarding members'),
+                subtitle: const Text(
+                  'Existing member matches · Inactive memberships · Invitations separate',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        PendingOnboardingMembersScreen(clubId: widget.clubId),
+                  ),
+                ),
+              ),
+            ),
+          if (_canSetUpClub)
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.assistant_outlined),
+                title: const Text('Get your club ready'),
+                subtitle: const Text(
+                  'A guided setup you can pause and return to',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ClubOnboardingScreen(
+                      clubId: widget.clubId,
+                      clubName: widget.clubName,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Card(
             child: ListTile(
               leading: const Icon(Icons.location_on_outlined),
@@ -154,12 +201,14 @@ class _ClubHomeScreenState extends State<ClubHomeScreen> {
               title: const Text('Competitions'),
               subtitle: const Text('Seasons, entries, draws and results'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => CompetitionsScreen(
-                  clubId: widget.clubId,
-                  clubName: widget.clubName,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => CompetitionsScreen(
+                    clubId: widget.clubId,
+                    clubName: widget.clubName,
+                  ),
                 ),
-              )),
+              ),
             ),
           ),
           Card(

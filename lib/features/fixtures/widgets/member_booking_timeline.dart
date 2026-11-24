@@ -17,6 +17,7 @@ class MemberBookingTimeline extends StatelessWidget {
     required this.density,
     required this.onSelect,
     this.selectedLabel,
+    this.selectedLabels = const [],
     this.selectedStart,
     this.latestEnd,
     this.enabled = true,
@@ -24,17 +25,20 @@ class MemberBookingTimeline extends StatelessWidget {
     this.opens = 540,
     this.closes = 1320,
     this.allowedStart,
+    this.rinksRequired = 1,
   });
   final DateTime date;
   final List<String> labels;
   final MemberBookingDay day;
   final MemberTimelineDensity density;
   final String? selectedLabel;
+  final List<String> selectedLabels;
   final DateTime? selectedStart;
   final DateTime? latestEnd;
   final bool enabled;
   final Duration duration;
   final int opens, closes;
+  final int rinksRequired;
   final bool Function(DateTime)? allowedStart;
   final void Function(String label, DateTime start) onSelect;
 
@@ -47,7 +51,13 @@ class MemberBookingTimeline extends StatelessWidget {
           !memberBookingWallTime(
             start.add(duration),
           ).isAfter(memberBookingWallTime(latestEnd!))) &&
-      day.canBook(label, start, labels, duration: duration);
+      day.canBook(
+        label,
+        start,
+        labels,
+        duration: duration,
+        rinksRequired: rinksRequired,
+      );
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -196,7 +206,8 @@ class MemberBookingTimeline extends StatelessWidget {
                                   );
                                   final free = available(labels[i], start);
                                   final selected =
-                                      selectedLabel == labels[i] &&
+                                      (selectedLabel == labels[i] ||
+                                          selectedLabels.contains(labels[i])) &&
                                       selectedStart != null &&
                                       start.isBefore(
                                         memberBookingWallTime(
@@ -287,7 +298,8 @@ class MemberBookingTimeline extends StatelessWidget {
                                   theme.colorScheme.errorContainer,
                                   theme.colorScheme.onErrorContainer,
                                 ),
-                            if (selectedLabel == labels[i] &&
+                            if ((selectedLabel == labels[i] ||
+                                    selectedLabels.contains(labels[i])) &&
                                 selectedStart != null)
                               Positioned(
                                 left: left(selectedStart!),
@@ -308,7 +320,8 @@ class MemberBookingTimeline extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                            if (selectedLabel == labels[i] &&
+                            if ((selectedLabel == labels[i] ||
+                                    selectedLabels.contains(labels[i])) &&
                                 selectedStart != null)
                               Positioned(
                                 left: left(selectedStart!) + 2,

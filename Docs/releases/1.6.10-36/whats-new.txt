@@ -1,0 +1,1 @@
+Club Secretaries can now bring new clubs online with guided setup, club and email verification, member import and separate invitations. Improved home and away fixture booking, including multi-rink selection and clearer rink availability. New checks help members avoid conflicting availability. Clearer menus, readable fixture colours and smoother team selection.

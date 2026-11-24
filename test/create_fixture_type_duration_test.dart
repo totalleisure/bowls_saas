@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:bowls_saas/core/utils/date_format.dart';
 import 'package:bowls_saas/features/fixtures/create_fixture_page.dart';
+import 'package:bowls_saas/features/fixtures/member_fixture_creation_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 void main() {
   var admin = true;
   var locked = false;
+  var limitedSlot = false;
   setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
     await Supabase.initialize(
@@ -66,6 +68,19 @@ void main() {
               'scheme_prefix': 'R',
             },
           ];
+        } else if (path.endsWith('/fixtures') && limitedSlot) {
+          data = [{
+            'id': 'following-booking',
+            'start_at': clubTimeToUtc(DateTime(2031, 1, 14, 11)).toIso8601String(),
+            'end_at': clubTimeToUtc(DateTime(2031, 1, 14, 22)).toIso8601String(),
+            'rinks_required': 1,
+            'fixture_rinks': [{'home_rink_label': 'R1'}],
+          }];
+        } else if (path.endsWith('/get_green_rink_availability')) {
+          data = List.generate(7, (i) => {
+            'rink_label': 'R${i + 1}', 'is_available': true,
+            'is_booked': false, 'free_capacity_rinks': 7, 'total_rinks': 7,
+          });
         } else if (path.endsWith('/competition_types')) {
           data = [
             {
@@ -131,6 +146,9 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.text('Member Practice').last);
       await t.pumpAndSettle();
+      expect(find.byType(MemberFixtureCreationPage), findsOneWidget);
+      await t.tap(find.text('Continue to fixture details'));
+      await t.pumpAndSettle();
       expect(
         find.text(formatClubDateTime(DateTime(2031, 1, 14, 12, 30))),
         findsOneWidget,
@@ -165,6 +183,9 @@ void main() {
     await t.pumpAndSettle();
     await t.tap(find.text('Member Practice').last);
     await t.pumpAndSettle();
+    expect(find.byType(MemberFixtureCreationPage), findsOneWidget);
+    await t.tap(find.text('Continue to fixture details'));
+    await t.pumpAndSettle();
     await t.tap(find.text(formatClubDateTime(DateTime(2031, 1, 14, 12, 30))));
     await t.pumpAndSettle();
     await t.tap(find.byIcon(Icons.keyboard_outlined));
@@ -187,9 +208,11 @@ void main() {
     );
     expect(t.takeException(), isNull);
   });
-  testWidgets('Fixture-type duration respects the available rink slot', (
+  testWidgets('Diary route blocks a fixture duration beyond the available rink slot', (
     t,
   ) async {
+    limitedSlot = true;
+    addTearDown(() => limitedSlot = false);
     t.view.physicalSize = const Size(1100, 1800);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.resetPhysicalSize);
@@ -212,10 +235,13 @@ void main() {
     await t.pumpAndSettle();
     await t.tap(find.text('Member Practice').last);
     await t.pumpAndSettle();
-    expect(
-      find.text(formatClubDateTime(DateTime(2031, 1, 14, 11))),
-      findsOneWidget,
+    expect(find.byType(MemberFixtureCreationPage), findsOneWidget);
+    expect(find.textContaining('not available for this duration'), findsOneWidget);
+    final continueButton = t.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Continue to fixture details'),
     );
+    expect(continueButton.onPressed, isNull);
+    expect(find.text('Save'), findsNothing);
     expect(t.takeException(), isNull);
   });
   for (final privileged in [false, true]) {
@@ -249,6 +275,9 @@ void main() {
         );
         await t.pumpAndSettle();
         await t.tap(find.text('Member Practice').last);
+        await t.pumpAndSettle();
+        expect(find.byType(MemberFixtureCreationPage), findsOneWidget);
+        await t.tap(find.text('Continue to fixture details'));
         await t.pumpAndSettle();
         for (final label in ['Participation mode', 'Format']) {
           final field = t

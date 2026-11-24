@@ -1,3 +1,4 @@
+import '../fixtures/fixture_availability_service.dart';
 import '../competitions/competition_repository.dart';
 import '../competitions/personal_competition_matches.dart';
 import '../competitions/widgets/competition_arrangement_card.dart';
@@ -76,6 +77,7 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
   String _myClubName = '';
 
   Map<String, String> _myAvailabilityByFixtureId = {};
+  final Set<String> _savingAvailability = {};
 
   Map<String, dynamic>? _nextMatch;
   Map<String, dynamic>? _secondMatch;
@@ -622,6 +624,9 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
           _canWrite &&
           (_isSuperuser || _isClubAdmin || _isSelector || _isFixtureCreator),
       showAdminGuide: _isClubAdmin,
+      onRefresh: _load,
+      currentView: ClubMenuView.dashboard,
+      onNextMatch: _showNextFixturePopup,
       openMembershipDetails: () async {
         await Navigator.of(context).push(
           MaterialPageRoute(
@@ -1345,25 +1350,24 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
   }
 
   Future<void> _setTeamAvailability(String fixtureId, String status) async {
-    if (!_canRsvpFromDashboard) return;
+    if (!_canRsvpFromDashboard || !_savingAvailability.add(fixtureId)) return;
 
     try {
-      final client = Supabase.instance.client;
-      final myId = (await client.rpc('my_member_profile_id')).toString();
-
-      await client.from('fixture_rsvps').upsert({
-        'fixture_id': fixtureId,
-        'member_profile_id': myId,
-        'status': status,
-        'responded_at': DateTime.now().toUtc().toIso8601String(),
-      }, onConflict: 'fixture_id,member_profile_id');
-
-      await _load();
+      final changes = await saveFixtureAvailability(
+        context,
+        fixtureId: fixtureId,
+        status: status,
+      );
+      if (!mounted || changes == null) return;
+      // Update affected cards in place, preserving the mounted scrollable.
+      setState(() => _myAvailabilityByFixtureId.addAll(changes));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to save availability: $e')),
       );
+    } finally {
+      _savingAvailability.remove(fixtureId);
     }
   }
 
@@ -1778,7 +1782,11 @@ class _ClubDashboardScreenState extends State<ClubDashboardScreen>
               ],
             ),
           ),
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
+          IconButton(
+            tooltip: 'Refresh Screen',
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+          ),
           IconButton(
             icon: const Icon(Icons.more_vert),
             tooltip: 'Options',
@@ -2117,25 +2125,6 @@ List<Widget> _dashboardAppBarActions(
   List<IconButton> actions,
 ) {
   if (MediaQuery.sizeOf(context).width >= 600) return actions;
-  return [
-    actions.first,
-    PopupMenuButton<VoidCallback>(
-      tooltip: 'More dashboard actions',
-      icon: const Icon(Icons.more_vert),
-      onSelected: (action) => action(),
-      itemBuilder: (context) => [
-        for (final action in actions.skip(1))
-          PopupMenuItem<VoidCallback>(
-            value: action.onPressed!,
-            child: Row(
-              children: [
-                action.icon,
-                const SizedBox(width: 12),
-                Flexible(child: Text(action.tooltip ?? 'Action')),
-              ],
-            ),
-          ),
-      ],
-    ),
-  ];
+  // The same complete coloured menu is used at every width.
+  return [actions.first, actions.last];
 }

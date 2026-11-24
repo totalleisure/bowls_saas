@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {competitionPublicationHtml,requireCompetitionTestRecipients,COMPETITION_TEST_RECIPIENTS,assembleCompetitionEmail,competitionEmailDate} from '../supabase/functions/_shared/competition_publication_email.mjs';
-test('only the seven confirmed addresses can pass staging test policy',()=>{
- assert.equal(requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',COMPETITION_TEST_RECIPIENTS).length,7);
+test('confirmed addresses and exact two or three digit Wayne member aliases pass staging policy',()=>{
+ assert.equal(requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',COMPETITION_TEST_RECIPIENTS).length,8);
+ for(const email of ['wayne.s.sayers+member01@gmail.com','wayne.s.sayers+member001@gmail.com','wayne.s.sayers+member003@gmail.com','wayne.s.sayers+member004@gmail.com',' WAYNE.S.SAYERS+MEMBER99@GMAIL.COM ']) assert.equal(requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',[email]).length,1);
+ for(const email of ['wayne.s.sayers+member1@gmail.com','wayne.s.sayers+member0001@gmail.com','wayne.s.sayers+memberabc@gmail.com','someone+member003@gmail.com','wayne.s.sayers+member003@other.com','wayne.s.sayers+member003@gmail.com.evil','wayne.s.sayers+member003@gmail.com,member@example.org']) assert.throws(()=>requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',[email]));
+ assert.throws(()=>requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',['wayne.s.sayers+member003@gmail.com','member@example.org']));
  assert.throws(()=>requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',['member@example.org']));
  assert.throws(()=>requireCompetitionTestRecipients('xfjelvvfoguzukgvxchh',COMPETITION_TEST_RECIPIENTS));
  assert.throws(()=>requireCompetitionTestRecipients('egxdkaotepgfjmszxlyn',[COMPETITION_TEST_RECIPIENTS[0],'member@example.org']));

@@ -1,0 +1,16 @@
+Total Leisure Bowls 1.6.10 (36) — What is new and what to test
+
+Please concentrate on the improved booking workflow for home and away matches and fixtures.
+
+Home bookings: use Book a Rink to choose the date, time and required rinks, then continue to fixture details. Check that your choices carry through correctly. Try increasing and decreasing the rink count, including when some rinks are already occupied. Members must follow the Fixture Type's locked rink limit; administrators can override it with a reminder.
+
+Away bookings: from Monthly Diary choose the day, then Book away fixture. Check the date, choose a suitable external Fixture Type, set the time, opponent and venue, then save. Away bookings should work even when all home rinks are occupied and must not reserve home rinks.
+
+Availability: try Available and Not available. Your position on the Dashboard should be retained. When two availability requests overlap, check the choice to keep the existing response or switch to the new match. Existing team selections and acceptance responses must stay unchanged.
+
+Team selection: check that players not yet positioned appear first. Publish a selection, confirm that the chosen players receive their selection message, and respond using the App or the active email. Check that the captain can see the response.
+
+Other improvements: a compact coloured Options menu, with the current view omitted, easier access to administration and personal bookings, and a light-blue Previous/Next diary control. The Offline scorecards shortcut can be hidden and reappears when you next open Scorecards.
+
+Please report the device, the steps taken, what you expected and what happened. Screenshots are helpful. Check real booking details carefully before saving or publishing, as Production messages are live.
+

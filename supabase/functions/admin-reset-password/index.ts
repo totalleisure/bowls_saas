@@ -5,4 +5,4 @@ Deno.serve((req) => handleReset(req, createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   { auth: { persistSession: false, autoRefreshToken: false } },
-)));
+), {stagingInitialChoice: ['https://egxdkaotepgfjmszxlyn.supabase.co','https://xfjelvvfoguzukgvxchh.supabase.co'].includes(Deno.env.get('SUPABASE_URL')??'')}));

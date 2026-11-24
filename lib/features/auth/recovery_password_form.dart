@@ -7,6 +7,37 @@ import 'login_autofill_group.dart';
 import 'password_recovery_progress.dart';
 import 'saved_login_service.dart';
 
+bool passwordChangeRequiresSignIn(Object error) =>
+    error is AuthException &&
+    (error.statusCode == '401' ||
+        const {
+          'session_not_found',
+          'session_expired',
+          'refresh_token_not_found',
+          'refresh_token_already_used',
+          'bad_jwt',
+          'user_not_found',
+        }.contains(error.code));
+
+String passwordChangeFailureMessage(Object error) {
+  if (passwordChangeRequiresSignIn(error)) {
+    return 'Your sign-in session has ended. Sign out, sign in again using your latest password, then retry.';
+  }
+  if (error is AuthException) {
+    if (error.code == 'same_password')
+      return 'Choose a password different from your old password.';
+    if (error.code == 'weak_password')
+      return 'That password does not meet the password requirements. Choose a different password with at least 8 characters.';
+    if (error.code == 'reauthentication_needed' ||
+        error.code == 'reauthentication_not_valid') {
+      return 'Please sign in again to confirm your identity, then retry changing your password.';
+    }
+    if (error.statusCode == '429')
+      return 'Too many attempts. Please wait a few minutes before trying again.';
+  }
+  return 'Your password was not changed. Please try again. If this continues, sign out and sign in again.';
+}
+
 /// A separate password-change context, shared by code and link recovery.
 class RecoveryPasswordForm extends StatefulWidget {
   const RecoveryPasswordForm({
@@ -76,9 +107,7 @@ class _RecoveryPasswordFormState extends State<RecoveryPasswordForm> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = error is AuthException && error.code == 'same_password'
-            ? 'Choose a password different from your old password.'
-            : 'Your password was not changed. Check your connection and try again.';
+        _error = passwordChangeFailureMessage(error);
       });
       widget.onBusyChanged?.call(false);
       return;

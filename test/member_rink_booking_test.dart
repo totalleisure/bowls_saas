@@ -475,38 +475,47 @@ void main() {
 
   Future<void> chooseSlot(WidgetTester t) async {
     final slot = find.bySemanticsLabel('R1, 09:00, available');
-    await t.scrollUntilVisible(slot, 150, scrollable: find.byType(Scrollable).first);
+    await t.scrollUntilVisible(
+      slot,
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
     await t.pumpAndSettle();
     await t.tap(slot);
     await t.pumpAndSettle();
   }
 
-  testWidgets('Small window keeps the choose-rink action visible while scrolling', (t) async {
-    await open(t, FakeBookingRepository());
-    final button = find.byKey(const Key('booking-grid-bottom-action'));
-    final before = t.getRect(button);
-    await t.tap(button);
-    await t.pumpAndSettle();
-    expect(find.byType(MemberBookingTimeline).hitTestable(), findsOneWidget);
-    await t.drag(find.byType(ListView), const Offset(0, -350));
-    await t.pumpAndSettle();
-    expect(t.getRect(button), before);
-    expect(button.hitTestable(), findsOneWidget);
-    expect(before.bottom, lessThanOrEqualTo(844));
-    expect(t.takeException(), isNull);
-  });
+  testWidgets(
+    'Small window keeps the choose-rink action visible while scrolling',
+    (t) async {
+      await open(t, FakeBookingRepository());
+      final button = find.byKey(const Key('booking-grid-bottom-action'));
+      final before = t.getRect(button);
+      await t.tap(button);
+      await t.pumpAndSettle();
+      expect(find.byType(MemberBookingTimeline).hitTestable(), findsOneWidget);
+      await t.drag(find.byType(ListView), const Offset(0, -350));
+      await t.pumpAndSettle();
+      expect(t.getRect(button), before);
+      expect(button.hitTestable(), findsOneWidget);
+      expect(before.bottom, lessThanOrEqualTo(844));
+      expect(t.takeException(), isNull);
+    },
+  );
   testWidgets('Booking controls and all seven lanes fit a narrow phone', (
     t,
   ) async {
     await open(t, FakeBookingRepository());
     t.view.physicalSize = const Size(320, 740);
     await t.pumpAndSettle();
-    expect(find.text('R7'), findsOneWidget);
     await t.tap(find.byTooltip('Choose booking date'));
     await t.pumpAndSettle();
     expect(find.byType(DatePickerDialog), findsOneWidget);
     await t.tap(find.text('Cancel'));
     await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('booking-grid-bottom-action')));
+    await t.pumpAndSettle();
+    expect(find.text('R7'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
 
@@ -583,28 +592,45 @@ void main() {
     expect(t.takeException(), isNull);
   });
   for (final unavailable in [false, true]) {
-    testWidgets('Rinks view selection survives type choice, unavailable=$unavailable', (t) async {
-      final repo = FakeBookingRepository()..full = unavailable;
-      t.view.physicalSize = const Size(1100, 1600);
-      t.view.devicePixelRatio = 1;
-      addTearDown(t.view.resetPhysicalSize);
-      addTearDown(t.view.resetDevicePixelRatio);
-      await t.pumpWidget(MaterialApp(home: MemberFixtureCreationPage(
-        clubId: 'club', clubName: 'Club', repository: repo,
-        initialDate: DateTime(2032, 1, 17, 10, 30), initialRinkLabel: 'R3',
-      )));
-      await t.pumpAndSettle();
-      await t.tap(find.byKey(const ValueKey('member-type-type')));
-      await t.pumpAndSettle();
-      expect(find.textContaining('Selected, not booked: R3 · 10:30–13:00'), findsOneWidget);
-      final timeline = t.widget<MemberBookingTimeline>(find.byType(MemberBookingTimeline));
-      expect(timeline.selectedLabel, 'R3');
-      expect(timeline.selectedStart, DateTime(2032, 1, 17, 10, 30));
-      final book = t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Book rink'));
-      expect(book.onPressed == null, unavailable);
-      expect(repo.writes, 0);
-      expect(t.takeException(), isNull);
-    });
+    testWidgets(
+      'Rinks view selection survives type choice, unavailable=$unavailable',
+      (t) async {
+        final repo = FakeBookingRepository()..full = unavailable;
+        t.view.physicalSize = const Size(1100, 1600);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.resetPhysicalSize);
+        addTearDown(t.view.resetDevicePixelRatio);
+        await t.pumpWidget(
+          MaterialApp(
+            home: MemberFixtureCreationPage(
+              clubId: 'club',
+              clubName: 'Club',
+              repository: repo,
+              initialDate: DateTime(2032, 1, 17, 10, 30),
+              initialRinkLabel: 'R3',
+            ),
+          ),
+        );
+        await t.pumpAndSettle();
+        await t.tap(find.byKey(const ValueKey('member-type-type')));
+        await t.pumpAndSettle();
+        expect(
+          find.textContaining('Selected, not booked: R3 · 10:30–13:00'),
+          findsOneWidget,
+        );
+        final timeline = t.widget<MemberBookingTimeline>(
+          find.byType(MemberBookingTimeline),
+        );
+        expect(timeline.selectedLabel, 'R3');
+        expect(timeline.selectedStart, DateTime(2032, 1, 17, 10, 30));
+        final book = t.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Book rink'),
+        );
+        expect(book.onPressed == null, unavailable);
+        expect(repo.writes, 0);
+        expect(t.takeException(), isNull);
+      },
+    );
   }
   testWidgets(
     'National duration of 240 minutes reaches the weekend rink timeline',

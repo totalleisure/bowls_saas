@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../clubs/club_access.dart';
 import '../members/members_screen.dart';
 import 'member_options_menu.dart';
+export 'member_options_menu.dart' show ClubMenuView;
 
 /// Permissions are loaded when opening Options, so the diary itself does not
 /// wait for unrelated member/admin checks.
@@ -9,11 +10,15 @@ class ClubOptionsButton extends StatefulWidget {
   final String clubId;
   final String clubName;
   final Future<ClubAccess> Function()? accessLoader;
+  final Future<void> Function()? onRefresh;
+  final ClubMenuView? currentView;
   const ClubOptionsButton({
     super.key,
     required this.clubId,
     required this.clubName,
     this.accessLoader,
+    this.onRefresh,
+    this.currentView,
   });
   @override
   State<ClubOptionsButton> createState() => _ClubOptionsButtonState();
@@ -36,6 +41,8 @@ class _ClubOptionsButtonState extends State<ClubOptionsButton> {
         allowVolunteerLists: access.canWrite,
         allowAdmin: access.canWrite && access.canAdminManageFixtures,
         showAdminGuide: access.isClubAdmin,
+        onRefresh: widget.onRefresh,
+        currentView: widget.currentView,
         openMembershipDetails: () async {
           await Navigator.of(context).push(
             MaterialPageRoute<void>(

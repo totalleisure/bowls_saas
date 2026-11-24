@@ -1,3 +1,4 @@
+import '../clubs/club_registration_screen.dart';
 import '../scorecards/scorecard_recovery_host.dart';
 import '../reports/club_usage.dart';
 import 'dart:async';
@@ -7,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:http/http.dart' as http;
 
 import 'auth_screen.dart';
+import 'initial_password_gate.dart';
 import 'password_recovery_progress.dart';
 import 'reset_password_screen.dart';
 import '../clubs/my_clubs_screen.dart';
@@ -50,7 +52,9 @@ class AuthGate extends StatelessWidget {
       },
       onSignOut: client.auth.signOut,
       signedOutBuilder: (_) => const AuthScreen(),
-      signedInBuilder: (_) => const MyClubsScreen(),
+      signedInBuilder: (_) => stagingClubRegistrationEnabled
+          ? const InitialPasswordGate(child: StagingRegistrationLanding())
+          : const MyClubsScreen(),
       recoveryBuilder: (_, complete) =>
           ResetPasswordScreen(onComplete: complete),
     );

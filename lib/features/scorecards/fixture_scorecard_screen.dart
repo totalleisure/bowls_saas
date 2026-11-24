@@ -40,6 +40,16 @@ class _FixtureScorecardScreenState extends State<FixtureScorecardScreen> {
       : Map<String, dynamic>.from(
           await Supabase.instance.client.rpc(name, params: params) as Map,
         );
+  bool restoredShortcut = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!restoredShortcut) {
+      restoredShortcut = true;
+      restoreOfflineScorecardsShortcut(context);
+    }
+  }
+
   @override
   void initState() {
     super.initState();

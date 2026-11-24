@@ -7,10 +7,108 @@ import 'package:bowls_saas/features/clubs/club_dashboard_screen.dart';
 import 'package:bowls_saas/features/diary/month_overview_screen.dart';
 import 'package:bowls_saas/features/diary/diary_list_screen.dart';
 import 'package:bowls_saas/features/communications/club_options_button.dart';
+import 'package:bowls_saas/features/communications/member_options_menu.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  for (final view in ClubMenuView.values) {
+    testWidgets(
+      'Menu omits the current ${view.name} view and keeps alternatives',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                appBar: AppBar(
+                  actions: [
+                    IconButton(
+                      tooltip: 'Options',
+                      icon: const Icon(Icons.more_vert),
+                      onPressed: () => showMemberOptionsMenu(
+                        context: context,
+                        clubId: 'club',
+                        clubName: 'Club',
+                        currentView: view,
+                        openMembershipDetails: () async {},
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.byTooltip('Options'));
+        await tester.pumpAndSettle();
+        for (final entry in {
+          ClubMenuView.dashboard: 'Dashboard',
+          ClubMenuView.month: 'Monthly Diary',
+          ClubMenuView.list: 'Diary List',
+        }.entries) {
+          expect(
+            find.text(entry.value),
+            entry.key == view ? findsNothing : findsOneWidget,
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  testWidgets(
+    'Complete admin menu fits a phone and Refresh Screen calls its action',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var refreshed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              appBar: AppBar(
+                actions: [
+                  IconButton(
+                    tooltip: 'Options',
+                    icon: const Icon(Icons.more_vert),
+                    onPressed: () => showMemberOptionsMenu(
+                      context: context,
+                      clubId: 'club',
+                      clubName: 'Club',
+                      allowAdmin: true,
+                      openMembershipDetails: () async {},
+                      onNextMatch: () {},
+                      onRefresh: () async {
+                        refreshed = true;
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byTooltip('Options'));
+      await tester.pumpAndSettle();
+      final admin = find.text('Club administration');
+      final welcome = find.text('Welcome · Your Club. Your Way.');
+      expect(admin.hitTestable(), findsOneWidget);
+      expect(welcome.hitTestable(), findsOneWidget);
+      expect(tester.getBottomLeft(welcome).dy, lessThan(844));
+      expect(
+        tester.getTopLeft(admin).dy,
+        lessThan(tester.getTopLeft(find.text('Membership Details')).dy),
+      );
+      expect(find.text('Options · Club'), findsNothing);
+      expect(find.text('Action'), findsNothing);
+      await tester.tap(find.text('Refresh Screen'));
+      await tester.pumpAndSettle();
+      expect(refreshed, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
   test(
     'default and unknown values use Dashboard; choices are scoped to account and club',
     () async {
@@ -144,8 +242,6 @@ void main() {
       expect(find.text('Monthly Diary'), findsOneWidget);
       expect(find.text('Diary List'), findsOneWidget);
       expect(find.text('Starting screen'), findsOneWidget);
-      await tester.drag(find.byType(ListView), const Offset(0, -700));
-      await tester.pumpAndSettle();
       expect(
         find.text('Volunteer Lists'),
         role == 'guest' ? findsNothing : findsOneWidget,

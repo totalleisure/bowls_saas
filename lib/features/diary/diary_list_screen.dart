@@ -581,7 +581,12 @@ class _DiaryListScreenState extends State<DiaryListScreen>
             showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
             onAutomaticOpen: () => _shownEntryReminder = true,
           ),
-          ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+          ClubOptionsButton(
+            currentView: ClubMenuView.list,
+            clubId: widget.clubId,
+            clubName: widget.clubName,
+            onRefresh: _reload,
+          ),
         ],
         bottom: DiaryViewBar(
           selected: DiaryView.list,

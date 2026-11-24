@@ -75,6 +75,7 @@ void _showError(BuildContext context, String message) => ScaffoldMessenger.of(
 
 Future<FixtureTimeWindow?> pickFixtureStart(
   BuildContext context, {
+  DateTime? initialDate,
   DateTime? start,
   DateTime? end,
   DateTime? now,
@@ -84,7 +85,8 @@ Future<FixtureTimeWindow?> pickFixtureStart(
   final current = now ?? toClubTime(DateTime.now());
   final today = DateTime(current.year, current.month, current.day);
   final initial = start ?? current.add(const Duration(hours: 1));
-  final initialDay = DateTime(initial.year, initial.month, initial.day);
+  final day = start ?? initialDate ?? initial;
+  final initialDay = DateTime(day.year, day.month, day.day);
   final date = await showDatePicker(
     context: context,
     initialDate: initialDay.isBefore(today) ? today : initialDay,

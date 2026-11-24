@@ -430,6 +430,17 @@ class _ManageTeamScreenState extends State<ManageTeamScreen> {
         .toList();
 
     rows.sort((a, b) {
+      bool notYetPositioned(Map<String, dynamic> row) {
+        final role = (row['role'] ?? 'player').toString().toLowerCase().trim();
+        final memberId = row['member_profile_id']?.toString();
+        return role == 'player' &&
+            memberId != null &&
+            _assignmentLocationLabelForMember(memberId) == null;
+      }
+
+      final aUnpositioned = notYetPositioned(a);
+      final bUnpositioned = notYetPositioned(b);
+      if (aUnpositioned != bUnpositioned) return aUnpositioned ? -1 : 1;
       final amp = a['member_profiles'] as Map<String, dynamic>?;
       final bmp = b['member_profiles'] as Map<String, dynamic>?;
       return _compareMemberProfiles(amp, bmp);

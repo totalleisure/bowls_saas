@@ -277,8 +277,11 @@ class _FixturesScreenState extends State<FixturesScreen> {
     final created = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            CreateFixturePage(clubId: widget.clubId, clubName: widget.clubName),
+        builder: (_) => CreateFixturePage(
+          clubId: widget.clubId,
+          clubName: widget.clubName,
+          memberBookingMode: widget.memberBookingsOnly,
+        ),
       ),
     );
 

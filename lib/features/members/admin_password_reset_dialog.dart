@@ -9,7 +9,10 @@ String generateMemberPassword() {
   const letters = 'abcdefghijklmnopqrstuvwxyz';
   final random = Random.secure();
   final first = letters[random.nextInt(letters.length)].toUpperCase();
-  final remaining = List.generate(2, (_) => letters[random.nextInt(letters.length)]).join();
+  final remaining = List.generate(
+    2,
+    (_) => letters[random.nextInt(letters.length)],
+  ).join();
   final digits = List.generate(5, (_) => random.nextInt(10)).join();
   return '$first$remaining$digits';
 }
@@ -81,6 +84,7 @@ class _AdminPasswordResetDialogState extends State<AdminPasswordResetDialog> {
         setState(() {
           _email = result['email'] as String;
           _visible = true;
+          _error = result['warning'] as String?;
         });
     } on FunctionException catch (e) {
       if (mounted)

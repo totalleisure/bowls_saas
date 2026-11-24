@@ -14,6 +14,9 @@ void main() {
   var role = 'admin';
   var superuser = false;
   var multipleVenues = false;
+  var requestedRinks = 1;
+  var occupiedRinks = 0;
+  var rinkCountLocked = false;
   Map<String, dynamic>? saved;
   final start = DateTime(2031, 1, 14, 10);
   final requests = <Uri>[];
@@ -145,13 +148,44 @@ void main() {
             },
           ];
         } else if (path.endsWith('/competition_types')) {
+          types[0]['default_rinks_required'] = requestedRinks;
+          types[1]['default_rinks_required'] = requestedRinks;
+          types[0]['lock_rinks'] = rinkCountLocked;
+          types[1]['lock_rinks'] = rinkCountLocked;
           data = r.url.queryParameters.containsKey('bookable_by_members')
               ? types.where((t) => t['bookable_by_members'] == true).toList()
               : types;
+          if (r.url.queryParameters['uses_rinks'] == 'eq.true') {
+            data = (data as List)
+                .where((t) => t['uses_rinks'] == true)
+                .toList();
+          }
+        } else if (path.endsWith('/fixtures') && occupiedRinks > 0) {
+          data = [
+            {
+              'id': 'existing-booking',
+              'start_at': clubTimeToUtc(start).toIso8601String(),
+              'end_at': clubTimeToUtc(
+                start.add(const Duration(hours: 3)),
+              ).toIso8601String(),
+              'rinks_required': occupiedRinks,
+              'competition_types': {'name': 'Existing fixture'},
+              'fixture_rinks': [
+                {'home_rink_label': 'R1'},
+                {'home_rink_label': 'R3'},
+              ],
+            },
+          ];
         } else if (path.endsWith('/get_green_rink_availability')) {
           data = List.generate(
             6,
-            (i) => {'rink_label': 'R${i + 1}', 'is_available': true},
+            (i) => {
+              'rink_label': 'R${i + 1}',
+              'is_available': true,
+              'is_booked': occupiedRinks > 0 && (i == 0 || i == 2),
+              'free_capacity_rinks': 6 - occupiedRinks,
+              'total_rinks': 6,
+            },
           );
         } else if (path.endsWith('/create_fixture_with_booking_policy')) {
           saved = jsonDecode(r.body) as Map<String, dynamic>;
@@ -188,9 +222,75 @@ void main() {
     role = 'admin';
     superuser = false;
     multipleVenues = false;
+    requestedRinks = 1;
+    occupiedRinks = 0;
+    rinkCountLocked = false;
     saved = null;
     requests.clear();
   });
+
+  testWidgets(
+    'Internal types skip location; external types retain Home/Away choice',
+    (t) async {
+      t.view.physicalSize = const Size(1300, 2000);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      types.add({
+        ...types.first,
+        'id': 'friendly',
+        'name': 'Friendly Match',
+        'is_internal': false,
+        'selection_mode': 'rsvp',
+        'default_rinks_required': 4,
+        'default_players_per_rink': 4,
+        'default_format': 'rinks',
+      });
+      addTearDown(() => types.removeWhere((type) => type['id'] == 'friendly'));
+      await t.pumpWidget(
+        const MaterialApp(
+          home: MemberFixtureCreationPage(clubId: 'club', clubName: 'Club'),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.text('Coaching Session'));
+      await t.pumpAndSettle();
+      expect(find.text('Book a rink'), findsOneWidget);
+      expect(find.byKey(const Key('start-away-fixture')), findsNothing);
+      // Back to the same type chooser, then take the external fixture path.
+      await t.tap(find.byKey(const Key('member-fixture-type')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Friendly Match').last);
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('start-home-fixture')), findsOneWidget);
+      expect(find.byKey(const Key('start-away-fixture')), findsOneWidget);
+      await t.tap(find.byKey(const Key('start-home-fixture')));
+      await t.pumpAndSettle();
+      expect(find.text('Book a rink'), findsOneWidget);
+      expect(find.text('4 rinks'), findsOneWidget);
+      await t.tap(find.byKey(const Key('member-fixture-type')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Friendly Match').last);
+      await t.pumpAndSettle();
+      requests.clear();
+      await t.tap(find.byKey(const Key('start-away-fixture')));
+      await t.pumpAndSettle();
+      final page = t.widget<CreateFixturePage>(find.byType(CreateFixturePage));
+      expect(page.initialLocation, FixtureLocationType.away);
+      expect(page.initialFixtureTypeId, 'friendly');
+      expect(page.initialRinkBooking, isNull);
+      expect(find.text('Away'), findsOneWidget);
+      expect(find.text('Book a rink'), findsNothing);
+      expect(
+        requests.where(
+          (uri) => uri.path.endsWith('/get_green_rink_availability'),
+        ),
+        isEmpty,
+      );
+      expect(saved, isNull);
+      expect(t.takeException(), isNull);
+    },
+  );
   Future<void> openRink(WidgetTester t, {bool book = true}) async {
     t.view.physicalSize = const Size(1300, 2000);
     t.view.devicePixelRatio = 1;
@@ -216,6 +316,57 @@ void main() {
     await t.pumpAndSettle();
   }
 
+  testWidgets(
+    'Away button works on a fully booked diary and retains its date',
+    (t) async {
+      occupiedRinks = 6;
+      types.add({
+        ...types.first,
+        'id': 'friendly-away',
+        'name': 'Friendly Away Test',
+        'is_internal': false,
+        'selection_mode': 'rsvp',
+      });
+      addTearDown(
+        () => types.removeWhere((type) => type['id'] == 'friendly-away'),
+      );
+      t.view.physicalSize = const Size(1300, 2000);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(
+        MaterialApp(
+          home: RinkDayViewScreen(
+            clubId: 'club',
+            clubName: 'Club',
+            date: start,
+            greenAreaId: 'green',
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      requests.clear();
+      await t.tap(find.byKey(const Key('book-away-fixture')));
+      await t.pumpAndSettle();
+      expect(find.text('Coaching Session'), findsNothing);
+      await t.tap(find.text('Friendly Away Test'));
+      await t.pumpAndSettle();
+      final page = t.widget<CreateFixturePage>(find.byType(CreateFixturePage));
+      expect(page.initialLocation, FixtureLocationType.away);
+      expect(DateUtils.isSameDay(page.initialDate, start), isTrue);
+      expect(page.initialRinkBooking, isNull);
+      expect(find.text('Away'), findsOneWidget);
+      expect(
+        requests.where(
+          (uri) => uri.path.endsWith('/get_green_rink_availability'),
+        ),
+        isEmpty,
+      );
+      expect(saved, isNull);
+      expect(t.takeException(), isNull);
+    },
+  );
+
   for (final access in ['admin', 'selector', 'superuser']) {
     testWidgets(
       '$access rink booking offers coaching and retains the chosen slot',
@@ -223,10 +374,12 @@ void main() {
         role = access == 'superuser' ? 'guest' : access;
         superuser = access == 'superuser';
         await openRink(t);
-        expect(find.byType(MemberFixtureCreationPage), findsNothing);
+        expect(find.byType(MemberFixtureCreationPage), findsOneWidget);
         expect(find.text('Coaching Session'), findsOneWidget);
         expect(find.text('Committee Meeting'), findsNothing);
         await t.tap(find.text('Coaching Session'));
+        await t.pumpAndSettle();
+        await t.tap(find.text('Continue to fixture details'));
         await t.pumpAndSettle();
         expect(find.text(formatClubDateTime(start)), findsOneWidget);
         expect(
@@ -291,6 +444,277 @@ void main() {
     expect(saved, isNull);
     expect(t.takeException(), isNull);
   });
+  for (final member in [false, true]) {
+    testWidgets(
+      '${member ? 'member' : 'admin'} selects two rinks before continuing and saves both',
+      (t) async {
+        role = member ? 'member' : 'admin';
+        requestedRinks = 2;
+        t.view.physicalSize = const Size(1300, 2400);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.resetPhysicalSize);
+        addTearDown(t.view.resetDevicePixelRatio);
+        await t.pumpWidget(
+          MaterialApp(
+            home: MemberFixtureCreationPage(
+              clubId: 'club',
+              clubName: 'Club',
+              initialDate: start,
+              initialGreenId: 'green',
+              initialRinkLabel: 'R2',
+            ),
+          ),
+        );
+        await t.pumpAndSettle();
+        await t.tap(
+          find.text(member ? 'Member Rink Booking' : 'Coaching Session'),
+        );
+        await t.pumpAndSettle();
+        expect(find.textContaining('1 of 2 rinks selected'), findsOneWidget);
+        expect(
+          t
+              .widget<FilledButton>(
+                find.widgetWithText(
+                  FilledButton,
+                  'Continue to fixture details',
+                ),
+              )
+              .onPressed,
+          isNull,
+        );
+        await t.ensureVisible(find.byKey(const ValueKey('choose-rink-R4')));
+        await t.tap(find.byKey(const ValueKey('choose-rink-R4')));
+        await t.pumpAndSettle();
+        expect(find.textContaining('2 of 2 rinks selected'), findsOneWidget);
+        await t.tap(find.text('Continue to fixture details'));
+        await t.pumpAndSettle();
+        expect(find.byType(CreateFixturePage), findsOneWidget);
+        expect(find.text(formatClubDateTime(start)), findsOneWidget);
+        await t.tap(find.text('Save'));
+        await t.pumpAndSettle();
+        expect(saved, isNotNull);
+        final booking = saved!['p_booking'] as Map<String, dynamic>;
+        expect(booking['p_rinks_required'], 2);
+        expect(booking['p_is_home'], true);
+        expect(booking['p_start_at'], clubTimeToUtc(start).toIso8601String());
+        expect(booking['p_home_rink_labels'], [
+          {'team_no': 1, 'home_rink_label': 'R2'},
+          {'team_no': 2, 'home_rink_label': 'R4'},
+        ]);
+        expect(t.takeException(), isNull);
+      },
+    );
+  }
+  testWidgets(
+    'rink count can grow and shrink without losing time or first selections',
+    (t) async {
+      requestedRinks = 2;
+      t.view.physicalSize = const Size(1300, 2400);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(
+        MaterialApp(
+          home: MemberFixtureCreationPage(
+            clubId: 'club',
+            clubName: 'Club',
+            initialDate: start,
+            initialGreenId: 'green',
+            initialRinkLabel: 'R2',
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.text('Coaching Session'));
+      await t.pumpAndSettle();
+      Future<void> count(int old, int next) async {
+        final button = find.byKey(
+          Key(next > old ? 'more-rinks' : 'fewer-rinks'),
+        );
+        await t.ensureVisible(button);
+        for (var i = 0; i < (next - old).abs(); i++) {
+          await t.tap(button);
+          await t.pumpAndSettle();
+        }
+      }
+
+      await count(2, 4);
+      for (final label in ['R4', 'R5', 'R6']) {
+        final chip = find.byKey(ValueKey('choose-rink-$label'));
+        await t.ensureVisible(chip);
+        await t.tap(chip);
+        await t.pumpAndSettle();
+      }
+      expect(find.textContaining('4 of 4 rinks selected'), findsOneWidget);
+      expect(saved, isNull);
+      await count(4, 2);
+      expect(find.textContaining('2 of 2 rinks selected'), findsOneWidget);
+      await count(2, 4);
+      for (final label in ['R5', 'R6']) {
+        final chip = find.byKey(ValueKey('choose-rink-$label'));
+        await t.ensureVisible(chip);
+        await t.tap(chip);
+        await t.pumpAndSettle();
+      }
+      await t.tap(find.text('Continue to fixture details'));
+      await t.pumpAndSettle();
+      expect(find.text(formatClubDateTime(start)), findsOneWidget);
+      await t.tap(find.text('Save'));
+      await t.pumpAndSettle();
+      expect(saved?['p_booking']['p_rinks_required'], 4);
+      expect(saved?['p_booking']['p_home_rink_labels'], [
+        {'team_no': 1, 'home_rink_label': 'R2'},
+        {'team_no': 2, 'home_rink_label': 'R4'},
+        {'team_no': 3, 'home_rink_label': 'R5'},
+        {'team_no': 4, 'home_rink_label': 'R6'},
+      ]);
+      expect(t.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'partly occupied green permits four free rinks and explains five cannot fit',
+    (t) async {
+      requestedRinks = 4;
+      occupiedRinks = 2;
+      t.view.physicalSize = const Size(1300, 2400);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(t.view.resetDevicePixelRatio);
+      await t.pumpWidget(
+        MaterialApp(
+          home: MemberFixtureCreationPage(
+            clubId: 'club',
+            clubName: 'Club',
+            initialDate: start,
+            initialGreenId: 'green',
+            initialRinkLabel: 'R2',
+          ),
+        ),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.text('Coaching Session'));
+      await t.pumpAndSettle();
+      expect(
+        t
+            .widget<FilterChip>(find.byKey(const ValueKey('choose-rink-R1')))
+            .onSelected,
+        isNull,
+      );
+      for (final label in ['R4', 'R5', 'R6']) {
+        final chip = find.byKey(ValueKey('choose-rink-$label'));
+        await t.ensureVisible(chip);
+        await t.tap(chip);
+        await t.pumpAndSettle();
+      }
+      expect(find.textContaining('4 of 4 rinks selected'), findsOneWidget);
+      await t.ensureVisible(find.byKey(const Key('more-rinks')));
+      await t.tap(find.byKey(const Key('more-rinks')));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Only 4 of 6 rinks are free'), findsOneWidget);
+      expect(
+        t
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Continue to fixture details'),
+            )
+            .onPressed,
+        isNull,
+      );
+      await t.tap(find.byKey(const Key('fewer-rinks')));
+      await t.pumpAndSettle();
+      expect(find.textContaining('4 of 4 rinks selected'), findsOneWidget);
+      await t.tap(find.text('Continue to fixture details'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Save'));
+      await t.pumpAndSettle();
+      expect(saved?['p_booking']['p_home_rink_labels'], [
+        {'team_no': 1, 'home_rink_label': 'R2'},
+        {'team_no': 2, 'home_rink_label': 'R4'},
+        {'team_no': 3, 'home_rink_label': 'R5'},
+        {'team_no': 4, 'home_rink_label': 'R6'},
+      ]);
+      expect(t.takeException(), isNull);
+    },
+  );
+  for (final administrator in [false, true]) {
+    testWidgets(
+      '${administrator ? 'admin override warns' : 'member cannot override'} a rink lock',
+      (t) async {
+        role = administrator ? 'admin' : 'member';
+        requestedRinks = administrator ? 1 : 2;
+        rinkCountLocked = true;
+        t.view.physicalSize = const Size(1300, 2400);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.resetPhysicalSize);
+        addTearDown(t.view.resetDevicePixelRatio);
+        await t.pumpWidget(
+          MaterialApp(
+            home: MemberFixtureCreationPage(
+              clubId: 'club',
+              clubName: 'Club',
+              initialDate: start,
+              initialGreenId: 'green',
+              initialRinkLabel: 'R2',
+            ),
+          ),
+        );
+        await t.pumpAndSettle();
+        await t.tap(
+          find.text(administrator ? 'Coaching Session' : 'Member Rink Booking'),
+        );
+        await t.pumpAndSettle();
+        final more = find.byKey(const Key('more-rinks'));
+        if (administrator) {
+          expect(t.widget<IconButton>(more).onPressed, isNotNull);
+          await t.tap(more);
+          await t.pumpAndSettle();
+          expect(
+            find.textContaining(
+              'Admin override: this Fixture Type normally allows 1 rink',
+            ),
+            findsOneWidget,
+          );
+        } else {
+          expect(t.widget<IconButton>(more).onPressed, isNull);
+          expect(
+            t
+                .widget<IconButton>(find.byKey(const Key('fewer-rinks')))
+                .onPressed,
+            isNull,
+          );
+        }
+        final chip = find.byKey(const ValueKey('choose-rink-R4'));
+        await t.ensureVisible(chip);
+        await t.tap(chip);
+        await t.pumpAndSettle();
+        await t.tap(find.text('Continue to fixture details'));
+        await t.pumpAndSettle();
+        await t.ensureVisible(find.byKey(const ValueKey('rinks_0')));
+        final decorator = find.byWidgetPredicate(
+          (w) =>
+              w is InputDecorator && w.decoration.labelText == 'Rinks required',
+        );
+        final dropdown = find.ancestor(
+          of: decorator,
+          matching: find.byType(DropdownButton<int>),
+        );
+        if (administrator) {
+          expect(t.widget<DropdownButton<int>>(dropdown).onChanged, isNotNull);
+          expect(
+            find.textContaining(
+              'Admin override: outside the normal member rink limit',
+            ),
+            findsOneWidget,
+          );
+        } else {
+          expect(t.widget<DropdownButton<int>>(dropdown).onChanged, isNull);
+        }
+        await t.tap(find.text('Save'));
+        await t.pumpAndSettle();
+        expect(saved?['p_booking']['p_rinks_required'], 2);
+        expect(t.takeException(), isNull);
+      },
+    );
+  }
   testWidgets(
     'admin form resolves selected green venue instead of first venue',
     (t) async {
@@ -316,6 +740,8 @@ void main() {
       );
       await t.pumpAndSettle();
       await t.tap(find.text('Coaching Session'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Continue to fixture details'));
       await t.pumpAndSettle();
       await t.tap(find.text('Save'));
       await t.pumpAndSettle();

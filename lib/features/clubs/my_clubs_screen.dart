@@ -1,9 +1,13 @@
+import '../members/inactive_member_invitations_screen.dart';
 import '../scorecards/scorecard_recovery_host.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'club_start_screen.dart';
+import 'club_onboarding_screen.dart';
+import 'staging_club_onboarding_screen.dart';
+import '../../secrets.dart';
 
 class MyClubsScreen extends StatefulWidget {
   const MyClubsScreen({super.key});
@@ -19,8 +23,63 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
   List<Map<String, dynamic>> _clubs = [];
 
   bool _isSuperuser = false;
+  bool _hasOnboardingDraft = false;
+  bool _hasVerifiedRegistration = false;
 
   int _brandingSetNo = 0;
+  String? _acceptedClubToOpen;
+
+  Future<void> _openAcceptedClub(String clubId) async {
+    _acceptedClubToOpen = clubId;
+    await _load();
+    if (!mounted) return;
+    final matches = _clubs.where((c) => c['id'].toString() == clubId);
+    if (_error != null || matches.isEmpty) {
+      setState(() {});
+      return;
+    }
+    await _enterClub(matches.first);
+  }
+
+  Future<void> _enterClub(Map<String, dynamic> club) async {
+    try {
+      final clubId = club['id'].toString();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_club_id', clubId);
+      await prefs.setInt(
+        'last_branding_set_no',
+        int.tryParse('${club['branding_set_no'] ?? 0}') ?? 0,
+      );
+      await prefs.setString(
+        'last_primary_colour',
+        club['primary_colour']?.toString() ?? '',
+      );
+      await prefs.setString(
+        'last_secondary_colour',
+        club['secondary_colour']?.toString() ?? '',
+      );
+      if (!mounted) return;
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      setState(() => _acceptedClubToOpen = null);
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ClubStartScreen(
+            clubId: clubId,
+            clubName: club['name'] as String,
+            userId: userId,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your club could not be opened. Please try again.'),
+          ),
+        );
+    }
+  }
 
   @override
   void initState() {
@@ -134,6 +193,16 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
         .toList();
 
     _isSuperuser = loadedIsSuperuser;
+    if (const {
+      'egxdkaotepgfjmszxlyn.supabase.co',
+      'xfjelvvfoguzukgvxchh.supabase.co',
+    }.contains(Uri.parse(Secrets.supabaseUrl).host)) {
+      _hasVerifiedRegistration =
+          await client.rpc('my_staging_club_registration') != null;
+      _hasOnboardingDraft = (await SharedPreferences.getInstance()).containsKey(
+        'bowls-staging-club-setup-draft-v1-${user.id}',
+      );
+    }
     _displayName = loadedDisplayName;
     _clubs = loadedClubs;
   }
@@ -278,6 +347,18 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
   }
 
   Future<void> _createClub() async {
+    if (const {
+      'egxdkaotepgfjmszxlyn.supabase.co',
+      'xfjelvvfoguzukgvxchh.supabase.co',
+    }.contains(Uri.parse(Secrets.supabaseUrl).host)) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const StagingClubOnboardingScreen(),
+        ),
+      );
+      if (mounted) await _load();
+      return;
+    }
     final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -337,6 +418,15 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
       }
 
       await _load();
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ClubOnboardingScreen(
+            clubId: club['id'].toString(),
+            clubName: club['name'].toString(),
+          ),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -369,10 +459,15 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
           IconButton(onPressed: _signOut, icon: const Icon(Icons.logout)),
         ],
       ),
-      floatingActionButton: _isSuperuser
-          ? FloatingActionButton(
+      floatingActionButton: (_isSuperuser || _hasVerifiedRegistration)
+          ? FloatingActionButton.extended(
               onPressed: _createClub,
-              child: const Icon(Icons.add),
+              icon: const Icon(Icons.add),
+              label: Text(
+                (_hasOnboardingDraft || _hasVerifiedRegistration)
+                    ? 'Continue club setup'
+                    : 'Create a club',
+              ),
             )
           : null,
       body: Stack(
@@ -396,6 +491,30 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 16),
+                    if (const {
+                      'egxdkaotepgfjmszxlyn.supabase.co',
+                      'xfjelvvfoguzukgvxchh.supabase.co',
+                    }.contains(Uri.parse(Secrets.supabaseUrl).host))
+                      StagingClubInvitations(onAccepted: _openAcceptedClub),
+                    if (_acceptedClubToOpen != null)
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'Your invitation was accepted. Retry opening your club when the connection is ready.',
+                              ),
+                              FilledButton(
+                                onPressed: () =>
+                                    _openAcceptedClub(_acceptedClubToOpen!),
+                                child: const Text('Open my invited club'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     if (_clubs.isEmpty)
                       const Text('No clubs yet. Tap + to create one.'),
                     for (final c in _clubs)
@@ -404,42 +523,7 @@ class _MyClubsScreenState extends State<MyClubsScreen> {
                           title: Text(c['name'] as String),
                           subtitle: Text('Club ID: ${c['id']}'),
                           trailing: const Icon(Icons.chevron_right),
-                          onTap: () async {
-                            final clubId = c['id'].toString();
-                            final clubName = c['name'] as String;
-
-                            final prefs = await SharedPreferences.getInstance();
-
-                            await prefs.setString('last_club_id', clubId);
-                            await prefs.setInt(
-                              'last_branding_set_no',
-                              int.tryParse('${c['branding_set_no'] ?? 0}') ?? 0,
-                            );
-
-                            await prefs.setString(
-                              'last_primary_colour',
-                              c['primary_colour']?.toString() ?? '',
-                            );
-
-                            await prefs.setString(
-                              'last_secondary_colour',
-                              c['secondary_colour']?.toString() ?? '',
-                            );
-
-                            if (!context.mounted) return;
-                            final userId =
-                                Supabase.instance.client.auth.currentUser?.id;
-                            if (userId == null) return;
-                            await Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ClubStartScreen(
-                                  clubId: clubId,
-                                  clubName: clubName,
-                                  userId: userId,
-                                ),
-                              ),
-                            );
-                          },
+                          onTap: () => _enterClub(c),
                         ),
                       ),
                   ],

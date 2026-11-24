@@ -84,6 +84,25 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('submit_for_review:true', self.commands[-1])
         self.assertIn('automatic_release:true', self.commands[-1])
 
+    def test_separate_committee_notes_do_not_replace_store_notes(self):
+        beta = self.base / 'committee.txt'
+        beta.write_text('Please test home and away booking.', encoding='utf-8')
+        self.args.testflight_notes = beta
+        self.execute()
+        upload = next(c for c in self.commands if 'upload_to_testflight' in c)
+        self.assertIn('changelog:Please test home and away booking.', upload)
+        self.assertNotIn('changelog:Booking improvements.', upload)
+        metadata = self.root / 'tmp/releases/ios/1.6.9-35/metadata/en-GB/release_notes.txt'
+        self.assertEqual(metadata.read_text(), 'Booking improvements.')
+
+    def test_invalid_committee_notes_stop_before_upload(self):
+        beta = self.base / 'committee.txt'
+        beta.write_text('x' * 4001)
+        self.args.testflight_notes = beta
+        with self.assertRaises(ValueError):
+            self.execute()
+        self.assertEqual(self.commands, [])
+
     def test_validate_never_builds_or_uploads(self):
         self.args.validate_only = True
         self.execute()

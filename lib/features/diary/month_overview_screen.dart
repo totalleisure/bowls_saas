@@ -256,7 +256,12 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
               showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
               onAutomaticOpen: () => _shownEntryReminder = true,
             ),
-            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+            ClubOptionsButton(
+              currentView: ClubMenuView.month,
+              clubId: widget.clubId,
+              clubName: widget.clubName,
+              onRefresh: _loadMonth,
+            ),
           ],
         ),
         body: const Center(child: CircularProgressIndicator()),
@@ -274,7 +279,12 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
               showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
               onAutomaticOpen: () => _shownEntryReminder = true,
             ),
-            ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+            ClubOptionsButton(
+              currentView: ClubMenuView.month,
+              clubId: widget.clubId,
+              clubName: widget.clubName,
+              onRefresh: _loadMonth,
+            ),
           ],
         ),
         body: Padding(
@@ -298,7 +308,12 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
           showOnOpen: widget.showNextMatchOnOpen && !_shownEntryReminder,
           onAutomaticOpen: () => _shownEntryReminder = true,
         ),
-        ClubOptionsButton(clubId: widget.clubId, clubName: widget.clubName),
+        ClubOptionsButton(
+          currentView: ClubMenuView.month,
+          clubId: widget.clubId,
+          clubName: widget.clubName,
+          onRefresh: _loadMonth,
+        ),
       ],
       bottom: DiaryViewBar(
         selected: DiaryView.month,
@@ -317,26 +332,26 @@ class _MonthOverviewScreenState extends State<MonthOverviewScreen>
       floatingActionButton: Material(
         key: const ValueKey('month-floating-navigation'),
         elevation: 4,
-        color: Theme.of(context).colorScheme.surface,
-        shape: StadiumBorder(
-          side: BorderSide(color: Theme.of(context).colorScheme.outline),
-        ),
+        color: const Color(0xffe7f1fc),
+        shape: const StadiumBorder(side: BorderSide(color: Color(0xff0d47a1))),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextButton.icon(
-              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                foregroundColor: const Color(0xff0d47a1),
+              ),
               onPressed: () => _moveMonth(-1),
               icon: const Icon(Icons.chevron_left),
               label: const Text('Previous'),
             ),
-            Container(
-              width: 1,
-              height: 22,
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
+            Container(width: 1, height: 22, color: const Color(0xff0d47a1)),
             TextButton.icon(
-              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                foregroundColor: const Color(0xff0d47a1),
+              ),
               iconAlignment: IconAlignment.end,
               onPressed: () => _moveMonth(1),
               icon: const Icon(Icons.chevron_right),

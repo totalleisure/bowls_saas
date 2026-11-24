@@ -9,6 +9,42 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
+  test(
+    'session rejection explains fresh sign-in instead of blaming the connection',
+    () {
+      for (final code in [
+        'session_not_found',
+        'session_expired',
+        'refresh_token_not_found',
+        'bad_jwt',
+      ]) {
+        final message = passwordChangeFailureMessage(
+          AuthException('Rejected', code: code),
+        );
+        expect(message, contains('Sign out, sign in again'));
+        expect(message, isNot(contains('Check your connection')));
+      }
+      expect(
+        passwordChangeRequiresSignIn(
+          const AuthException('Unauthorized', statusCode: '401'),
+        ),
+        isTrue,
+      );
+      expect(passwordChangeRequiresSignIn(Exception('offline')), isFalse);
+      expect(
+        passwordChangeFailureMessage(
+          const AuthException('Weak', code: 'weak_password'),
+        ),
+        contains('password requirements'),
+      );
+      expect(
+        passwordChangeFailureMessage(
+          const AuthException('Rate limit', statusCode: '429'),
+        ),
+        contains('wait a few minutes'),
+      );
+    },
+  );
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<void> show(

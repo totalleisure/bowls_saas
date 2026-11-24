@@ -1,15 +1,24 @@
+import '../../secrets.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AppEntryAccess {
   final bool isSuperuser;
   final bool hasActiveMembership;
+  final bool hasClubInvitation;
+  final bool hasClubRegistration;
 
   const AppEntryAccess({
     required this.isSuperuser,
     required this.hasActiveMembership,
+    this.hasClubInvitation = false,
+    this.hasClubRegistration = false,
   });
 
-  bool get allowed => isSuperuser || hasActiveMembership;
+  bool get allowed =>
+      isSuperuser ||
+      hasActiveMembership ||
+      hasClubInvitation ||
+      hasClubRegistration;
 }
 
 class AppEntryAccessService {
@@ -40,11 +49,18 @@ class AppEntryAccessService {
       );
     }
 
+    final hasRegistration =
+        const {
+          'egxdkaotepgfjmszxlyn.supabase.co',
+          'xfjelvvfoguzukgvxchh.supabase.co',
+        }.contains(Uri.parse(Secrets.supabaseUrl).host) &&
+        await _client.rpc('my_staging_club_registration') != null;
     final memberProfileId = await _client.rpc('my_member_profile_id');
     if (memberProfileId == null) {
-      return const AppEntryAccess(
+      return AppEntryAccess(
         isSuperuser: false,
         hasActiveMembership: false,
+        hasClubRegistration: hasRegistration,
       );
     }
     final memberships = await _client
@@ -54,9 +70,21 @@ class AppEntryAccessService {
         .eq('is_active', true)
         .limit(1);
 
+    final hasActive = (memberships as List).isNotEmpty;
+    var hasInvitation = false;
+    if (!hasActive &&
+        const {
+          'egxdkaotepgfjmszxlyn.supabase.co',
+          'xfjelvvfoguzukgvxchh.supabase.co',
+        }.contains(Uri.parse(Secrets.supabaseUrl).host)) {
+      final invitations = await _client.rpc('my_staging_club_invitations');
+      hasInvitation = (invitations as List).isNotEmpty;
+    }
     return AppEntryAccess(
       isSuperuser: false,
-      hasActiveMembership: (memberships as List).isNotEmpty,
+      hasActiveMembership: hasActive,
+      hasClubInvitation: hasInvitation,
+      hasClubRegistration: hasRegistration,
     );
   }
 }
